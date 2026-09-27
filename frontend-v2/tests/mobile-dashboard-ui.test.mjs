@@ -42,7 +42,7 @@ test('dashboard and detail share the automatic hint component', () => {
   const detail = read('src/features/detail/DetailView.tsx')
 
   assert.match(card, /buildMatchHint/)
-  assert.match(card, /Sicherheit/)
+  assert.match(card, /Spielausgang/)
   assert.match(card, /<details/)
   assert.match(card, /Warum\?/)
   assert.match(card, /min-h-11/)
@@ -64,6 +64,12 @@ test('detail exposes local copy first and discloses that the saved tip is shared
   assert.match(detail, /Gemeinsamen Spieltipp speichern/)
   assert.match(detail, /nicht nutzergetrennt/)
   assert.match(detail, /navigator\.clipboard\.writeText/)
+})
+
+test('score table uses team names when display names are missing', () => {
+  const detail = read('src/features/detail/DetailView.tsx')
+  assert.match(detail, /homeDisp=\{match\.home_disp \|\| match\.home_team\}/)
+  assert.match(detail, /awayDisp=\{match\.away_disp \|\| match\.away_team\}/)
 })
 
 test('past fixtures without a result are separated and no longer offer a tip', () => {

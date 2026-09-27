@@ -16,7 +16,7 @@ export function MatchHintCard({ match, compact = false }: { match: Match; compac
     <div>
       {hint.available && (
         <span className={cn('inline-flex rounded-full px-2.5 py-1 font-bold', compact ? 'text-xs' : 'text-base', badgeStyle)}>
-          Sicherheit: {hint.confidenceLabel}
+          Tendenz beim Spielausgang: {hint.confidenceLabel}
         </span>
       )}
       <p className={cn('font-semibold leading-snug text-fg', compact ? 'text-sm' : 'text-base', hint.available && 'mt-2')}>
