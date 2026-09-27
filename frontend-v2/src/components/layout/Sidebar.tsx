@@ -65,7 +65,7 @@ function SidebarButtons() {
           background: 'var(--cobalt)',
         }}
       >
-        {refresh.isPending ? 'Lade…' : 'Refresh Data'}
+        {refresh.isPending ? 'Lade…' : 'Gespeicherte Spiele neu laden'}
       </button>
     </div>
   )

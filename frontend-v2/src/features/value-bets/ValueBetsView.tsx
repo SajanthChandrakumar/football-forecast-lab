@@ -37,6 +37,7 @@ export function ValueBetsView() {
             <div className="min-w-0 flex-1">
               <FixtureRow
                 match={m}
+                now={now}
                 trailing={
                   <span className="text-right">
                     <span className="display-num block text-lg text-emerald-a">{m.max_xp.toFixed(2)}</span>

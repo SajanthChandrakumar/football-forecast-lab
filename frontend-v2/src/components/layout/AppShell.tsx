@@ -84,7 +84,7 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
           disabled={refresh.isPending}
           className="flex min-h-11 w-full items-center justify-between rounded-xl bg-emerald-a px-3 text-left text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-50"
         >
-          <span>{refresh.isPending ? 'Aktualisiere…' : 'Daten aktualisieren'}</span>
+          <span>{refresh.isPending ? 'Lade…' : 'Gespeicherte Spiele neu laden'}</span>
           <span aria-hidden>↻</span>
         </button>
       </div>

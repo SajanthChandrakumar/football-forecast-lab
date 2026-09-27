@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMatches, usePoolContext, usePredict, useSavePoolContext, useSaveUserTip } from '../../hooks/queries'
 import { computeImpliedProbs, pct, flag, cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
+import { fixtureStatus, sharedTipIsOpen } from '../../lib/fixture-status.mjs'
 import type { BotKey, Match, TeamForm } from '../../lib/types'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { FormBadges, TeamLogo } from '../../components/shared/Badges'
@@ -70,9 +71,16 @@ export function DetailView() {
   const pool = usePoolContext(id)
   const savePool = useSavePoolContext()
   const [adoptStatus, setAdoptStatus] = useState('')
+  const [copyStatus, setCopyStatus] = useState('')
   const [poolOpen, setPoolOpen] = useState(false)
   const [poolForm, setPoolForm] = useState({ user_points: '', leader_points: '', remaining_srf_max_points: '', tip_counts: '{}' })
   const [poolStatus, setPoolStatus] = useState('')
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const clock = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(clock)
+  }, [])
 
   const match: Match | undefined = useMemo(
     () => matches?.find((m) => m.id === id),
@@ -134,20 +142,40 @@ export function DetailView() {
   const modelTip = calc?.model_tip ?? match.model_tip ?? calc?.top_tip
   const poolTip = calc?.pool_tip ?? match.pool_tip
   const topTip = calc?.xp_tips?.find((tip) => tip.Tipp === modelTip) ?? calc?.xp_tips?.[0]
+  const activeTip = topTip?.Tipp ?? modelTip ?? match.top_tip
+  const canTip = fixtureStatus(match, now) === 'upcoming' && Boolean(activeTip) && activeTip !== 'N/A'
+  const canSaveSharedTip = canTip && sharedTipIsOpen(match.raw_match?.commence_time, now)
   const runners = calc?.xp_tips?.slice(1, 4) ?? []
   const h2h = match.h2h
   const missing = Object.entries(match.lineup_diff ?? {}).filter(([, v]) => v.missing?.length)
 
   const adopt = () => {
-    if (!topTip) return
+    if (!activeTip || !sharedTipIsOpen(match.raw_match?.commence_time)) {
+      setNow(Date.now())
+      setAdoptStatus('Gemeinsamer Tipp ist geschlossen (5 Minuten vor Anstoß).')
+      return
+    }
     setAdoptStatus('Speichere…')
     saveTip.mutate(
-      { matchId: match.id, tip: topTip.Tipp },
+      { matchId: match.id, tip: activeTip },
       {
-        onSuccess: () => setAdoptStatus('✓ Übernommen'),
+        onSuccess: () => setAdoptStatus('✓ Gemeinsamer Spieltipp gespeichert'),
         onError: (e) => setAdoptStatus(`Fehler: ${(e as Error).message}`),
       },
     )
+  }
+
+  const copyTip = async () => {
+    if (!activeTip || fixtureStatus(match) !== 'upcoming') {
+      setNow(Date.now())
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(activeTip)
+      setCopyStatus('Tipp kopiert. Du kannst ihn jetzt in deine Tipprunde einfügen.')
+    } catch {
+      setCopyStatus('Kopieren nicht möglich. Bitte den Tipp manuell markieren.')
+    }
   }
 
   const savePoolContext = () => {
@@ -210,8 +238,44 @@ export function DetailView() {
       )}
 
       <GlassCard className="mb-4">
-        <SectionTitle className="mb-3">Unser Tipp – einfach erklärt</SectionTitle>
+        <SectionTitle className="mb-3">Spiel-Einschätzung aus Quoten und Daten</SectionTitle>
         <MatchHintCard match={match} />
+      </GlassCard>
+
+      <GlassCard className="mb-4 border-emerald-a/30">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-fg-3">Modelltipp</div>
+            <div className="display-num mt-1 text-3xl text-fg">{activeTip && activeTip !== 'N/A' ? activeTip : '–'}</div>
+          </div>
+          {canTip ? (
+            <div className="flex flex-col gap-2 sm:min-w-64">
+              <button type="button" onClick={copyTip} className="min-h-11 rounded-xl bg-blue-a px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110">
+                Tipp kopieren
+              </button>
+              <button
+                onClick={adopt}
+                disabled={saveTip.isPending || !canSaveSharedTip}
+                className="min-h-10 rounded-xl border border-line-2 bg-surface px-4 py-2 text-xs font-bold text-fg-2 transition hover:bg-surface-2 disabled:opacity-50"
+              >
+                {saveTip.isPending ? 'Speichere…' : canSaveSharedTip ? 'Gemeinsamen Spieltipp speichern' : 'Gemeinsamer Tipp geschlossen'}
+              </button>
+            </div>
+          ) : (
+            <p className="rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg-2">
+              {fixtureStatus(match, now) === 'pending'
+                ? 'Ergebnis ausstehend · Tipps sind geschlossen.'
+                : fixtureStatus(match, now) === 'played'
+                  ? 'Spiel abgeschlossen · Tipps sind geschlossen.'
+                  : 'Anstoßzeit fehlt · Tipp-Aktion geschlossen.'}
+            </p>
+          )}
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-fg-3">
+          „Tipp kopieren“ überträgt ihn nicht an den Server. „Gemeinsamen Spieltipp speichern“ schreibt einen zentralen Eintrag für dieses Spiel; er ist derzeit nicht nutzergetrennt.
+        </p>
+        {copyStatus && <p role="status" className="mt-2 text-xs font-semibold text-emerald-a">{copyStatus}</p>}
+        {adoptStatus && <p role="status" className="mt-2 text-xs font-semibold text-fg-2">{adoptStatus}</p>}
       </GlassCard>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -309,14 +373,6 @@ export function DetailView() {
                   </div>
                 ))}
               </div>
-              <button
-                onClick={adopt}
-                disabled={saveTip.isPending}
-                className="mt-4 w-full rounded-xl bg-gold-a/90 px-4 py-2.5 text-sm font-bold text-black transition hover:brightness-110 disabled:opacity-50"
-              >
-                Tipp übernehmen
-              </button>
-              {adoptStatus && <p className="mt-2 text-center text-xs text-fg-2">{adoptStatus}</p>}
             </>
           ) : (
             <p className="text-sm text-fg-3">{predict.isPending ? 'Rechne…' : 'Keine Empfehlung verfügbar'}</p>

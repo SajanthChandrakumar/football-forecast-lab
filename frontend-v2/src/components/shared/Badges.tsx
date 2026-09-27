@@ -9,11 +9,11 @@ export function TeamLogo({ name, src, className }: { name: string; src?: string 
   return <img src={src} alt="" aria-hidden className={cn('h-5 w-5 shrink-0 object-contain', className)} onError={() => setFailed(true)} />
 }
 
-export function TeamLabel({ name, disp, logo, className }: { name: string; disp?: string; logo?: string | null; className?: string }) {
+export function TeamLabel({ name, disp, logo, wrap = false, className }: { name: string; disp?: string; logo?: string | null; wrap?: boolean; className?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-1.5 font-semibold text-fg', className)}>
       <TeamLogo name={name} src={logo} />
-      <span className="truncate">{disp?.replace(/^\p{RI}\p{RI}\s*/u, '') || name}</span>
+      <span className={wrap ? 'min-w-0 whitespace-normal break-words' : 'truncate'}>{disp?.replace(/^\p{RI}\p{RI}\s*/u, '') || name}</span>
     </span>
   )
 }
