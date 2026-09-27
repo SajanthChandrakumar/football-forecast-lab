@@ -6,11 +6,33 @@ import { botFormState } from '../src/lib/customBot.mjs'
 import { validUclStandingsRows } from '../src/lib/standings.mjs'
 import { hasScoreMatrix } from '../src/lib/prediction.mjs'
 import { hasUclSimulationResults } from '../src/lib/simulation.mjs'
-import { withRatingBaselines } from '../src/lib/team-form.mjs'
+import * as simulation from '../src/lib/simulation.mjs'
 
 let officialPerformance
+let competitionLabel
+let rankUpcomingValueBets
+let teamFormTeamNames
+let teamFormEntries
+let teamFormCoverage
+let teamFormSnapshotState
+let teamsWithoutHistory
 try {
   ({ officialPerformance } = await import('../src/lib/performance.mjs'))
+} catch {
+  // The assertion below reports the missing implementation as a failed behavior test.
+}
+try {
+  ({ competitionLabel } = await import('../src/lib/competition.mjs'))
+} catch {
+  // The assertion below reports the missing implementation as a failed behavior test.
+}
+try {
+  ({ rankUpcomingValueBets } = await import('../src/lib/value-bets.mjs'))
+} catch {
+  // The assertion below reports the missing implementation as a failed behavior test.
+}
+try {
+  ({ teamFormTeamNames, teamFormEntries, teamFormCoverage, teamFormSnapshotState, teamsWithoutHistory } = await import('../src/lib/team-form.mjs'))
 } catch {
   // The assertion below reports the missing implementation as a failed behavior test.
 }
@@ -58,20 +80,128 @@ test('hasUclSimulationResults rejects unavailable and malformed payloads', () =>
   assert.equal(hasUclSimulationResults({ status: 'fresh', results: [] }), true)
 })
 
-test('withRatingBaselines makes current ClubElo ratings chartable without invented history', () => {
-  assert.deepEqual(
-    withRatingBaselines({}, {
-      Arsenal: { elo: 2035 },
-      Barcelona: { elo: 2015 },
-    }),
-    {
-      Arsenal: [{ timestamp: 0, match_id: 'baseline', elo: 2035 }],
-      Barcelona: [{ timestamp: 0, match_id: 'baseline', elo: 2015 }],
-    },
-  )
+test('UCL simulation API path defaults to 100 runs and respects an explicit count', () => {
+  assert.equal(typeof simulation.uclSimulationPath, 'function')
+  assert.equal(simulation.uclSimulationPath(), '/simulate_ucl?runs=100')
+  assert.equal(simulation.uclSimulationPath(500), '/simulate_ucl?runs=500')
+})
 
-  const existing = { Arsenal: [{ timestamp: 123, match_id: 'match-1', elo: 2020 }] }
-  assert.deepEqual(withRatingBaselines(existing, { Arsenal: { elo: 2035 } }), existing)
+test('competition labels follow the active competition and its configured short name', () => {
+  assert.equal(typeof competitionLabel, 'function')
+  assert.equal(competitionLabel('ucl2026'), 'UCL 2026/27')
+  assert.equal(competitionLabel('wc2026'), 'WM 2026')
+  assert.equal(competitionLabel('ucl2026', [{ id: 'ucl2026', short_name: 'Champions League' }]), 'Champions League')
+})
+
+test('value bets include only upcoming unplayed fixtures with positive expected points', () => {
+  assert.equal(typeof rankUpcomingValueBets, 'function')
+  const now = Date.parse('2026-09-23T18:00:00Z')
+  const futureKickoff = { raw_match: { commence_time: '2026-09-24T18:00:00Z' } }
+  const ranked = rankUpcomingValueBets([
+    { ...futureKickoff, id: 'upcoming-low', max_xp: 2, completed: false },
+    { ...futureKickoff, id: 'played-flag', max_xp: 9, completed: true },
+    { ...futureKickoff, id: 'played-score', max_xp: 8, actual_score: '2:1' },
+    { ...futureKickoff, id: 'no-value', max_xp: 0 },
+    { ...futureKickoff, id: 'upcoming-high', max_xp: 4, actual_score: null },
+  ], now)
+  assert.deepEqual(ranked.map(({ id }) => id), ['upcoming-high', 'upcoming-low'])
+})
+
+test('value bets exclude past and live kickoffs even when the result is missing', () => {
+  const now = Date.parse('2026-09-23T18:00:00Z')
+  const ranked = rankUpcomingValueBets([
+    { id: 'past-no-result', max_xp: 9, raw_match: { commence_time: '2026-09-23T17:59:00Z' } },
+    { id: 'live-no-result', max_xp: 8, raw_match: { commence_time: '2026-09-23T18:00:00Z' } },
+    { id: 'future', max_xp: 4, raw_match: { commence_time: '2026-09-23T18:01:00Z' } },
+  ], now)
+
+  assert.deepEqual(ranked.map(({ id }) => id), ['future'])
+})
+
+test('value bets drop a fixture as soon as its kickoff time is reached', () => {
+  const kickoff = Date.parse('2026-09-24T18:00:00Z')
+  const matches = [{
+    id: 'starting-now',
+    max_xp: 4,
+    raw_match: { commence_time: new Date(kickoff).toISOString() },
+  }]
+
+  assert.deepEqual(rankUpcomingValueBets(matches, kickoff - 1).map(({ id }) => id), ['starting-now'])
+  assert.deepEqual(rankUpcomingValueBets(matches, kickoff), [])
+})
+
+test('UCL team form uses only valid standings teams and reports teams without rating history', () => {
+  assert.equal(typeof teamFormTeamNames, 'function')
+  assert.equal(typeof teamsWithoutHistory, 'function')
+  const standings = Array.from({ length: 36 }, (_, index) => ({ team: `Club ${index + 1}`, pos: index + 1 }))
+  assert.deepEqual(teamFormTeamNames('ucl2026', ['Club 1', 'Club 2', 'National Team'], standings), [])
+  assert.deepEqual(teamFormTeamNames('ucl2026', ['Club 1'], standings.slice(0, 35)), [])
+  assert.deepEqual(teamFormTeamNames('wc2026', ['Club 1', 'National Team'], []), ['Club 1', 'National Team'])
+  assert.deepEqual(
+    teamsWithoutHistory(['Club 1', 'Club 2'], { 'Club 1': [{ timestamp: 12, match_id: 'm1', elo: 2030 }] }),
+    ['Club 2'],
+  )
+})
+
+test('UCL team form resolves every standings display name to an existing canonical Elo key', () => {
+  assert.equal(typeof teamFormEntries, 'function')
+  const rows = [
+    'Paris Saint-Germain', 'Bayern Munich', 'Barcelona', 'Manchester United', 'Como', 'Sporting CP',
+    'VfB Stuttgart', 'Manchester City', 'Real Betis', 'Lens', 'Aston Villa', 'Borussia Dortmund',
+    'Real Madrid', 'Liverpool', 'Arsenal', 'AEK Athens', 'AS Roma', 'Shakhtar Donetsk', 'Fenerbahce',
+    'PSV Eindhoven', 'Villarreal', 'Slavia Prague', 'Club Brugge', 'Lille', 'Atlético Madrid',
+    'Internazionale', 'LASK Linz', 'Napoli', 'Galatasaray', 'Viking FK', 'FC Porto', 'RB Leipzig',
+    'Feyenoord Rotterdam', 'Sabah FK', 'Slovan Bratislava', 'Bodo/Glimt',
+  ].map((team, index) => ({ team, pos: index + 1 }))
+  const ratingKeys = [
+    'Paris Saint-Germain', 'Bayern Munich', 'Barcelona', 'Man United', 'Como', 'Sporting', 'Stuttgart',
+    'Man City', 'Betis', 'Lens', 'Aston Villa', 'Dortmund', 'Real Madrid', 'Liverpool', 'Arsenal',
+    'AEK', 'Roma', 'Shakhtar', 'Fenerbahçe', 'PSV', 'Villarreal', 'Slavia Praha', 'Brugge', 'Lille',
+    'Atlético', 'Inter', 'LASK', 'Napoli', 'Galatasaray', 'Viking', 'Porto', 'RB Leipzig', 'Feyenoord',
+    'Sabah FK', 'Slovan', 'Bodø/Glimt',
+  ]
+  const entries = teamFormEntries('ucl2026', ratingKeys, rows)
+
+  assert.equal(entries.length, 36)
+  assert.deepEqual(entries.map(({ team }) => team), rows.map(({ team }) => team))
+  assert.deepEqual(entries.map(({ ratingKey }) => ratingKey), ratingKeys)
+  assert.deepEqual(teamFormEntries('ucl2026', ratingKeys.slice(0, 35), rows), [])
+  assert.deepEqual(teamFormCoverage('ucl2026', ratingKeys.slice(0, 35), rows), {
+    complete: false,
+    standingsValid: true,
+    required: 36,
+    available: 35,
+    missing: ['Bodo/Glimt'],
+  })
+})
+
+test('Team Form reports incomplete UCL ratings and only shows World Cup host bonus for WC', () => {
+  const view = readFileSync(new URL('../src/features/team-form/TeamFormView.tsx', import.meta.url), 'utf8')
+  const hook = readFileSync(new URL('../src/features/team-form/useTeamFormData.ts', import.meta.url), 'utf8')
+  assert.match(view, /role="alert"/)
+  assert.match(view, /coverage\.available} von \{coverage\.required\}/)
+  assert.match(view, /Fehlende Teams: \{coverage\.missing\.join\(', '\)\}/)
+  assert.match(view, /competition === 'wc2026' && <p/)
+  assert.match(hook, /competition === 'ucl2026' \? ratingTeams : \[\.\.\.allTeams\]/)
+})
+
+test('Team Form surfaces stale partial ClubElo refresh while keeping complete last-known ratings usable', () => {
+  assert.equal(typeof teamFormSnapshotState, 'function')
+  const currentRatings = { complete: true, standingsValid: true, required: 36, available: 36, missing: [] }
+  const state = teamFormSnapshotState(currentRatings, {
+    status: 'stale',
+    error: 'ClubElo snapshot is incomplete',
+    coverage: { required: 36, available: 35, missing: ['Bayern Munich'] },
+  })
+  assert.equal(state.showAlert, true)
+  assert.equal(state.showRatings, true)
+  assert.equal(state.snapshotAvailable, 35)
+  assert.equal(state.snapshotRequired, 36)
+  assert.deepEqual(state.snapshotMissing, ['Bayern Munich'])
+
+  const view = readFileSync(new URL('../src/features/team-form/TeamFormView.tsx', import.meta.url), 'utf8')
+  assert.match(view, /snapshotMissing/)
+  assert.match(view, /letzten vollständigen Ratings/)
 })
 
 test('performance counts only actual user tips and refreshes archive data', () => {
@@ -105,6 +235,10 @@ test('performance includes Elo reconstructions and reports their points separate
         bot_points: { broker: 10, professor: 10 },
       },
     },
+    reconstructedMissingPoints: {
+      prediction: { algo_reconstructed: true },
+      post_match_result: { status: 'completed' },
+    },
     pending: {
       prediction: { algo_reconstructed: false },
       post_match_result: { status: 'pending', algo_points: 10 },
@@ -112,9 +246,9 @@ test('performance includes Elo reconstructions and reports their points separate
   }, ['broker', 'professor'])
 
   assert.deepEqual(result, {
-    algoTotal: 16,
-    algoCount: 2,
-    algoTendency: 2,
+    algoTotal: 6,
+    algoCount: 1,
+    algoTendency: 1,
     reconstructedCount: 1,
     reconstructedPoints: 10,
     reconstructedTendency: 1,
@@ -122,5 +256,34 @@ test('performance includes Elo reconstructions and reports their points separate
       broker: { pts: 15, tipped: 2, tendency: 2 },
       professor: { pts: 16, tipped: 2, tendency: 2 },
     },
+  })
+})
+
+test('official algorithm totals and hit rate exclude Elo reconstructions', () => {
+  const result = officialPerformance({
+    prematch: {
+      prediction: { algo_reconstructed: false },
+      post_match_result: { status: 'completed', algo_points: 6 },
+    },
+    reconstructed: {
+      prediction: { algo_reconstructed: true },
+      post_match_result: { status: 'completed', algo_points: 10 },
+    },
+  }, [])
+
+  assert.deepEqual({
+    algoTotal: result.algoTotal,
+    algoCount: result.algoCount,
+    algoTendency: result.algoTendency,
+    reconstructedCount: result.reconstructedCount,
+    reconstructedPoints: result.reconstructedPoints,
+    reconstructedTendency: result.reconstructedTendency,
+  }, {
+    algoTotal: 6,
+    algoCount: 1,
+    algoTendency: 1,
+    reconstructedCount: 1,
+    reconstructedPoints: 10,
+    reconstructedTendency: 1,
   })
 })

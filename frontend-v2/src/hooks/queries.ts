@@ -55,6 +55,16 @@ export const useEloRatings = () => {
   return useQuery({ queryKey: ['eloRatings', competition], queryFn: () => api.eloRatings(competition), staleTime: 300_000 })
 }
 
+export const useEloRatingsStatus = () => {
+  const { competition } = useAppState()
+  return useQuery({
+    queryKey: ['eloRatingsStatus', competition],
+    queryFn: () => api.eloRatingsStatus(competition),
+    enabled: competition === 'ucl2026',
+    staleTime: 300_000,
+  })
+}
+
 export const useKnockoutSimulation = () => {
   const { competition } = useAppState()
   return useQuery({

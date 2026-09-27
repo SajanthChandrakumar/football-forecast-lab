@@ -18,18 +18,18 @@ export function officialPerformance(archive, botKeys) {
 
   for (const entry of Object.values(archive ?? {})) {
     if (entry?.post_match_result?.status !== 'completed') continue
-    if (entry?.prediction?.algo_reconstructed === true) {
-      result.reconstructedCount++
-    }
+    const reconstructed = entry?.prediction?.algo_reconstructed === true
 
     const algoPoints = entry.post_match_result.algo_points
     if (algoPoints != null) {
-      result.algoTotal += algoPoints
-      result.algoCount++
-      if (algoPoints >= 5) result.algoTendency++
-      if (entry?.prediction?.algo_reconstructed === true) {
+      if (reconstructed) {
+        result.reconstructedCount++
         result.reconstructedPoints += algoPoints
         if (algoPoints >= 5) result.reconstructedTendency++
+      } else {
+        result.algoTotal += algoPoints
+        result.algoCount++
+        if (algoPoints >= 5) result.algoTendency++
       }
     }
 

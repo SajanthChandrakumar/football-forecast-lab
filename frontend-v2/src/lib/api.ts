@@ -1,9 +1,10 @@
 import type {
   Archive, BotSimulation, CompetitionId, CompetitionInfo, CustomBot, CustomBotParams, EloHistory,
-  EloRatings, KnockoutSimulation, MatchesResponse, PoolContext, Prediction, Quota, RawMatch,
+  EloRatings, EloRatingsStatus, KnockoutSimulation, MatchesResponse, PoolContext, Prediction, Quota, RawMatch,
   StandingsGroup, UclSimulation,
 } from './types'
 import { competitionPath } from './competition.mjs'
+import { DEFAULT_UCL_SIMULATION_RUNS, uclSimulationPath } from './simulation.mjs'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -31,6 +32,7 @@ export const api = {
   standings: (competition: CompetitionId) => request<StandingsGroup[]>(competitionPath('/standings', competition)),
   eloHistory: (competition: CompetitionId) => request<EloHistory>(competitionPath('/elo_history', competition)),
   eloRatings: (competition: CompetitionId) => request<EloRatings>(competitionPath('/elo_ratings', competition)),
+  eloRatingsStatus: (competition: CompetitionId) => request<EloRatingsStatus>(competitionPath('/elo_ratings_status', competition)),
   saveUserTip: (competition: CompetitionId, matchId: string, userTip: string) =>
     request<{ status: string }>(competitionPath('/archive/user_tip', competition), {
       method: 'POST',
@@ -56,6 +58,6 @@ export const api = {
     }),
   simulateKnockout: (competition: CompetitionId, runs = 20_000) =>
     request<KnockoutSimulation | UclSimulation>(competitionPath(`/simulate_knockout?runs=${runs}`, competition)),
-  simulateUcl: (competition: CompetitionId, runs = 20_000) =>
-    request<UclSimulation>(competitionPath(`/simulate_ucl?runs=${runs}`, competition)),
+  simulateUcl: (competition: CompetitionId, runs = DEFAULT_UCL_SIMULATION_RUNS) =>
+    request<UclSimulation>(competitionPath(uclSimulationPath(runs), competition)),
 }

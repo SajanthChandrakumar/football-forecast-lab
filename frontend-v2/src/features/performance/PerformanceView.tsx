@@ -1,7 +1,6 @@
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { PerformanceSkeleton } from '../../components/shared/Skeleton'
-import { cn } from '../../lib/util'
 import { usePerformanceData } from './usePerformanceData'
 import { BotScoreboard } from './BotScoreboard'
 import { PointsRaceChart } from './PointsRaceChart'
@@ -31,7 +30,6 @@ export function PerformanceView() {
 
   const hitRate = totals.userCount > 0 ? ((totals.correctTendency / totals.userCount) * 100).toFixed(1) : '0.0'
   const algoHitRate = totals.algoCount > 0 ? ((totals.algoTendency / totals.algoCount) * 100).toFixed(1) : '0.0'
-  const diff = totals.totalPoints - totals.algoTotal
   const maxPts = Math.max(totals.totalPoints, totals.algoTotal, 1)
 
   const jumpTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -72,15 +70,13 @@ export function PerformanceView() {
           <SectionTitle className="mb-4">You vs Algo</SectionTitle>
           <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest text-gold-a">Du</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gold-a">Du · {totals.userCount} Tipps</div>
               <div className="display-num text-4xl text-gold-a">{totals.totalPoints}</div>
               <div className="text-xs text-fg-3">{hitRate}% Tendenz</div>
             </div>
-            <div className={cn('text-sm font-extrabold', diff > 0 ? 'text-gold-a' : diff < 0 ? 'text-blue-a' : 'text-fg-2')}>
-              {diff > 0 ? `Du führst +${diff} Pts` : diff < 0 ? `Algo führt +${-diff} Pts` : 'Gleichstand'}
-            </div>
+            <div className="text-sm font-extrabold text-fg-2">vs.</div>
             <div className="text-right">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-blue-a">Algo · {totals.algoCount} gewertet</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-blue-a">Algo · {totals.algoCount} Vorab-Tipps</div>
               <div className="display-num text-4xl text-blue-a">{totals.algoTotal}</div>
               <div className="text-xs text-fg-3">{algoHitRate}% Tendenz</div>
             </div>
@@ -91,8 +87,7 @@ export function PerformanceView() {
           </div>
           {totals.reconstructedCount > 0 && (
             <p className="mt-4 rounded-xl border border-line bg-surface px-3 py-2 text-xs leading-relaxed text-fg-3">
-              {totals.algoCount} Spiele gewertet: {totals.algoCount - totals.reconstructedCount} Vorab-Tipps
-              {' '}({totals.algoTotal - totals.reconstructedPoints} Pts) + {totals.reconstructedCount} Elo-Rekonstruktionen
+              Zusätzlich: {totals.reconstructedCount} Elo-Rekonstruktionen
               {' '}({totals.reconstructedPoints} Pts · {totals.reconstructedTendency}/{totals.reconstructedCount} Tendenzen).
               {' '}Rekonstruktionen sind Näherungen ohne historische Buchmacherquoten.
             </p>

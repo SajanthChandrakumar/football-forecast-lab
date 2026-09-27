@@ -14,8 +14,11 @@ const FORM_STYLE: Record<string, string> = {
 }
 
 export function TeamFormView() {
-  const { rows, history, matchInfo, isLoading } = useTeamFormData()
-  const { selectedTeams, toggleTeam } = useAppState()
+  const { rows, history, matchInfo, coverage, isLoading } = useTeamFormData()
+  const { competition, selectedTeams: storedSelectedTeams, toggleTeam } = useAppState()
+  const incompleteUclRatings = competition === 'ucl2026' && !coverage.complete
+  const staleUclRatings = competition === 'ucl2026' && coverage.complete && coverage.showAlert
+  const selectedTeams = storedSelectedTeams.filter((team) => rows.some((row) => row.team === team))
   const [search, setSearch] = useState('')
 
   const filtered = useMemo(
@@ -34,6 +37,34 @@ export function TeamFormView() {
       )}
 
       <div className={cn('space-y-4', isLoading && 'hidden')}>
+        {incompleteUclRatings ? (
+          <div role="alert" className="rounded-xl border border-amber-a/30 bg-amber-a/5 px-4 py-3 text-center text-sm text-fg-2">
+            {!coverage.standingsValid ? (
+              <p>Team Form nicht verfügbar: Die vollständige offizielle UCL-Tabelle fehlt.</p>
+            ) : (
+              <>
+                <p>Team Form nicht verfügbar: ClubElo-Ratings liegen nur für {coverage.available} von {coverage.required} UCL-Teams vor.</p>
+                <p className="mt-1 text-xs text-fg-3">Fehlende Teams: {coverage.missing.join(', ')}</p>
+              </>
+            )}
+          </div>
+        ) : rows.length === 0 && (
+          <p className="text-center text-sm text-fg-3">
+            Keine Teamratings verfügbar.
+          </p>
+        )}
+        {staleUclRatings && (
+          <div role="alert" className="rounded-xl border border-amber-a/30 bg-amber-a/5 px-4 py-3 text-center text-sm text-fg-2">
+            <p>
+              ClubElo ist aktuell nur für {coverage.snapshotAvailable} von {coverage.snapshotRequired} UCL-Teams verfügbar.
+              {' '}Darum zeigen wir vorübergehend die letzten vollständigen Ratings.
+            </p>
+            {coverage.snapshotMissing.length > 0 && (
+              <p className="mt-1 text-xs text-fg-3">Fehlende aktuelle Teams: {coverage.snapshotMissing.join(', ')}</p>
+            )}
+          </div>
+        )}
+        {!incompleteUclRatings && <>
         {/* Chart + picker */}
         <GlassCard>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -73,9 +104,9 @@ export function TeamFormView() {
         <GlassCard className="!p-0">
           <div className="border-b border-line px-5 py-4">
             <SectionTitle>Power Rankings</SectionTitle>
-            <p className="mt-1 text-xs text-fg-3">
+            {competition === 'wc2026' && <p className="mt-1 text-xs text-fg-3">
               Gastgeber-Bonus: +80 Elo für 🇺🇸 USA, 🇨🇦 Kanada & 🇲🇽 Mexiko · Zeile anklicken für den Chart
-            </p>
+            </p>}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -104,8 +135,8 @@ export function TeamFormView() {
                       <td className="px-5 py-2 tabular-nums text-fg-3">{i + 1}</td>
                       <td className="px-2 py-2 font-semibold text-fg">{flag(r.team)} <span className="ml-1">{r.team}</span></td>
                       <td className="display-num px-2 py-2 text-right text-fg">{Math.round(r.elo)}</td>
-                      <td className={cn('px-2 py-2 text-right tabular-nums', r.delta > 0 ? 'text-emerald-a' : r.delta < 0 ? 'text-red-a' : 'text-fg-3')}>
-                        {r.delta > 0 ? '+' : ''}{Math.round(r.delta)}
+                      <td className={cn('px-2 py-2 text-right tabular-nums', r.delta == null ? 'text-fg-3' : r.delta > 0 ? 'text-emerald-a' : r.delta < 0 ? 'text-red-a' : 'text-fg-3')}>
+                        {r.delta == null ? '–' : `${r.delta > 0 ? '+' : ''}${Math.round(r.delta)}`}
                       </td>
                       <td className="px-2 py-2 text-center tabular-nums text-fg-2 max-sm:hidden">
                         {r.w}-{r.d}-{r.l}
@@ -126,6 +157,7 @@ export function TeamFormView() {
             </table>
           </div>
         </GlassCard>
+        </>}
       </div>
     </PageTransition>
   )

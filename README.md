@@ -113,7 +113,7 @@ This project is developed **strictly for scientific, educational, and research p
 | `GET` | `/api/recalculate_points` | Recalculates all algorithm and bot points in the archive for completed matches |
 | `GET` | `/api/rebuild_honest_tips` | Rebuilds historical pre-match predictions from snapshots and regrades points |
 | `GET` | `/api/standings` | Group standings for all 12 WC 2026 groups; 1 h MongoDB cache |
-| `GET` | `/api/quota` | Remaining requests for The Odds API (ESPN is unmetered) |
+| `GET` | `/api/quota` | Remaining requests for The Odds API and API-Football (ESPN is unmetered) |
 | `GET` | `/api/ping` | Keep-alive endpoint (prevents Render free-tier cold starts) |
 
 Provider collection is restricted to authenticated maintenance. Set `CRON_SECRET`
@@ -122,6 +122,67 @@ Maintenance refreshes bounded ESPN fixture windows, stores ClubElo ratings in th
 UCL-scoped cache, and makes at most one `h2h,totals` bulk odds request per run.
 Snapshot statuses are exactly `fresh`, `stale`, `unavailable`, or `failed`; every
 failure payload includes its source and observation/error metadata.
+
+### Provider request schedule and budget
+
+The application has no internal timer. External provider traffic starts only
+when an authenticated scheduler calls `POST /api/internal/maintenance`; opening
+the dashboard, match detail, simulator, or performance pages uses MongoDB and
+makes **zero provider requests**. A MongoDB lease also prevents overlapping
+maintenance runs.
+
+| Trigger | Provider calls |
+|---|---:|
+| Every UCL maintenance run | 2 ESPN season-scoreboard calls (2026 and 2027; repeated calls within five minutes reuse the in-process cache) |
+| Every UCL maintenance run | 1 conditional ClubElo ranking request, plus one team-page request only for each rating still missing from the ranking response |
+| First maintenance run per Zurich day | 1 ESPN daily team-form scoreboard call; teams previously requiring supplementation add 1 ESPN schedule + 2 FotMob calls each. The current 36-team cache has two such teams, so this is 7 calls normally |
+| Team-form catch-up after downtime | At most 7 ESPN daily scoreboard calls plus the same supplemented-team refreshes; 13 calls with the current two supplemented teams |
+| Odds discovery or any due snapshot | 1 The Odds API bulk call for all events, never one call per match. With one region (`eu`) and two markets (`h2h,totals`), that call costs 2 credits |
+| No discovery and no due snapshot | 0 The Odds API calls |
+
+Odds snapshots become due at T-24h, T-6h, T-75m, T-30m, and T-15m. All events
+and all buckets due in the same maintenance run share the one bulk response.
+Therefore the scheduler should call maintenance around those windows for each
+kickoff group and once daily otherwise, rather than run a blind every-minute
+job. A late call records earlier uncaptured buckets as `unavailable` instead of
+spending extra credits to reconstruct them.
+
+API-Football calls used by team form are serialized across workers, separated
+by at least seven seconds, limited to nine per minute, and hard-stopped at 100
+per UTC day. If the configured plan rejects the current UCL season, only the
+first team-form request after a process start reaches API-Football; the process
+then remains on the ESPN fallback. The current fallback bootstrap uses 1 failed
+API-Football attempt, 1 ESPN roster call, 36 ESPN schedule calls, and 4 FotMob
+calls for the two supplemented teams: 42 one-time outbound requests. Bootstrap
+progress is resumable, so completed teams are not fetched again.
+
+### Champions League team form
+
+The dashboard and match detail read each club's last five competitive matches
+from MongoDB; public page loads never call a provider. Initialise or resume the
+cache with:
+
+```bash
+.venv/bin/python scripts/bootstrap_ucl_team_form.py
+```
+
+API-Football is the primary source. Its requests are shared across concurrent
+workers, spaced by at least seven seconds, capped at nine per minute and 100 per
+day, and progress is stored after every club so an interrupted run can resume.
+If that subscription rejects season 2026 or the `last` fixture parameter, the
+same bootstrap transparently switches to ESPN's current UCL roster and each
+club's all-competition schedule. If ESPN exposes fewer than five completed
+matches for a club, an exact-name FotMob lookup supplements only that club.
+Stored rows identify their source as `api_football`, `espn`, or
+`espn+fotmob`; no synthetic form or historical season is substituted.
+
+The authenticated daily maintenance refreshes yesterday's fixtures and catches
+up at most seven missed days. Clubs that needed the FotMob supplement also get
+one team-specific refresh per Zurich day. Provider errors keep the last
+successful rows visible as `stale`; without a cached row the UI shows an
+explicit unavailable state. `USE_API_FOOTBALL` selects the optional odds engine
+only and does not disable this cache reader. ESPN and FotMob's public endpoints
+are undocumented fallbacks, so their availability remains an operational risk.
 
 For an existing deployment, run `.venv/bin/python scripts/migrate_wc_legacy.py`.
 The migration is copy-first and idempotent: it tags legacy archive/cache/custom
@@ -157,6 +218,7 @@ pip install -r requirements.txt
 # 3. Environment variables
 echo "ODDS_API_KEY=your_key_here" > .env
 echo "MONGO_URI=mongodb+srv://..." >> .env
+echo "API_FOOTBALL_KEY=your_api_football_key" >> .env
 
 # 4. Frontend: build the React app (FastAPI serves the dist/ folder)
 cd frontend-v2 && npm install && npm run build && cd ..
@@ -192,5 +254,8 @@ wm2026_predictor/
 ## Running Tests
 
 ```bash
-.venv/bin/python -m pytest test_math_engine.py test_pool_optimizer.py test_build_a_bot.py test_ko_detection.py -v
+.venv/bin/python -m pytest -q
+cd frontend-v2
+node --test tests/*.test.mjs
+npm run typecheck && npm run lint && npm run build
 ```

@@ -1,17 +1,11 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import type { Match, TeamForm } from '../../lib/types'
+import type { Match } from '../../lib/types'
 import { kickoffTime } from '../../lib/format'
 import { ProbBar } from '../../components/shared/ProbBar'
-import { TeamLabel, TipBadge } from '../../components/shared/Badges'
+import { FormBadges, TeamLabel, TipBadge } from '../../components/shared/Badges'
 import { MatchHintCard } from '../../components/shared/MatchHintCard'
 import { staggerItem } from '../../components/shared/PageTransition'
-
-/** Subtle "on fire" indicator — full form chains live in Detail/Team Form. */
-function FireDot({ form }: { form?: TeamForm }) {
-  if (!form?.on_fire) return null
-  return <span title="On fire" className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-a" />
-}
 
 function displayTeamName(team: string, display?: string): string {
   return display?.replace(/^\p{RI}\p{RI}\s*/u, '') || team
@@ -41,9 +35,9 @@ export function FixtureRow({ match, trailing }: { match: Match; trailing?: React
 
         <span className="min-w-0">
           <span className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <span className="flex min-w-0 flex-1 items-center gap-1.5 sm:justify-end sm:text-right">
+            <span className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:items-end sm:text-right">
               <TeamLabel name={match.home_team} disp={match.home_disp} logo={match.home_logo} />
-              <FireDot form={match.home_form} />
+              <FormBadges form={match.home_form} />
             </span>
             <span className="hidden w-40 shrink-0 sm:block">
               {isPlayed ? (
@@ -62,9 +56,9 @@ export function FixtureRow({ match, trailing }: { match: Match; trailing?: React
                 />
               )}
             </span>
-            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
               <TeamLabel name={match.away_team} disp={match.away_disp} logo={match.away_logo} />
-              <FireDot form={match.away_form} />
+              <FormBadges form={match.away_form} />
             </span>
           </span>
         </span>

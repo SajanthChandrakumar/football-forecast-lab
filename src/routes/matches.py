@@ -1,5 +1,6 @@
 import time
 import logging
+import math
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -20,6 +21,7 @@ from src.services.archive import (
 )
 from src.services import espn_data
 from src.services.prediction import PredictionService, infer_stage
+from src.services.ucl_simulation import _normalised_matrix_dict
 from src.math_engine import MathEngine
 
 logger = logging.getLogger(__name__)
@@ -188,17 +190,138 @@ def _unavailable_matches(source: str = "matches_cache") -> dict:
     }
 
 
-def _present_cached_matches(cached_data, math_engine, odds_engine, competition, archive_store, cache_store):
+def _propagate_team_logos(matches):
+    """Reuse provider logos across fixtures for the same team without inventing any."""
+    known = {}
+    for match in matches:
+        if not isinstance(match, dict):
+            continue
+        for side in ("home", "away"):
+            team = str(match.get(f"{side}_team") or "")
+            logo = match.get(f"{side}_logo")
+            if team and isinstance(logo, str) and logo.strip():
+                known.setdefault(TEAM_MAPPING.get(team, team), logo)
+
+    presented = []
+    for match in matches:
+        if not isinstance(match, dict):
+            presented.append(match)
+            continue
+        row = dict(match)
+        for side in ("home", "away"):
+            if not row.get(f"{side}_logo"):
+                team = str(row.get(f"{side}_team") or "")
+                logo = known.get(TEAM_MAPPING.get(team, team))
+                if logo:
+                    row[f"{side}_logo"] = logo
+        presented.append(row)
+    return presented
+
+
+def _apply_cached_ucl_forms(matches, team_form_service):
+    if team_form_service is None:
+        return matches
+    presented = []
+    for match in matches:
+        if not isinstance(match, dict):
+            presented.append(match)
+            continue
+        row = dict(match)
+        row["home_form"] = team_form_service.cached_form_for_match(
+            row.get("home_team"), row.get("home_team_id")
+        )
+        row["away_form"] = team_form_service.cached_form_for_match(
+            row.get("away_team"), row.get("away_team_id")
+        )
+        presented.append(row)
+    return presented
+
+
+def _present_cached_matches(
+    cached_data, math_engine, odds_engine, competition, archive_store, cache_store,
+    team_form_service=None,
+):
     """Apply one presentation path to normal and forced cache reads."""
     if not isinstance(cached_data, list) or not cached_data:
         return cached_data if isinstance(cached_data, list) else _unavailable_matches()
-    if hasattr(math_engine, "reload_elo_data"):
-        math_engine.reload_elo_data()
+    comp = get_competition(competition)
+    if comp.id == "ucl2026":
+        # Predictions and matrices are persisted by maintenance. Enrich only
+        # legacy or incomplete open fixtures; reads do not persist that work.
+        needs_enrichment = [
+            dict(match) for match in cached_data
+            if isinstance(match, dict)
+            and not _is_completed_match(match)
+            and not _has_complete_ucl_prediction(match)
+        ]
+    else:
+        needs_enrichment = [dict(match) if isinstance(match, dict) else match for match in cached_data]
+    presented_data = cached_data
+    if needs_enrichment:
+        if hasattr(math_engine, "reload_elo_data"):
+            math_engine.reload_elo_data()
+        enriched = _enrich_edge(needs_enrichment, math_engine, odds_engine, comp, cache_store)
+        if comp.id == "ucl2026":
+            by_id = {
+                str(match.get("id") or match.get("event_id")): match
+                for match in enriched
+                if isinstance(match, dict) and (match.get("id") or match.get("event_id"))
+            }
+            presented_data = [
+                by_id.get(str(match.get("id") or match.get("event_id")), match)
+                if isinstance(match, dict) else match
+                for match in cached_data
+            ]
+        else:
+            presented_data = enriched
+    presented_data = _propagate_team_logos(presented_data)
+    if comp.id == "ucl2026":
+        presented_data = _apply_cached_ucl_forms(presented_data, team_form_service)
     archive = load_archive_from_db(archive_store)
     return _sync_archive_tips(
-        _enrich_edge(cached_data, math_engine, odds_engine, competition, cache_store),
+        presented_data,
         archive,
         archive_store,
+    )
+
+
+def _is_completed_match(match):
+    post_match = match.get("post_match_result") or {}
+    status = str(match.get("status", "")).lower()
+    post_status = str(post_match.get("status", "")).lower() if isinstance(post_match, dict) else ""
+    return (
+        match.get("completed")
+        or status in {"completed", "final", "post"}
+        or post_status in {"completed", "final", "post"}
+        or match.get("actual_score") is not None
+        or match.get("score_90") is not None
+    )
+
+
+def _has_complete_ucl_prediction(match):
+    if not isinstance(match, dict):
+        return False
+    probabilities = match.get("probabilities")
+    provenance = match.get("input_provenance") or match.get("provenance")
+    if not isinstance(probabilities, dict) or not {"home", "draw", "away"}.issubset(probabilities):
+        return False
+    if not isinstance(provenance, dict) or not provenance:
+        return False
+    try:
+        values = [float(probabilities[key]) for key in ("home", "draw", "away")]
+        if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in values):
+            return False
+        if not math.isclose(sum(values), 1.0, rel_tol=1e-9, abs_tol=1e-6):
+            return False
+        if any(not math.isfinite(float(match.get(key))) for key in ("xg_home", "xg_away")):
+            return False
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return bool(
+        _normalised_matrix_dict(match.get("matrix") or match.get("score_matrix"))
+        and (match.get("model_tip") or match.get("top_tip"))
+        and match.get("source_mode") not in (None, "unavailable")
+        and match.get("model_version")
     )
 
 
@@ -227,16 +350,7 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
         m["home_form"] = math_engine.team_forms.get(home_norm, {"form": [], "on_fire": False})
         m["away_form"] = math_engine.team_forms.get(away_norm, {"form": [], "on_fire": False})
 
-        post_match = m.get("post_match_result") or {}
-        status = str(m.get("status", "")).lower()
-        post_status = str(post_match.get("status", "")).lower() if isinstance(post_match, dict) else ""
-        if (
-            m.get("completed")
-            or status in {"completed", "final", "post"}
-            or post_status in {"completed", "final", "post"}
-            or m.get("actual_score") is not None
-            or m.get("score_90") is not None
-        ):
+        if _is_completed_match(m):
             # Completed matches must retain their archived pre-match tip; a
             # fresh prediction here would use hindsight Elo.
             continue
@@ -324,7 +438,7 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
     return matches
 
 
-def init_router(math_engine, odds_engine, cache_collection, archive_collection):
+def init_router(math_engine, odds_engine, cache_collection, archive_collection, *, team_form_service=None):
     router = APIRouter(prefix="/api")
     prediction_service = PredictionService(math_engine)
 
@@ -343,10 +457,16 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection):
         # and writes belong to the authenticated maintenance scheduler.
         if force:
             if isinstance(cached_data, list):
-                return _present_cached_matches(cached_data, math_engine, odds_engine, comp, archive_store, cache_store) if cached_data else ([] if cached is not None else _unavailable_matches())
+                return _present_cached_matches(
+                    cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
+                    team_form_service,
+                ) if cached_data else ([] if cached is not None else _unavailable_matches())
             return _unavailable_matches()
         if isinstance(cached_data, list) and cached_data:
-            return _present_cached_matches(cached_data, math_engine, odds_engine, comp, archive_store, cache_store)
+            return _present_cached_matches(
+                cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
+                team_form_service,
+            )
         if cached is not None and cached_data == []:
             return []
         return _unavailable_matches()

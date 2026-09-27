@@ -26,14 +26,29 @@ ESPN_NAME_FIXUP = {
     "Czechia": "Czech Republic",
 }
 
-# In-memory cache for the raw scoreboard payload — same date range is hit by
+# In-memory cache for the raw scoreboard payload — the same dates query is hit by
 # fixtures + completed-scores + commence_time backfill within one request cycle.
 _SCOREBOARD_TTL = 300  # 5 min
-_scoreboard_cache = {}  # {range_key: (timestamp, events)}
+_scoreboard_cache = {}  # {query_key: (timestamp, events)}
 
 
 def _canon(name: str) -> str:
     return ESPN_NAME_FIXUP.get(name, name)
+
+
+def _team_logo(team: dict) -> str | None:
+    if team.get("logo"):
+        return team["logo"]
+    logos = team.get("logos") or []
+    return logos[0].get("href") if logos and isinstance(logos[0], dict) else None
+
+
+def _event_in_date_range(event: dict, start_date, end_date) -> bool:
+    try:
+        event_date = datetime.fromisoformat(str(event.get("date") or "").replace("Z", "+00:00")).date()
+    except (TypeError, ValueError):
+        return False
+    return start_date <= event_date <= end_date
 
 
 # Bracket slots whose teams aren't decided yet come back with placeholder names
@@ -82,20 +97,19 @@ def _standings_endpoint(competition=None) -> str:
     return template.format(slug=slug, competition=comp.id)
 
 
-def _fetch_range(
-    start_date: str,
-    end_date: str,
+def _fetch_scoreboard_dates(
+    dates: str,
     *,
     competition=None,
     request_get=None,
     use_cache: bool = True,
 ) -> list[dict]:
     endpoint = _scoreboard_endpoint(competition)
-    key = f"{endpoint}|{start_date}-{end_date}"
+    key = f"{endpoint}|{dates}"
     cached = _scoreboard_cache.get(key) if use_cache else None
     if cached and time.time() - cached[0] < _SCOREBOARD_TTL:
         return cached[1]
-    resp = (request_get or requests.get)(endpoint, params={"dates": f"{start_date}-{end_date}"}, timeout=10)
+    resp = (request_get or requests.get)(endpoint, params={"dates": dates}, timeout=10)
     resp.raise_for_status()
     events = resp.json().get("events", []) or []
     _scoreboard_cache[key] = (time.time(), events)
@@ -152,18 +166,17 @@ def get_scoreboard(
     to_dt = today + timedelta(days=days_forward)
     events_by_id = {}
     resolved_competition = get_competition(competition)
-    # Preserve the existing single-window WC behavior. UCL windows are
-    # deliberately bounded because its season spans a much wider range.
-    effective_chunk_days = chunk_days if resolved_competition.id == "ucl2026" else days_back + days_forward + 1
-    cursor = from_dt
+    if resolved_competition.id == "ucl2026":
+        date_queries = [str(year) for year in range(from_dt.year, to_dt.year + 1)]
+    else:
+        # Keep the WC's existing single-range scoreboard request unchanged.
+        date_queries = [f"{from_dt:%Y%m%d}-{to_dt:%Y%m%d}"] if from_dt <= to_dt else []
     successful_windows = 0
     last_request_error = None
-    while cursor <= to_dt:
-        chunk_end = min(cursor + timedelta(days=effective_chunk_days - 1), to_dt)
+    for dates in date_queries:
         try:
-            events = _fetch_range(
-                cursor.strftime("%Y%m%d"),
-                chunk_end.strftime("%Y%m%d"),
+            events = _fetch_scoreboard_dates(
+                dates,
                 competition=competition,
                 request_get=request_get,
                 use_cache=use_cache,
@@ -171,13 +184,15 @@ def get_scoreboard(
             successful_windows += 1
         except requests.RequestException as exc:
             last_request_error = exc
-            cursor = chunk_end + timedelta(days=1)
             continue
         for event in events:
+            if resolved_competition.id == "ucl2026" and not _event_in_date_range(
+                event, from_dt, to_dt
+            ):
+                continue
             event_id = str(event.get("id", ""))
             if event_id:
                 events_by_id[event_id] = event
-        cursor = chunk_end + timedelta(days=1)
 
     if not successful_windows and last_request_error is not None:
         raise last_request_error
@@ -197,8 +212,10 @@ def get_scoreboard(
         if not home or not away:
             continue
 
-        home_name = _canon((home.get("team") or {}).get("displayName", ""))
-        away_name = _canon((away.get("team") or {}).get("displayName", ""))
+        home_team = home.get("team") or {}
+        away_team = away.get("team") or {}
+        home_name = _canon(home_team.get("displayName", ""))
+        away_name = _canon(away_team.get("displayName", ""))
         if not home_name or not away_name:
             continue
         # Skip undecided bracket slots (teams not yet known).
@@ -217,8 +234,8 @@ def get_scoreboard(
             "id": str(e.get("id", "")),
             "home_team": home_name,
             "away_team": away_name,
-            "home_logo": ((home.get("team") or {}).get("logos") or [{}])[0].get("href"),
-            "away_logo": ((away.get("team") or {}).get("logos") or [{}])[0].get("href"),
+            "home_logo": _team_logo(home_team),
+            "away_logo": _team_logo(away_team),
             "commence_time": e.get("date", ""),
             "round": round_name,
             "completed": is_final,

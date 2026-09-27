@@ -48,7 +48,7 @@ export function DashboardView() {
   return (
     <PageTransition>
       <div className="text-center">
-        <PageHeader title="Kommende Spiele" subtitle="Wähle ein Spiel für die vollständige Analyse" kicker="UCL 2026/27" />
+        <PageHeader title="Kommende Spiele" subtitle="Wähle ein Spiel für die vollständige Analyse" />
       </div>
 
       {/* Tab switcher — keeps past results out of the way */}

@@ -42,12 +42,19 @@ from src.services.auth import require_cron_secret
 from src.services.elo_sync import perform_elo_sync
 from src.services.prediction import PredictionService, infer_stage, rebuild_prediction, user_tip_is_open
 from src.services.ucl_simulation import _fixture_score, _fixture_teams, build_ucl_table
+from src.services.team_form import (
+    ApiFootballClient,
+    EspnTeamFormClient,
+    FailoverTeamFormClient,
+    TeamFormService,
+)
 from src.routes.matches import init_router as matches_router
 from src.routes.predict import init_router as predict_router
 from src.routes.custom_bot import init_router as custom_bot_router
 from src.routes.simulate import init_router as simulate_router
 from src.routes.maintenance import init_router as maintenance_router
 from src.routes.pool import init_router as pool_router
+from src.routes.elo_status import init_router as elo_status_router
 
 app = FastAPI(title="WM 2026 Predictor API")
 
@@ -156,9 +163,28 @@ math_engine = MathEngine(elo_csv_path, TEAM_MAPPING)
 prediction_service = PredictionService(math_engine)
 global_odds_engine = OddsApiEngine()
 scores_cache_path = os.path.join(_data_dir, 'scores_cache.json')
+_form_key = os.getenv("API_FOOTBALL_KEY", "").strip()
+if not _form_key or _form_key.lower() in {"your_key_here", "your_api_football_key", "placeholder", "replace_me"}:
+    _form_key = None
+_form_cache = cache_collections["ucl2026"]
+_form_primary = (
+    ApiFootballClient(_form_key, cache_collection=_form_cache, competition="ucl2026")
+    if _form_key else None
+)
+team_form_service = TeamFormService(
+    _form_cache,
+    FailoverTeamFormClient(
+        _form_primary,
+        EspnTeamFormClient(season=int(os.getenv("UCL_TEAM_FORM_SEASON", "2026"))),
+    ),
+    competition="ucl2026",
+)
 
 # ── Wire routers ─────────────────────────────────────────────
-app.include_router(matches_router(math_engine, global_odds_engine, cache_collections, archive_collections))
+app.include_router(matches_router(
+    math_engine, global_odds_engine, cache_collections, archive_collections,
+    team_form_service=team_form_service,
+))
 app.include_router(predict_router(math_engine, global_odds_engine, cache_collections, limiter, archive_collections))
 app.include_router(custom_bot_router(math_engine, archive_collections, custom_bot_collections, limiter))
 app.include_router(simulate_router(math_engine, cache_collections))
@@ -167,8 +193,10 @@ app.include_router(maintenance_router(
     global_odds_engine,
     archive_collections=archive_collections,
     math_engine=math_engine,
+    team_form_service=team_form_service,
 ))
 app.include_router(pool_router(cache_collections, archive_collections))
+app.include_router(elo_status_router(cache_collections))
 
 # ── Small endpoints (not worth extracting) ───────────────────
 

@@ -36,6 +36,7 @@ def run_maintenance(
     fixture_fetcher=None,
     clubelo_ingestor=None,
     math_engine=None,
+    team_form_service=None,
 ) -> dict:
     """Capture due odds buckets with at most one bulk provider call.
 
@@ -45,7 +46,10 @@ def run_maintenance(
     """
     comp = get_competition(competition)
     if force:
-        return {"status": "noop", "reason": "force_disabled", "provider_calls": 0, "mutated": False}
+        result = {"status": "noop", "reason": "force_disabled", "provider_calls": 0, "mutated": False}
+        if comp.id == "ucl2026":
+            result["team_form_status"] = {"status": "skipped", "reason": "force_disabled"}
+        return result
     cache_collection = collection_for(cache_collections, comp)
     current = parse_time(now or datetime.now(timezone.utc))
     lease_id = competition_document_id(comp, "maintenance_lease")
@@ -68,7 +72,10 @@ def run_maintenance(
         except (TypeError, ValueError):
             expiry = current
         if expiry > current:
-            return {"status": "skipped", "reason": "lease_held", "provider_calls": 0, "mutated": False, "buckets": []}
+            result = {"status": "skipped", "reason": "lease_held", "provider_calls": 0, "mutated": False, "buckets": []}
+            if comp.id == "ucl2026":
+                result["team_form_status"] = {"status": "skipped", "reason": "lease_held"}
+            return result
         result = cache_collection.update_one(
             {"_id": lease_id, "lease_until": existing.get("lease_until")},
             {"$set": {key: value for key, value in lease.items() if key != "_id"}},
@@ -82,11 +89,22 @@ def run_maintenance(
         else:
             owns_lease = True
     if not owns_lease:
-        return {"status": "skipped", "reason": "lease_held", "provider_calls": 0, "mutated": False, "buckets": []}
+        result = {"status": "skipped", "reason": "lease_held", "provider_calls": 0, "mutated": False, "buckets": []}
+        if comp.id == "ucl2026":
+            result["team_form_status"] = {"status": "skipped", "reason": "lease_held"}
+        return result
 
     fixture_status = {"status": "fresh", "source": "cache", "observed_at": current.isoformat()}
     clubelo_status = None
+    team_form_status = None
     try:
+        if comp.id == "ucl2026":
+            team_form_status = {"status": "unavailable", "source": "api_football", "error": "team form service unavailable"}
+            if team_form_service is not None:
+                try:
+                    team_form_status = team_form_service.refresh_daily(now=current)
+                except Exception as exc:
+                    team_form_status = {"status": "stale", "source": "api_football", "error": str(exc), "observed_at": current.isoformat()}
         if fixture_fetcher is not None:
             fixture_status = _refresh_fixtures(cache_collection, comp, fixture_fetcher, current)
         if comp.id == "ucl2026" and clubelo_ingestor is not None:
@@ -95,16 +113,17 @@ def run_maintenance(
         archived_results = 0
         reconstructed_results = 0
         snapshot_predictions = 0
+        predictions_updated = 0
+        rows = (clubelo_status or {}).get("rows") or []
+        if comp.id == "ucl2026" and math_engine is not None and rows:
+            import pandas as pd
+            math_engine.elo_df = pd.DataFrame(rows)
         if archive_collections is not None:
             archive_collection = collection_for(archive_collections, comp)
             archived_results = _sync_completed_results(
                 archive_collection, fixtures, comp
             )
             if comp.id == "ucl2026" and math_engine is not None:
-                rows = (clubelo_status or {}).get("rows") or []
-                if rows:
-                    import pandas as pd
-                    math_engine.elo_df = pd.DataFrame(rows)
                 archive = load_archive_from_db(archive_collection, force=True)
                 changed_entries = {}
                 reconstructed_results, snapshot_predictions = _reconstruct_completed_entries(
@@ -130,7 +149,25 @@ def run_maintenance(
                 all_due.extend(due)
         discovery_due = _discovery_due(cache_collection, comp, current)
         if not due_by_event and not discovery_due:
-            return {"status": "idle", "provider_calls": 0, "mutated": bool(archived_results or reconstructed_results or snapshot_predictions), "buckets": [], "fixture_status": fixture_status, "clubelo_status": clubelo_status, "archived_results": archived_results, "reconstructed_results": reconstructed_results, "snapshot_predictions": snapshot_predictions}
+            predictions_updated = _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
+            return {
+                "status": "idle",
+                "provider_calls": 0,
+                "mutated": bool(
+                    (comp.id == "ucl2026" and fixture_status.get("changed"))
+                    or archived_results
+                    or reconstructed_results
+                    or snapshot_predictions
+                    or predictions_updated
+                ),
+                "buckets": [],
+                "fixture_status": fixture_status,
+                "clubelo_status": clubelo_status,
+                **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
+                "archived_results": archived_results,
+                "reconstructed_results": reconstructed_results,
+                "snapshot_predictions": snapshot_predictions,
+            }
 
         try:
             quotes = _bulk_quotes(odds_provider, comp)
@@ -141,6 +178,9 @@ def run_maintenance(
                 for bucket in due[:-1]:
                     mark_bucket(cache_collection, comp, event_id, bucket, status="unavailable", observed_at=current, error="missed")
                 mark_bucket(cache_collection, comp, event_id, due[-1], status="failed", observed_at=current, error=str(exc))
+            predictions_updated = _persist_ucl_predictions(
+                cache_collection, comp, math_engine, clubelo_status
+            )
             return {
                 "status": "failed",
                 "source": "odds_api",
@@ -151,6 +191,7 @@ def run_maintenance(
                 "buckets": sorted(set(all_due), key=lambda item: list(_bucket_order()).index(item)),
                 "fixture_status": fixture_status,
                 "clubelo_status": clubelo_status,
+                **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
@@ -187,6 +228,7 @@ def run_maintenance(
                 mark_bucket(cache_collection, comp, event_id, observed_bucket, status="fresh" if odds else "unavailable", observed_at=current)
                 if odds:
                     _store_fixture_odds(cache_collection, comp, event_id, odds, match, current)
+        _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
         return {
             "status": "success",
             "provider_calls": 1,
@@ -195,6 +237,7 @@ def run_maintenance(
             "events": len(due_by_event),
             "fixture_status": fixture_status,
             "clubelo_status": clubelo_status,
+            **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
             "archived_results": archived_results,
             "reconstructed_results": reconstructed_results,
             "snapshot_predictions": snapshot_predictions,
@@ -207,6 +250,89 @@ def run_maintenance(
 def _fixtures(cache_collection, competition) -> list[dict]:
     document = find_competition_document(cache_collection, competition, "matches_cache") or {}
     return document.get("data") or []
+
+
+def _persist_ucl_predictions(cache_collection, competition, math_engine, clubelo_status) -> int:
+    """Persist open UCL fixture predictions for cache-only public reads and simulation."""
+    comp = get_competition(competition)
+    if comp.id != "ucl2026" or math_engine is None:
+        return 0
+    if not isinstance(clubelo_status, dict) or clubelo_status.get("status") not in {"fresh", "stale"}:
+        return 0
+    document = find_competition_document(cache_collection, comp, "matches_cache") or {}
+    fixtures = document.get("data")
+    if not isinstance(fixtures, list) or not fixtures:
+        return 0
+
+    # Reuse the same enrichment path as match presentation. This runs only
+    # inside authenticated maintenance; public cache reads remain read-only.
+    from src.routes.matches import _enrich_edge, _is_completed_match
+    from src.services.ucl_simulation import _normalised_matrix_dict
+
+    prediction_fields = (
+        "model_tip", "top_tip", "pool_tip", "pool_status", "status", "source_status",
+        "source", "observed_at", "source_mode", "model_version", "input_provenance",
+        "provenance", "xg_home", "xg_away", "probabilities", "matrix", "score_matrix", "max_xp",
+        "context", "match_context", "elo_home_share", "market_home_share", "edge_home",
+    )
+    originals = {
+        str(match.get("id") or match.get("event_id")): dict(match)
+        for match in fixtures
+        if isinstance(match, dict) and (match.get("id") or match.get("event_id"))
+    }
+    matches = [
+        match for match in fixtures
+        if isinstance(match, dict) and not _is_completed_match(match)
+    ]
+    if not matches:
+        return 0
+    _enrich_edge(matches, math_engine, None, comp, cache_collection)
+
+    updated = 0
+    for match in matches:
+        match_id = str(match.get("id") or match.get("event_id") or "")
+        original = originals.get(match_id) or {}
+        previous = {key: original[key] for key in prediction_fields if key in original}
+        previous_matrix = previous.get("matrix")
+        if _normalised_matrix_dict(previous_matrix) is None:
+            previous_matrix = previous.get("score_matrix")
+        if (
+            previous
+            and _normalised_matrix_dict(match.get("matrix")) is None
+            and _normalised_matrix_dict(previous_matrix) is not None
+        ):
+            # Keep a previously produced model payload intact if this refresh
+            # cannot produce a replacement matrix from the available inputs.
+            for key in prediction_fields:
+                if key in previous:
+                    if key == "matrix" and _normalised_matrix_dict(previous.get(key)) is None:
+                        match.pop(key, None)
+                        continue
+                    match[key] = previous[key]
+                else:
+                    match.pop(key, None)
+        if match != original:
+            updated += 1
+
+    if updated:
+        cache_collection.update_one(
+            {"_id": competition_document_id(comp, "matches_cache")},
+            {"$set": {"data": fixtures}},
+            upsert=True,
+        )
+        _invalidate_ucl_simulation_cache(cache_collection, comp)
+    return updated
+
+
+def _invalidate_ucl_simulation_cache(cache_collection, competition) -> None:
+    comp = get_competition(competition)
+    if comp.id != "ucl2026":
+        return
+    cache_collection.update_one(
+        {"_id": competition_document_id(comp, "ucl_simulation")},
+        {"$set": {"timestamp": 0}},
+        upsert=False,
+    )
 
 
 def _discovery_due(cache_collection, competition, current: datetime) -> bool:
@@ -262,9 +388,10 @@ def _refresh_fixtures(cache_collection, competition, fetcher, current) -> dict:
     except Exception as exc:
         return {"status": "failed", "source": "espn", "observed_at": current.isoformat(), "error": str(exc)}
     existing_document = find_competition_document(cache_collection, comp, "matches_cache") or {}
+    previous_data = existing_document.get("data") or []
     existing = {
         str(item.get("id") or item.get("event_id")): dict(item)
-        for item in existing_document.get("data", [])
+        for item in previous_data
         if isinstance(item, dict) and (item.get("id") or item.get("event_id"))
     }
     for fixture in fixtures:
@@ -293,6 +420,7 @@ def _refresh_fixtures(cache_collection, competition, fetcher, current) -> dict:
         match.setdefault("source", "cache")
         existing[event_id] = match
     data = sorted(existing.values(), key=lambda item: item.get("commence_time", ""))
+    changed = data != previous_data
     cache_collection.update_one(
         {"_id": competition_document_id(comp, "matches_cache")},
         {"$set": {
@@ -305,7 +433,15 @@ def _refresh_fixtures(cache_collection, competition, fetcher, current) -> dict:
         }},
         upsert=True,
     )
-    return {"status": "fresh", "source": "espn", "observed_at": current.isoformat(), "fixtures": len(data)}
+    if changed:
+        _invalidate_ucl_simulation_cache(cache_collection, comp)
+    return {
+        "status": "fresh",
+        "source": "espn",
+        "observed_at": current.isoformat(),
+        "fixtures": len(data),
+        "changed": changed,
+    }
 
 
 def _bulk_quotes(provider, competition):

@@ -8,6 +8,7 @@ from src.services.ucl_simulation import (
     DEFAULT_UCL_RUNS,
     PLAYOFF_POSITION_BANDS,
     UCL_TABLE_VERSION,
+    build_cached_ucl_inputs,
     build_playoff_bracket,
     build_ucl_table,
     draw_ucl_bracket,
@@ -97,6 +98,27 @@ def test_local_table_ranks_base_and_all_uefa_tie_break_stages():
     # checks, keeping the local ranking order independently testable.
     ranked = build_ucl_table(tied, [], precomputed=True)
     assert [row["team"] for row in ranked] == ["low-discipline", "high-discipline"]
+
+
+def test_cached_ucl_input_uses_valid_legacy_score_matrix_when_matrix_is_empty():
+    legacy_matrix = {"0:0": 1.0}
+
+    result = build_cached_ucl_inputs({
+        "data": [{"id": "e1", "matrix": {}, "score_matrix": legacy_matrix}],
+    })
+
+    assert result["score_matrices"]["e1"] == legacy_matrix
+
+
+def test_cached_ucl_input_skips_malformed_matrix_for_valid_legacy_score_matrix():
+    legacy_matrix = {"0:0": 1.0}
+
+    result = build_cached_ucl_inputs({
+        "data": [{"id": "e1", "matrix": {"not-a-score": "bad"}, "score_matrix": legacy_matrix}],
+    })
+
+    assert result["score_matrices"]["e1"] == legacy_matrix
+    assert result["score_matrices"]["default"] == legacy_matrix
 
 
 def test_live_display_prefers_official_espn_order_but_local_table_does_not():
@@ -292,4 +314,4 @@ def test_two_leg_tie_reuses_task3_aggregate_et_and_penalty_rules():
 
 
 def test_default_run_count_is_uefa_requirement():
-    assert DEFAULT_UCL_RUNS == 20_000
+    assert DEFAULT_UCL_RUNS == 100

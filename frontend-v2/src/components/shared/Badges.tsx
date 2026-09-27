@@ -25,18 +25,31 @@ const FORM_STYLE: Record<string, string> = {
 }
 
 export function FormBadges({ form, className }: { form?: TeamForm; className?: string }) {
-  if (!form?.form?.length) return null
+  if (!form) return null
+  if (!form.form?.length) {
+    if (!form.status) return null
+    return <span className={cn('text-[10px] font-semibold text-fg-3', className)}>Form nicht verfügbar</span>
+  }
+  const resultWord = { W: 'Sieg', D: 'Unentschieden', L: 'Niederlage' } as const
+  const visible = form.form.slice(-5)
+  const label = `Letzte Spiele: ${visible.map((result) => resultWord[result]).join(', ')}`
   return (
-    <span className={cn('inline-flex items-center gap-0.5', className)}>
-      {form.form.slice(-5).map((r, i) => (
+    <span
+      className={cn('inline-flex items-center gap-0.5', className)}
+      aria-label={label}
+      title={form.status === 'stale' ? `${label} · möglicherweise veraltet` : label}
+    >
+      {visible.map((r, i) => (
         <span
           key={i}
+          aria-hidden="true"
           className={cn('flex h-4 w-4 items-center justify-center rounded text-[9px] font-extrabold', FORM_STYLE[r])}
         >
           {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
         </span>
       ))}
       {form.on_fire && <span title="On fire" className="ml-0.5 text-[11px]">🔥</span>}
+      {form.status === 'stale' && <span aria-hidden="true" className="ml-0.5 text-[9px] text-amber-a">*</span>}
     </span>
   )
 }

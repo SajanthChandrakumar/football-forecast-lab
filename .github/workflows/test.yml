@@ -35,6 +35,10 @@ jobs:
         working-directory: frontend-v2
         run: npm ci
 
+      - name: Frontend unit tests
+        working-directory: frontend-v2
+        run: node --test tests/*.test.mjs
+
       - name: Frontend typecheck
         working-directory: frontend-v2
         run: npm run typecheck

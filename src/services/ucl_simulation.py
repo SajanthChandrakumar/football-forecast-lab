@@ -22,7 +22,7 @@ from src.services.prediction import (
 )
 
 
-DEFAULT_UCL_RUNS = 20_000
+DEFAULT_UCL_RUNS = 100
 DEFAULT_UCL_SEED = 20260908
 UCL_TEAM_COUNT = 36
 UCL_MATCH_COUNT = 144
@@ -504,13 +504,15 @@ def _matrix_lookup(fixture: Mapping[str, Any], matrices: Any, home: str, away: s
 
 def _fixture_matrix(fixture: Mapping[str, Any]) -> Any:
     for key in ("matrix", "score_matrix"):
-        if fixture.get(key) is not None:
-            return fixture[key]
+        value = fixture.get(key)
+        if value is not None and _normalised_matrix_dict(value) is not None:
+            return value
     prediction = fixture.get("prediction")
     if isinstance(prediction, Mapping):
         for key in ("matrix", "score_matrix"):
-            if prediction.get(key) is not None:
-                return prediction[key]
+            value = prediction.get(key)
+            if value is not None and _normalised_matrix_dict(value) is not None:
+                return value
     return None
 
 

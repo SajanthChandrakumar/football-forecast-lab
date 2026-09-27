@@ -235,6 +235,79 @@ def test_clubelo_304_still_supplements_new_fixture_teams():
     assert {row["team"] for row in document["rows"]} == {"Arsenal", "AEK"}
 
 
+def test_failed_clubelo_refresh_persists_stale_status_and_attempt_time():
+    last_good = "2026-09-20T08:00:00+00:00"
+    attempt = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
+    rows = [
+        {"team": "Bayern Munich", "team_name": "Bayern Munich", "elo": 1900.0, "elo_rating": 1900.0},
+        {"team": "Arsenal", "team_name": "Arsenal", "elo": 2039.0, "elo_rating": 2039.0},
+    ]
+    provenance = {
+        "source": "clubelo",
+        "url": CLUBELO_URL,
+        "observed_at": last_good,
+        "etag": "last-good-etag",
+    }
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "clubelo_ratings"),
+        "competition": "ucl2026",
+        "status": "fresh",
+        "source": "clubelo",
+        "observed_at": last_good,
+        "rows": rows,
+        "provenance": provenance,
+        "etag": "last-good-etag",
+    }, {
+        "_id": competition_document_id("ucl2026", "elo_ratings"),
+        "competition": "ucl2026",
+        "status": "fresh",
+        "source": "clubelo",
+        "observed_at": last_good,
+        "rows": rows,
+        "provenance": provenance,
+    }, {
+        "_id": competition_document_id("ucl2026", "matches_cache"),
+        "data": [{
+            "id": "freshness-check",
+            "home_team": "Bayern Munich",
+            "away_team": "Arsenal",
+            "commence_time": "2026-10-01T19:00:00Z",
+            "odds": {},
+        }],
+    }])
+
+    def failed_request(*_args, **_kwargs):
+        raise RuntimeError("ClubElo is temporarily unavailable")
+
+    returned = ingest_clubelo(
+        cache,
+        competition="ucl2026",
+        observed_at=attempt,
+        request_get=failed_request,
+    )
+
+    for key in ("clubelo_ratings", "elo_ratings"):
+        stored = cache.find_one({"_id": competition_document_id("ucl2026", key)})
+        assert stored["status"] == "stale"
+        assert stored["observed_at"] == attempt.isoformat()
+        assert stored["error"] == "ClubElo is temporarily unavailable"
+        assert stored["rows"] == rows
+        assert stored["provenance"]["observed_at"] == last_good
+    assert returned["status"] == "stale"
+    assert returned["rows"] == rows
+
+    match = {"id": "freshness-check", "home_team": "Bayern Munich", "away_team": "Arsenal", "odds": {}}
+    enriched = _enrich_edge(
+        [match],
+        MathEngine("data/elo_ratings.csv"),
+        None,
+        competition="ucl2026",
+        pool_context_collection=cache,
+    )[0]
+    assert enriched["status"] == "stale"
+    assert enriched["input_provenance"]["elo"]["status"] == "stale"
+
+
 @pytest.mark.parametrize("include_due_fixture", [False, True])
 def test_ucl_daily_discovery_uses_one_h2h_totals_bulk_call(include_due_fixture):
     now = datetime(2026, 9, 10, 12, tzinfo=timezone.utc)

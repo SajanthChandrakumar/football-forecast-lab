@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMatches, usePoolContext, usePredict, useSavePoolContext, useSaveUserTip } from '../../hooks/queries'
 import { computeImpliedProbs, pct, flag, cn } from '../../lib/util'
-import type { BotKey, Match } from '../../lib/types'
+import { shortDate } from '../../lib/format'
+import type { BotKey, Match, TeamForm } from '../../lib/types'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { FormBadges, TeamLogo } from '../../components/shared/Badges'
 import { MatchHintCard } from '../../components/shared/MatchHintCard'
@@ -15,6 +16,49 @@ const BOT_META: Record<BotKey, { label: string; color: string }> = {
   professor: { label: 'Professor', color: 'var(--emerald)' },
   sniper: { label: 'X-Sniper', color: 'var(--purple)' },
   gambler: { label: 'Zocker', color: 'var(--text-2)' },
+}
+
+function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
+  if (!form?.status && !form?.matches?.length) return null
+  const items = form?.matches?.slice(0, 5) ?? []
+  const sourceLabel = form?.source === 'espn+fotmob'
+    ? 'ESPN + FotMob'
+    : form?.source === 'espn'
+      ? 'ESPN'
+      : form?.source === 'api_football'
+        ? 'API-Football'
+        : form?.source
+  return (
+    <section className="rounded-xl border border-line bg-surface p-3 text-left">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-bold text-fg">{team}</h3>
+          <p className="text-[10px] text-fg-3">
+            Letzte Pflichtspiele · alle Wettbewerbe{sourceLabel ? ` · Quelle: ${sourceLabel}` : ''}
+          </p>
+        </div>
+        {form?.status === 'stale' && <span className="text-[10px] font-semibold text-amber-a">Stand möglicherweise veraltet</span>}
+      </div>
+      {items.length ? (
+        <ul className="mt-3 space-y-2">
+          {items.map((item) => (
+            <li key={item.fixture_id} className="rounded-lg bg-surface-2 px-2.5 py-2 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate font-semibold text-fg">{item.opponent_name}</span>
+                <span className="shrink-0 font-bold tabular-nums text-fg">{item.score}</span>
+              </div>
+              <div className="mt-0.5 flex flex-wrap justify-between gap-x-2 text-[10px] text-fg-3">
+                <span>{item.competition_name} · {item.venue === 'home' ? 'Heim' : 'Auswärts'}</span>
+                <span>{shortDate(item.played_at)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-xs font-semibold text-fg-3">Form nicht verfügbar</p>
+      )}
+    </section>
+  )
 }
 
 export function DetailView() {
@@ -185,6 +229,10 @@ export function DetailView() {
                 <div className="mt-2 flex justify-center"><FormBadges form={form} /></div>
               </div>
             ))}
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <TeamFormHistory team={match.home_team} form={match.home_form} />
+            <TeamFormHistory team={match.away_team} form={match.away_form} />
           </div>
         </GlassCard>
 

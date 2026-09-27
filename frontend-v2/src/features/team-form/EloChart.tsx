@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
+import { teamsWithoutHistory } from '../../lib/team-form.mjs'
 import type { EloHistory } from '../../lib/types'
 import type { MatchInfo } from './useTeamFormData'
 
@@ -51,35 +52,48 @@ const RESULT_LABEL = { W: 'S', D: 'U', L: 'N' } as const
 
 export function EloChart({ teams, history, matchInfo }: Props) {
   const rows = useMemo(() => buildRows(teams, history), [teams, history])
+  const currentOnly = useMemo(() => teamsWithoutHistory(teams, history), [teams, history])
 
   if (teams.length === 0) {
     return <p className="py-10 text-center text-sm text-fg-3">Wähle bis zu 4 Teams für den Vergleich.</p>
   }
 
   return (
-    <div className="h-80">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
-          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="label" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'var(--border)' }} />
-          <YAxis domain={['auto', 'auto']} tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
-          <Tooltip content={<EloTooltip matchInfo={matchInfo} />} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
-          {teams.map((t, i) => (
-            <Line
-              key={t}
-              type="monotone"
-              dataKey={t}
-              stroke={LINE_COLORS[i % LINE_COLORS.length]}
-              strokeWidth={2.5}
-              dot={{ r: 3, strokeWidth: 0, fill: LINE_COLORS[i % LINE_COLORS.length] }}
-              activeDot={{ r: 5 }}
-              connectNulls
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <>
+      {currentOnly.length > 0 && (
+        <p className="mb-3 text-xs leading-relaxed text-fg-3">
+          Nur die aktuelle Elo-Bewertung liegt vor für {currentOnly.join(', ')}; ein historischer Verlauf ist nicht verfügbar.
+        </p>
+      )}
+      {rows.length > 0 && (
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'var(--border)' }} />
+              <YAxis domain={['auto', 'auto']} tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
+              <Tooltip content={<EloTooltip matchInfo={matchInfo} />} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {teams.map((t, i) => (
+                <Line
+                  key={t}
+                  type="monotone"
+                  dataKey={t}
+                  stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                  strokeWidth={2.5}
+                  dot={{ r: 3, strokeWidth: 0, fill: LINE_COLORS[i % LINE_COLORS.length] }}
+                  activeDot={{ r: 5 }}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      {rows.length === 0 && currentOnly.length === 0 && (
+        <p className="py-10 text-center text-sm text-fg-3">Für die Auswahl liegen keine historischen Elo-Daten vor.</p>
+      )}
+    </>
   )
 }
 

@@ -24,9 +24,29 @@ export interface Probabilities {
   away: number
 }
 
+export type TeamFormStatus = 'fresh' | 'stale' | 'unavailable'
+
+export interface TeamFormMatch {
+  fixture_id: string
+  played_at: string
+  competition_name: string
+  opponent_id?: string
+  opponent_name: string
+  venue: 'home' | 'away'
+  goals_for?: number
+  goals_against?: number
+  score: string
+  result: 'W' | 'D' | 'L'
+}
+
 export interface TeamForm {
   form: ('W' | 'D' | 'L')[]
   on_fire: boolean
+  status?: TeamFormStatus
+  source?: string
+  observed_at?: string | null
+  error?: string | null
+  matches?: TeamFormMatch[]
 }
 
 export interface BotTip {
@@ -207,6 +227,19 @@ export interface EloHistoryPoint {
 export type EloHistory = Record<string, EloHistoryPoint[]>
 
 export type EloRatings = Record<string, { team_code?: string; elo: number }>
+
+export interface EloRatingsStatus {
+  status: 'fresh' | 'stale' | 'failed' | 'unavailable'
+  source: string
+  observed_at?: string | null
+  error?: string | null
+  coverage?: {
+    required: number
+    available: number
+    missing: string[]
+    errors?: Record<string, string>
+  } | null
+}
 
 export interface Quota {
   odds: { remaining: string | number; used: string | number }

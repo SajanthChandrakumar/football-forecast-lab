@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useMatches } from '../../hooks/queries'
 import { cn } from '../../lib/util'
@@ -6,13 +6,20 @@ import { PageTransition, PageHeader } from '../../components/shared/PageTransiti
 import { FixtureListSkeleton } from '../../components/shared/Skeleton'
 import { RankBadge } from '../../components/shared/Badges'
 import { FixtureRow } from '../dashboard/FixtureRow'
+import { rankUpcomingValueBets } from '../../lib/value-bets.mjs'
 
 export function ValueBetsView() {
   const { data: matches, isLoading } = useMatches()
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const clock = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(clock)
+  }, [])
 
   const ranked = useMemo(
-    () => (matches ?? []).filter((m) => m.max_xp > 0).sort((a, b) => b.max_xp - a.max_xp),
-    [matches],
+    () => rankUpcomingValueBets(matches, now),
+    [matches, now],
   )
 
   return (

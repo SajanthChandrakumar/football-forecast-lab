@@ -163,6 +163,31 @@ def _required_ucl_clubs(cache_collection, competition) -> set[str]:
     }
 
 
+def _rating_teams(rows: list[dict]) -> set[str]:
+    return {
+        TEAM_MAPPING.get(str(row.get("team") or row.get("team_name") or ""), str(row.get("team") or row.get("team_name") or ""))
+        for row in rows
+        if isinstance(row, dict) and (row.get("team") or row.get("team_name"))
+    }
+
+
+def _persist_clubelo(cache_collection, document: dict) -> None:
+    comp = get_competition(document.get("competition"))
+    provider_id = competition_document_id(comp, "clubelo_ratings")
+    compatibility_id = competition_document_id(comp, "elo_ratings")
+    provider_values = {key: value for key, value in document.items() if key != "_id"}
+    compatibility_values = {
+        key: document.get(key)
+        for key in ("competition", "status", "source", "observed_at", "error", "rows", "coverage", "provenance")
+    }
+    for document_id, values in ((provider_id, provider_values), (compatibility_id, compatibility_values)):
+        cache_collection.update_one(
+            {"_id": document_id},
+            {"$set": values, "$setOnInsert": {"_id": document_id}},
+            upsert=True,
+        )
+
+
 def ingest_clubelo(
     cache_collection,
     competition=None,
@@ -182,18 +207,22 @@ def ingest_clubelo(
     previous = find_competition_document(cache_collection, comp, key) or find_competition_document(
         cache_collection, comp, "elo_ratings"
     ) or {}
+    required = _required_ucl_clubs(cache_collection, comp) if comp.id == "ucl2026" else set()
+    previous_rows = [dict(row) for row in previous.get("rows", []) if isinstance(row, dict)]
+    previous_complete = bool(required) and required.issubset(_rating_teams(previous_rows))
     observed = (observed_at or datetime.now(timezone.utc)).isoformat()
     source_url = url or CLUBELO_URL
     getter = request_get or requests.get
     try:
+        if comp.id == "ucl2026" and not required:
+            raise ValueError("UCL fixture coverage is unavailable; ClubElo ratings cannot be validated")
         response = getter(source_url, timeout=10, headers=_conditional_headers(previous))
         response.raise_for_status()
         not_modified = getattr(response, "status_code", None) == 304 and previous.get("rows")
-        rows = [dict(row) for row in previous.get("rows", [])] if not_modified else parse_clubelo_html(getattr(response, "text", ""))
+        rows = previous_rows if not_modified else parse_clubelo_html(getattr(response, "text", ""))
         if not rows:
             raise ValueError("ClubElo ranking page contained no ratings")
-        required = _required_ucl_clubs(cache_collection, comp) if comp.id == "ucl2026" else set()
-        present = {row["team"] for row in rows}
+        present = _rating_teams(rows)
         page_errors = {}
         base_url = source_url.rsplit("/", 1)[0]
         for team in sorted(required - present):
@@ -213,67 +242,88 @@ def ingest_clubelo(
                 present.add(team)
             except Exception as exc:
                 page_errors[team] = str(exc)
+        present = _rating_teams(rows)
         missing = sorted(required - present)
-        document = {
-            "_id": cache_id,
-            "competition": comp.id,
-            "status": "fresh",
-            "source": "clubelo",
-            "observed_at": observed,
-            "rows": rows,
-            "coverage": {
-                "required": len(required),
-                "available": len(required & present),
-                "missing": missing,
-                "errors": page_errors,
-            },
-            "provenance": {
+        coverage = {
+            "required": len(required),
+            "available": len(required & present),
+            "missing": missing,
+            "errors": page_errors,
+        }
+        if missing:
+            error = f"ClubElo snapshot is incomplete; missing current ratings for: {', '.join(missing)}"
+            if previous_complete:
+                status = "stale"
+                rows = previous_rows
+                provenance = previous.get("provenance") or {
+                    "source": "clubelo", "url": source_url, "observed_at": previous.get("observed_at"),
+                }
+            else:
+                status = "failed"
+                rows = []
+                provenance = {"source": "clubelo", "url": source_url, "observed_at": observed}
+        else:
+            status = "fresh"
+            error = None
+            provenance = {
                 "source": "clubelo",
                 "url": source_url,
                 "observed_at": observed,
                 "etag": _header(response, "etag") or previous.get("etag"),
                 "last_modified": _header(response, "last-modified") or (previous.get("provenance") or {}).get("last_modified"),
-            },
-            "etag": _header(response, "etag") or previous.get("etag"),
-        }
-        cache_collection.update_one(
-            {"_id": cache_id},
-            {
-                "$set": {key: value for key, value in document.items() if key != "_id"},
-                "$setOnInsert": {"_id": cache_id},
-            },
-            upsert=True,
-        )
-        # Keep the existing read-only Elo endpoint compatible while retaining
-        # the provider-specific document as the provenance contract.
-        cache_collection.update_one(
-            {"_id": competition_document_id(comp, "elo_ratings")},
-            {"$set": {
-                "competition": comp.id,
-                "status": document["status"],
-                "source": document["source"],
-                "observed_at": document["observed_at"],
-                "rows": rows,
-                "provenance": document["provenance"],
-            }, "$setOnInsert": {"_id": competition_document_id(comp, "elo_ratings")}},
-            upsert=True,
-        )
-        return document
-    except Exception as exc:
-        if previous.get("rows"):
-            document = dict(previous)
-            document.update({"status": "stale", "error": str(exc), "observed_at": observed})
-            return document
-        return {
+            }
+        document = {
             "_id": cache_id,
             "competition": comp.id,
-            "status": "failed",
+            "status": status,
             "source": "clubelo",
             "observed_at": observed,
-            "rows": [],
-            "error": str(exc),
-            "provenance": {"source": "clubelo", "url": source_url, "observed_at": observed},
+            "error": error,
+            "rows": rows,
+            "coverage": coverage,
+            "provenance": provenance,
+            "etag": _header(response, "etag") or previous.get("etag"),
         }
+        _persist_clubelo(cache_collection, document)
+        return document
+    except Exception as exc:
+        if previous_complete:
+            rows = previous_rows
+            status = "stale"
+            coverage = previous.get("coverage") or {
+                "required": len(required), "available": len(required), "missing": [], "errors": {},
+            }
+            provenance = previous.get("provenance") or {
+                "source": "clubelo", "url": source_url, "observed_at": previous.get("observed_at"),
+            }
+        else:
+            rows = []
+            status = "failed"
+            known = _rating_teams(previous_rows)
+            coverage = {
+                "required": len(required),
+                "available": len(required & known),
+                "missing": sorted(required - known),
+                "errors": {"provider": str(exc)},
+            }
+            provenance = {"source": "clubelo", "url": source_url, "observed_at": observed}
+        document = {
+            "_id": cache_id,
+            "competition": comp.id,
+            "status": status,
+            "source": "clubelo",
+            "observed_at": observed,
+            "rows": rows,
+            "error": str(exc),
+            "coverage": coverage,
+            "provenance": provenance,
+            "etag": previous.get("etag"),
+        }
+
+        # Keep both the provider contract and the compatibility Elo document
+        # truthful after a failed refresh; enrichment reads the latter.
+        _persist_clubelo(cache_collection, document)
+        return document
 
 
 def _conditional_headers(previous: dict) -> dict:

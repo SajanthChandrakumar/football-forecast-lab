@@ -22,6 +22,7 @@ from src.services.ucl_providers import (
 from src.odds_engine import OddsApiEngine
 from src.odds_engine_apifootball import OddsApiEngine as ApiFootballOddsEngine
 from src.routes.matches import build_elo_snapshot
+from src.routes.elo_status import init_router as elo_status_router
 
 
 class DuplicateKeyError(Exception):
@@ -104,9 +105,9 @@ def _event(event_id, date):
     }
 
 
-def test_ucl_espn_windows_are_bounded_and_deduplicated(monkeypatch):
+def test_ucl_espn_uses_calendar_years_filters_dates_and_deduplicates(monkeypatch):
     calls = []
-    base = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 12, 31, tzinfo=timezone.utc)
 
     class Response:
         def __init__(self, payload):
@@ -120,34 +121,82 @@ def test_ucl_espn_windows_are_bounded_and_deduplicated(monkeypatch):
 
     def fake_get(url, params, timeout):
         calls.append((url, params, timeout))
-        start = params["dates"][:8]
-        if start == "20260901":
-            return Response({"events": [_event("same", "2026-09-05T18:00:00Z")]})
         return Response({"events": [
-            _event("same", "2026-09-05T18:00:00Z"),
-            _event("other", "2026-09-10T18:00:00Z"),
+            _event("before", "2026-12-29T18:00:00Z"),
+            _event("same", "2026-12-30T18:00:00Z"),
+            _event("other", "2027-01-01T18:00:00Z"),
+            _event("after", "2027-01-03T18:00:00Z"),
         ]})
 
     monkeypatch.setattr(espn_data.requests, "get", fake_get)
     events = espn_data.get_scoreboard(
         competition="ucl2026",
-        days_back=0,
-        days_forward=10,
+        days_back=1,
+        days_forward=2,
         now=base,
-        chunk_days=7,
         use_cache=False,
     )
 
-    assert {event["id"] for event in events} == {"same", "other"}
     assert len(calls) == 2
-    assert calls[0][1]["dates"] == "20260901-20260907"
-    assert calls[1][1]["dates"] == "20260908-20260911"
-    assert all((int(call[1]["dates"][8:]) - int(call[1]["dates"][:8])) <= 7 for call in calls)
+    assert [call[1]["dates"] for call in calls] == ["2026", "2027"]
     assert all("uefa.champions" in call[0] for call in calls)
+    assert [event["id"] for event in events] == ["same", "other"]
 
 
-def test_ucl_espn_keeps_successful_windows_when_one_window_fails():
-    base = datetime(2026, 9, 1, tzinfo=timezone.utc)
+def test_wc_espn_keeps_its_single_range_request(monkeypatch):
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"events": []}
+
+    def fake_get(url, params, timeout):
+        calls.append(params["dates"])
+        return Response()
+
+    espn_data.get_scoreboard(
+        competition="wc2026",
+        days_back=2,
+        days_forward=3,
+        now=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        request_get=fake_get,
+        use_cache=False,
+    )
+
+    assert calls == ["20260830-20260904"]
+
+
+def test_espn_parses_current_and_legacy_team_logo_fields(monkeypatch):
+    event = _event("logos", "2026-09-01T18:00:00Z")
+    competitors = event["competitions"][0]["competitors"]
+    competitors[0]["team"].update({"logo": "https://img.example/home.png"})
+    competitors[1]["team"].update({"logos": [{"href": "https://img.example/away.png"}]})
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"events": [event]}
+
+    result = espn_data.get_scoreboard(
+        competition="wc2026",
+        days_back=0,
+        days_forward=0,
+        now=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        request_get=lambda *args, **kwargs: Response(),
+        use_cache=False,
+    )
+
+    assert result[0]["home_logo"] == "https://img.example/home.png"
+    assert result[0]["away_logo"] == "https://img.example/away.png"
+
+
+def test_ucl_espn_keeps_successful_year_when_another_year_fails():
+    base = datetime(2026, 12, 31, tzinfo=timezone.utc)
 
     class Response:
         def __init__(self, payload=None, error=None):
@@ -162,14 +211,14 @@ def test_ucl_espn_keeps_successful_windows_when_one_window_fails():
             return self.payload
 
     def fake_get(url, params, timeout):
-        if params["dates"].startswith("20260901"):
-            return Response({"events": [_event("kept", "2026-09-05T18:00:00Z")]})
+        if params["dates"] == "2026":
+            return Response({"events": [_event("kept", "2026-12-30T18:00:00Z")]})
         return Response(error=requests.HTTPError("502 Bad Gateway"))
 
     events = espn_data.get_scoreboard(
         competition="ucl2026",
-        days_back=0,
-        days_forward=10,
+        days_back=1,
+        days_forward=2,
         now=base,
         chunk_days=7,
         use_cache=False,
@@ -179,7 +228,7 @@ def test_ucl_espn_keeps_successful_windows_when_one_window_fails():
     assert [event["id"] for event in events] == ["kept"]
 
 
-def test_ucl_espn_raises_when_every_window_fails():
+def test_ucl_espn_raises_when_every_requested_year_fails():
     class Response:
         def raise_for_status(self):
             raise requests.HTTPError("502 Bad Gateway")
@@ -203,7 +252,10 @@ def test_clubelo_cache_contract_preserves_alias_and_provenance(monkeypatch):
       <tr><td>2</td><td>Arsenal</td><td>1840</td></tr>
     </table></body></html>
     """
-    cache = MemoryCollection()
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "matches_cache"),
+        "data": [{"home_team": "Bayern Munich", "away_team": "Arsenal"}],
+    }])
 
     class Response:
         text = html
@@ -251,14 +303,20 @@ def test_clubelo_persistence_never_sets_immutable_mongo_id(monkeypatch):
         def raise_for_status(self):
             return None
 
-    cache = MongoRejectsImmutableId()
+    cache = MongoRejectsImmutableId([{
+        "_id": competition_document_id("ucl2026", "matches_cache"),
+        "data": [{"home_team": "Arsenal", "away_team": "Arsenal"}],
+    }])
     document = ingest_clubelo(cache, competition="ucl2026", request_get=lambda *a, **k: Response())
     assert document["status"] == "fresh"
     assert cache.find_one({"_id": competition_document_id("ucl2026", "elo_ratings")})["rows"]
 
 
 def test_clubelo_failure_is_truthful_and_does_not_create_ratings(monkeypatch):
-    cache = MemoryCollection()
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "matches_cache"),
+        "data": [{"home_team": "Arsenal", "away_team": "Arsenal"}],
+    }])
 
     def failed_get(*args, **kwargs):
         raise RuntimeError("ClubElo unavailable")
@@ -267,7 +325,95 @@ def test_clubelo_failure_is_truthful_and_does_not_create_ratings(monkeypatch):
     assert document["status"] == "failed"
     assert document["rows"] == []
     assert "error" in document
-    assert cache.find_one({"_id": competition_document_id("ucl2026", "clubelo_ratings")}) is None
+    stored = cache.find_one({"_id": competition_document_id("ucl2026", "clubelo_ratings")})
+    assert stored["status"] == "failed"
+    assert stored["rows"] == []
+    assert stored["coverage"]["missing"] == ["Arsenal"]
+
+
+def test_partial_clubelo_snapshot_is_failed_and_does_not_publish_partial_ratings():
+    clubs = ["Arsenal", "Bayern Munich"]
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "matches_cache"),
+        "data": [{"home_team": clubs[0], "away_team": clubs[1]}],
+    }])
+
+    class Response:
+        text = "<table><tr><td>1</td><td>Arsenal</td><td>1840</td></tr></table>"
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+    document = ingest_clubelo(cache, competition="ucl2026", request_get=lambda *a, **k: Response())
+
+    assert document["status"] == "failed"
+    assert document["rows"] == []
+    assert document["coverage"]["missing"] == ["Bayern Munich"]
+    assert "Bayern Munich" in document["error"]
+    for key in ("clubelo_ratings", "elo_ratings"):
+        stored = cache.find_one({"_id": competition_document_id("ucl2026", key)})
+        assert stored["status"] == "failed"
+        assert stored["rows"] == []
+        assert stored["coverage"]["missing"] == ["Bayern Munich"]
+
+
+def test_partial_clubelo_refresh_preserves_only_a_complete_previous_snapshot():
+    clubs = ["Arsenal", "Bayern Munich"]
+    good_rows = [
+        {"team": "Arsenal", "team_name": "Arsenal", "elo": 1840.0, "elo_rating": 1840.0},
+        {"team": "Bayern Munich", "team_name": "Bayern Munich", "elo": 1921.0, "elo_rating": 1921.0},
+    ]
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "matches_cache"),
+        "data": [{"home_team": clubs[0], "away_team": clubs[1]}],
+    }, {
+        "_id": competition_document_id("ucl2026", "clubelo_ratings"),
+        "competition": "ucl2026", "status": "fresh", "rows": good_rows,
+        "coverage": {"required": 2, "available": 2, "missing": [], "errors": {}},
+        "provenance": {"source": "clubelo", "observed_at": "2026-09-20T08:00:00+00:00"},
+    }])
+
+    class Response:
+        text = "<table><tr><td>1</td><td>Arsenal</td><td>1840</td></tr></table>"
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+    document = ingest_clubelo(cache, competition="ucl2026", request_get=lambda *a, **k: Response())
+
+    assert document["status"] == "stale"
+    assert document["rows"] == good_rows
+    assert document["coverage"]["missing"] == ["Bayern Munich"]
+    assert document["coverage"]["errors"]["Bayern Munich"]
+    compatibility = cache.find_one({"_id": competition_document_id("ucl2026", "elo_ratings")})
+    assert compatibility["status"] == "stale"
+    assert compatibility["rows"] == good_rows
+    assert compatibility["coverage"]["missing"] == ["Bayern Munich"]
+
+
+def test_elo_ratings_status_route_exposes_stale_coverage_without_changing_rating_map():
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "clubelo_ratings"),
+        "competition": "ucl2026",
+        "status": "stale",
+        "source": "clubelo",
+        "observed_at": "2026-09-24T08:00:00+00:00",
+        "error": "ClubElo snapshot is incomplete; missing current ratings for: Bayern Munich",
+        "coverage": {"required": 36, "available": 35, "missing": ["Bayern Munich"], "errors": {"Bayern Munich": "not published"}},
+    }])
+    router = elo_status_router({"ucl2026": cache})
+    route = next(route for route in router.routes if getattr(route, "path", None) == "/api/elo_ratings_status")
+    response = route.endpoint(competition="ucl2026")
+
+    assert response == {
+        "status": "stale",
+        "source": "clubelo",
+        "observed_at": "2026-09-24T08:00:00+00:00",
+        "error": "ClubElo snapshot is incomplete; missing current ratings for: Bayern Munich",
+        "coverage": {"required": 36, "available": 35, "missing": ["Bayern Munich"], "errors": {"Bayern Munich": "not published"}},
+    }
 
 
 def test_source_modes_are_explicit_when_provider_is_missing():
@@ -389,6 +535,56 @@ def test_maintenance_stores_every_bulk_quote_but_snapshots_only_due_fixture():
     assert snapshots[0]["event_id"] == "espn-liverpool"
 
 
+def test_maintenance_fixture_refresh_preserves_cached_odds_and_predictions():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
+    old_odds = {"home": 1.9, "draw": 3.4, "away": 4.2}
+    old_prediction = {"model_tip": "1:0", "probabilities": {"home": 0.5}}
+    old_snapshot = {"odds": old_odds, "observed_at": "2026-09-09T17:00:00+00:00"}
+    bookmakers = [{"key": "book-a"}]
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "matches_cache"),
+        "data": [{
+            "id": "e1",
+            "home_team": "Bayern Munich",
+            "away_team": "Arsenal",
+            "commence_time": kickoff.isoformat(),
+            "odds": old_odds,
+            "bookmakers": bookmakers,
+            "pre_match_snapshot": old_snapshot,
+            "prediction": old_prediction,
+            "raw_match": {"bookmakers": bookmakers},
+        }],
+    }])
+
+    class Provider:
+        def get_competition_odds(self, competition, market):
+            return []
+
+    run_maintenance(
+        cache,
+        Provider(),
+        competition="ucl2026",
+        now=now,
+        fixture_fetcher=lambda **kwargs: [{
+            "id": "e1",
+            "home_team": "Bayern Munich",
+            "away_team": "Arsenal",
+            "home_logo": "https://img.example/bayern.png",
+            "commence_time": kickoff.isoformat(),
+            "round": "League Phase",
+        }],
+    )
+
+    refreshed = cache.find_one({"_id": competition_document_id("ucl2026", "matches_cache")})["data"][0]
+    assert refreshed["home_logo"] == "https://img.example/bayern.png"
+    assert refreshed["odds"] == old_odds
+    assert refreshed["bookmakers"] == bookmakers
+    assert refreshed["raw_match"]["bookmakers"] == bookmakers
+    assert refreshed["pre_match_snapshot"] == old_snapshot
+    assert refreshed["prediction"] == old_prediction
+
+
 def test_append_only_snapshots_and_t15_selector_use_observation_time():
     cache = MemoryCollection()
     kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
@@ -462,7 +658,10 @@ def test_force_maintenance_is_a_safe_noop():
 
     provider = Provider()
     result = run_maintenance(cache, provider, competition="ucl2026", force=True)
-    assert result == {"status": "noop", "reason": "force_disabled", "provider_calls": 0, "mutated": False}
+    assert result == {
+        "status": "noop", "reason": "force_disabled", "provider_calls": 0, "mutated": False,
+        "team_form_status": {"status": "skipped", "reason": "force_disabled"},
+    }
     assert cache.documents == {}
 
 
