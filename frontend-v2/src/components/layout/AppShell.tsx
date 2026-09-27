@@ -82,7 +82,7 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
           type="button"
           onClick={() => refresh.mutate()}
           disabled={refresh.isPending}
-          className="flex min-h-11 w-full items-center justify-between rounded-xl bg-emerald-a px-3 text-left text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-50"
+          className="flex min-h-11 w-full items-center justify-between rounded-xl bg-action px-3 text-left text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-50"
         >
           <span>{refresh.isPending ? 'Lade…' : 'Gespeicherte Spiele neu laden'}</span>
           <span aria-hidden>↻</span>
@@ -97,7 +97,7 @@ function MobileTopBar() {
   return (
     <header className="flex min-h-14 items-center border-b border-line bg-surface px-4 lg:hidden">
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className="rounded-lg bg-emerald-a px-2 py-1 text-xs font-black text-white">
+        <span className="rounded-lg bg-action px-2 py-1 text-xs font-black text-white">
           {competition === 'ucl2026' ? 'UCL' : 'WM'}
         </span>
         <span className="truncate font-display text-lg font-extrabold text-fg">2026 Predictor</span>

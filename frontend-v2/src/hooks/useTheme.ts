@@ -4,12 +4,11 @@ import { useCallback, useEffect, useState } from 'react'
 const KEY = 'theme'
 
 export function useTheme() {
-  const [light, setLight] = useState(() => localStorage.getItem(KEY) === 'light')
+  const [light, setLight] = useState(() => localStorage.getItem(KEY) !== 'dark')
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark')
-    if (light) localStorage.setItem(KEY, 'light')
-    else localStorage.removeItem(KEY)
+    localStorage.setItem(KEY, light ? 'light' : 'dark')
   }, [light])
 
   const toggle = useCallback(() => setLight((v) => !v), [])

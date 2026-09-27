@@ -5,12 +5,15 @@ import { Switch } from '../ui/Switch'
 import { cn } from '../../lib/util'
 
 const NAV = [
-  { to: '/', icon: '▦', label: 'Dashboard' },
+  { to: '/', icon: '▦', label: 'Spiele' },
+  { to: '/performance', icon: '◈', label: 'Meine Tipps' },
+]
+
+const MORE_NAV = [
   { to: '/value-bets', icon: '↑', label: 'Top Value Bets' },
   { to: '/edge', icon: '⇄', label: 'Model Edge' },
   { to: '/team-form', icon: '∿', label: 'Team Form' },
   { to: '/groups', icon: '▤', label: 'Groups' },
-  { to: '/performance', icon: '◈', label: 'Performance' },
   { to: '/simulator', icon: '🎲', label: 'K.O. Simulator' },
 ]
 
@@ -92,10 +95,8 @@ export function Sidebar() {
         </span>
       </div>
 
-      <QuotaMeter />
-
       <nav>
-        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-fg-3">Views</div>
+        <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Übersicht</div>
         <ul className="space-y-1">
           {NAV.map(({ to, icon, label }) => (
             <li key={to}>
@@ -117,17 +118,31 @@ export function Sidebar() {
             </li>
           ))}
         </ul>
+        <details className="mt-3 border-t border-line pt-3">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-xl px-3 text-sm font-semibold text-fg-2 hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
+            Weitere Ansichten <span aria-hidden="true">⌄</span>
+          </summary>
+          <ul className="mt-1 space-y-1">
+            {MORE_NAV.map(({ to, icon, label }) => (
+              <li key={to}>
+                <NavLink to={to} className={({ isActive }) => cn('flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold', isActive ? 'bg-emerald-dim text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg')}>
+                  <span className="w-4 text-center text-emerald-a/80">{icon}</span>{label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </details>
       </nav>
 
       <div>
-        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-fg-3">Competition</div>
+        <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Wettbewerb</div>
         <label className="flex cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 hover:bg-surface">
           <span>
             <span className="block text-sm font-bold text-fg">{selected?.short_name ?? (competition === 'ucl2026' ? 'UCL 2026/27' : 'WC 2026')}</span>
-            <span className="block text-[11px] text-fg-3">{competitionsLoading ? 'Loading…' : 'All data is scoped'}</span>
+            <span className="block text-xs text-fg-3">{competitionsLoading ? 'Lädt…' : 'Spiele und Auswertung'}</span>
           </span>
           <select
-            aria-label="Competition"
+            aria-label="Wettbewerb"
             value={competition}
             onChange={(e) => setCompetition(e.target.value as 'wc2026' | 'ucl2026')}
             className="max-w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs font-semibold text-fg outline-none focus:border-emerald-a/50"
@@ -141,18 +156,23 @@ export function Sidebar() {
       </div>
 
       <div>
-        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-fg-3">Appearance</div>
+        <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Darstellung</div>
         <label className="flex cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 hover:bg-surface">
           <span>
-            <span className="block text-sm font-bold text-fg">Light Mode</span>
-            <span className="block text-[11px] text-fg-3">Premium Beige Theme</span>
+            <span className="block text-sm font-bold text-fg">Helles Design</span>
+            <span className="block text-[11px] text-fg-3">Hell oder dunkel</span>
           </span>
           <Switch checked={light} onCheckedChange={toggleTheme} />
         </label>
       </div>
 
       <div className="mt-auto max-lg:mt-2 space-y-3">
-        <SidebarButtons />
+        <details className="border-t border-line pt-3">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-xl px-3 text-sm font-semibold text-fg-2 hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
+            Datenstatus <span aria-hidden="true">⌄</span>
+          </summary>
+          <div className="space-y-3 pt-2"><QuotaMeter /><SidebarButtons /></div>
+        </details>
         <a
           href="https://github.com/SajanthChandrakumar"
           target="_blank"

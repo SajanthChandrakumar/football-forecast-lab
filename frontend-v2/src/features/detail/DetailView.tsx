@@ -246,7 +246,7 @@ export function DetailView() {
           </div>
           {canTip ? (
             <div className="flex flex-col gap-2 sm:min-w-64">
-              <button type="button" onClick={copyTip} className="min-h-11 rounded-xl bg-blue-a px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110">
+              <button type="button" onClick={copyTip} className="min-h-11 rounded-xl bg-action px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110">
                 Tipp kopieren
               </button>
               <button

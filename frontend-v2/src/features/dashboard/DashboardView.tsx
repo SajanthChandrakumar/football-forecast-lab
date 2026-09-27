@@ -3,30 +3,16 @@ import { motion } from 'framer-motion'
 import { useMatches } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import type { Match } from '../../lib/types'
-import { dayHeading, dayKey, kickoffTime, shortDate } from '../../lib/format'
+import { kickoffTime, shortDate } from '../../lib/format'
 import { cn } from '../../lib/util'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { FixtureListSkeleton } from '../../components/shared/Skeleton'
 import { FixtureRow } from './FixtureRow'
 import { fixtureStatus, preferredFixtureTab } from '../../lib/fixture-status.mjs'
+import { groupFixturesByRound } from '../../lib/fixture-rounds.mjs'
 
 type Tab = 'upcoming' | 'pending' | 'played' | 'unscheduled'
 const EMPTY_MATCHES: Match[] = []
-
-function groupByDay(matches: Match[], newestFirst = false): [string, Match[]][] {
-  const groups = new Map<string, Match[]>()
-  const sorted = [...matches].sort((a, b) => {
-    const cmp = String(a.raw_match?.commence_time ?? '').localeCompare(String(b.raw_match?.commence_time ?? ''))
-    return newestFirst ? -cmp : cmp
-  })
-  for (const m of sorted) {
-    const ct = m.raw_match?.commence_time
-    const key = ct && Number.isFinite(Date.parse(ct)) ? dayKey(ct) : 'unscheduled'
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(m)
-  }
-  return [...groups.entries()]
-}
 
 export function DashboardView() {
   const { competition } = useAppState()
@@ -71,10 +57,16 @@ export function DashboardView() {
         ? unscheduled
         : played
 
-  const days = useMemo(
-    () => groupByDay(activeMatches, activeTab !== 'upcoming'),
-    [activeTab, activeMatches],
-  )
+  const activeIds = new Set(activeMatches.map((match) => match.id))
+  const allRounds = useMemo(() => groupFixturesByRound(fixtureMatches), [fixtureMatches])
+  const visibleRounds = allRounds
+    .map((round) => {
+      const matches = round.matches.filter((match) => activeIds.has(match.id))
+      const times = matches.map((match) => Date.parse(match.raw_match?.commence_time ?? '')).filter(Number.isFinite)
+      return { ...round, matches, firstKickoff: Math.min(...times), lastKickoff: Math.max(...times) }
+    })
+    .filter((round) => round.matches.length > 0)
+  if (activeTab !== 'upcoming') visibleRounds.reverse()
 
   const isUnavailable = matchData?.status === 'unavailable' || matchData?.status === 'failed'
   const observedAt = matchData?.observed_at
@@ -90,7 +82,7 @@ export function DashboardView() {
   return (
     <PageTransition>
       <div className="text-center">
-        <PageHeader title="Spiele" subtitle="Wähle ein Spiel für Tipp und Analyse" />
+        <PageHeader title="Spiele" subtitle="Spielwoche öffnen und Spiel auswählen" />
       </div>
 
       {/* Tab switcher — keeps past results out of the way */}
@@ -127,23 +119,31 @@ export function DashboardView() {
       {!isLoading && !error && fixtureMatches.length === 0 && !isUnavailable && (
         <p className="text-fg-2">Für diesen Wettbewerb sind aktuell keine Spiele verfügbar.</p>
       )}
-      {!isLoading && fixtureMatches.length > 0 && days.length === 0 && <p className="text-fg-2">Keine Spiele in dieser Kategorie.</p>}
+      {!isLoading && fixtureMatches.length > 0 && visibleRounds.length === 0 && <p className="text-fg-2">Keine Spiele in dieser Kategorie.</p>}
 
-      {/* No per-row stagger here — with 80+ rows it takes seconds to settle. */}
       <motion.div key={activeTab} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="space-y-4">
-        {days.map(([key, dayMatches]) => (
-          <section key={key}>
-            <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.15em] text-fg-3">
-              <span className="h-px w-4 bg-line-2" />
-              {key === 'unscheduled' ? 'Anstoß noch nicht festgelegt' : dayHeading(String(dayMatches[0].raw_match!.commence_time))}
-              <span className="text-fg-3/60">· {dayMatches.length}</span>
-            </h3>
-            <div className="space-y-3">
-              {dayMatches.map((m) => (
-                <FixtureRow key={m.id} match={m} pendingResult={activeTab === 'pending'} now={now} />
+        {visibleRounds.map((round) => (
+          <details key={`${competition}:${activeTab}:${round.key}`} name={`fixture-rounds-${competition}-${activeTab}`} className="group overflow-hidden rounded-2xl border border-line bg-surface">
+            <summary className="flex min-h-20 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a sm:px-5 [&::-webkit-details-marker]:hidden">
+              <span className="min-w-0">
+                <span className="block text-lg font-bold text-fg">{round.label}</span>
+                {Number.isFinite(round.firstKickoff) && (
+                  <span className="mt-1 block text-sm text-fg-2">
+                    {shortDate(new Date(round.firstKickoff).toISOString())}
+                    {round.firstKickoff !== round.lastKickoff && ` – ${shortDate(new Date(round.lastKickoff).toISOString())}`}
+                  </span>
+                )}
+              </span>
+              <span className="flex shrink-0 items-center gap-3 text-sm font-semibold text-fg-2">
+                {round.matches.length} Spiele <span aria-hidden="true" className="text-lg transition-transform group-open:rotate-180">⌄</span>
+              </span>
+            </summary>
+            <div className="grid gap-2 border-t border-line bg-bg/35 p-2 sm:grid-cols-2 sm:p-3">
+              {(activeTab === 'upcoming' ? round.matches : [...round.matches].reverse()).map((match) => (
+                <FixtureRow key={match.id} match={match} pendingResult={activeTab === 'pending'} now={now} compact />
               ))}
             </div>
-          </section>
+          </details>
         ))}
       </motion.div>
     </PageTransition>

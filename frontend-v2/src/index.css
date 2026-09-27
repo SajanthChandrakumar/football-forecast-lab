@@ -3,24 +3,23 @@
 
 /* ── Design tokens ─────────────────────────────────────────────── */
 :root {
-  /* Deep navy dark theme with restrained cobalt and orange accents. */
-  --bg: #0b1220;
-  --surface: #111c2e;
-  --surface-2: #17263b;
-  --border: rgba(196, 210, 232, 0.16);
-  --border-2: rgba(196, 210, 232, 0.28);
-  --text-1: #f5f7fb;
-  --text-2: #b7c1d1;
-  --text-3: #8490a3;
-  --cobalt: #315efb;
-  --cobalt-dim: rgba(49, 94, 251, 0.16);
-  --orange: #e75b20;
-  --orange-dim: rgba(231, 91, 32, 0.14);
-  --emerald: var(--cobalt);
+  --bg: #161e19;
+  --surface: #202a23;
+  --surface-2: #2a382f;
+  --border: rgba(222, 232, 221, 0.16);
+  --border-2: rgba(222, 232, 221, 0.28);
+  --text-1: #f4f6f0;
+  --text-2: #c7d4c8;
+  --text-3: #a7b8a9;
+  --cobalt: #2c6049;
+  --cobalt-dim: rgba(119, 184, 139, 0.17);
+  --orange: #d18b62;
+  --orange-dim: rgba(209, 139, 98, 0.14);
+  --emerald: #91c9a3;
   --emerald-dim: var(--cobalt-dim);
   --gold: #f0b84b;
   --gold-dim: rgba(240, 184, 75, 0.14);
-  --blue: #6d8dff;
+  --blue: #8dbfa9;
   --purple: #a78bfa;
   --red: var(--orange);
   --amber: var(--orange);
@@ -30,23 +29,23 @@
 }
 
 [data-theme='light'] {
-  --bg: #edf1f6;
-  --surface: #ffffff;
-  --surface-2: #f6f8fb;
-  --border: rgba(17, 24, 39, 0.12);
-  --border-2: rgba(17, 24, 39, 0.2);
-  --text-1: #111827;
-  --text-2: #4b5563;
-  --text-3: #6b7280;
-  --cobalt: #315efb;
-  --cobalt-dim: rgba(49, 94, 251, 0.1);
-  --orange: #e75b20;
-  --orange-dim: rgba(231, 91, 32, 0.1);
+  --bg: #f5f4ef;
+  --surface: #fffefa;
+  --surface-2: #f0f2ed;
+  --border: rgba(32, 57, 43, 0.14);
+  --border-2: rgba(32, 57, 43, 0.24);
+  --text-1: #1d2b22;
+  --text-2: #46594d;
+  --text-3: #607165;
+  --cobalt: #2c6049;
+  --cobalt-dim: rgba(44, 96, 73, 0.11);
+  --orange: #a85834;
+  --orange-dim: rgba(168, 88, 52, 0.11);
   --emerald: var(--cobalt);
   --emerald-dim: var(--cobalt-dim);
   --gold: #9a6700;
   --gold-dim: rgba(154, 103, 0, 0.12);
-  --blue: #315efb;
+  --blue: #396d57;
   --purple: #6d4bc1;
   --red: var(--orange);
   --amber: var(--orange);
@@ -65,8 +64,9 @@
   --color-fg: var(--text-1);
   --color-fg-2: var(--text-2);
   --color-fg-3: var(--text-3);
-  --color-emerald-a: var(--cobalt);
-  --color-emerald-dim: var(--cobalt-dim);
+  --color-emerald-a: var(--emerald);
+  --color-emerald-dim: var(--emerald-dim);
+  --color-action: var(--cobalt);
   --color-gold-a: var(--gold);
   --color-gold-dim: var(--gold-dim);
   --color-blue-a: var(--blue);

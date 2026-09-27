@@ -84,10 +84,10 @@ test('unavailable match data keeps its status and last observation for the empty
   assert.match(dashboard, /observed_at/)
 })
 
-test('global styling uses the approved palette and removes the blueprint grid', () => {
+test('global styling uses the calmer neutral palette and removes the blueprint grid', () => {
   const css = read('src/index.css')
-  assert.match(css, /#315efb/i)
-  assert.match(css, /#edf1f6/i)
+  assert.match(css, /#2c6049/i)
+  assert.match(css, /#f5f4ef/i)
   assert.doesNotMatch(css, /blueprint grid/i)
 })
 

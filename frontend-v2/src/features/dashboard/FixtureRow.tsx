@@ -14,11 +14,13 @@ export function FixtureRow({
   trailing,
   pendingResult = false,
   now,
+  compact = false,
 }: {
   match: Match
   trailing?: React.ReactNode
   pendingResult?: boolean
   now?: number
+  compact?: boolean
 }) {
   const ct = match.raw_match?.commence_time
   const status = pendingResult ? 'pending' : fixtureStatus(match, now)
@@ -26,6 +28,35 @@ export function FixtureRow({
   const isPending = status === 'pending'
   const isUnscheduled = status === 'unscheduled'
   const canShowTip = status === 'upcoming' || isPlayed
+
+  if (compact) {
+    return (
+      <motion.article variants={staggerItem} className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-fg-2">
+          <span>{ct && Number.isFinite(Date.parse(ct)) ? `${shortDate(ct)} · ${kickoffTime(ct)}` : 'Anstoß offen'}</span>
+          {isPlayed && <span className="display-num text-base text-fg">{match.actual_score ?? '–'}</span>}
+          {isPending && <span>Ergebnis ausstehend</span>}
+        </div>
+        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+          <TeamLabel name={match.home_team} disp={match.home_disp} logo={match.home_logo} wrap className="text-left text-base leading-tight" />
+          <span className="text-xs font-bold uppercase text-fg-3">vs</span>
+          <TeamLabel name={match.away_team} disp={match.away_disp} logo={match.away_logo} wrap className="justify-end text-right text-base leading-tight" />
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3">
+          {canShowTip ? (
+            <>
+              <span className="text-sm text-fg-2">Modelltipp <strong className="display-num ml-1 text-xl text-fg">{match.top_tip || '–'}</strong></span>
+              <Link to={`/match/${match.id}`} aria-label={`${isPlayed ? 'Analyse ansehen' : 'Tipp ansehen'}: ${match.home_team} gegen ${match.away_team}`} className="shrink-0 text-sm font-bold text-emerald-a hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a">
+                {isPlayed ? 'Analyse' : 'Tipp ansehen'} <span aria-hidden="true">→</span>
+              </Link>
+            </>
+          ) : (
+            <span className="text-sm text-fg-2">{isPending ? 'Auswertung folgt nach dem Ergebnis.' : 'Anstoßzeit nicht verfügbar.'}</span>
+          )}
+        </div>
+      </motion.article>
+    )
+  }
 
   return (
     <motion.article
@@ -98,7 +129,7 @@ export function FixtureRow({
               <Link
                 to={`/match/${match.id}`}
                 aria-label={`${isPlayed ? 'Analyse ansehen' : 'Tipp ansehen'}: ${match.home_team} gegen ${match.away_team}`}
-                className="mt-auto inline-flex min-h-11 items-center justify-between rounded-xl border border-emerald-a bg-emerald-a px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a/50"
+                className="mt-auto inline-flex min-h-11 items-center justify-between rounded-xl border border-action bg-action px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a/50"
               >
                 <span>{isPlayed ? 'Analyse ansehen' : 'Tipp ansehen'}</span>
                 <span aria-hidden="true" className="text-lg">→</span>
