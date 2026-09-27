@@ -221,6 +221,8 @@ def _propagate_team_logos(matches):
 def _apply_cached_ucl_forms(matches, team_form_service):
     if team_form_service is None:
         return matches
+    if hasattr(team_form_service, "cached_forms_for_matches"):
+        return team_form_service.cached_forms_for_matches(matches)
     presented = []
     for match in matches:
         if not isinstance(match, dict):

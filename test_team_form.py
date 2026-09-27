@@ -21,6 +21,12 @@ class MemoryCollection:
         document = self.documents.get(query.get("_id"))
         return document if document and all(document.get(key) == value for key, value in query.items()) else None
 
+    def find(self, query=None):
+        if not query:
+            return list(self.documents.values())
+        ids = (query.get("_id") or {}).get("$in", [])
+        return [self.documents[key] for key in ids if key in self.documents]
+
     def insert_one(self, document):
         if document["_id"] in self.documents:
             raise ValueError("duplicate key")
@@ -1287,6 +1293,57 @@ def test_ucl_match_route_adds_cached_form_without_provider_calls_or_cache_mutati
     assert forced[0]["home_form"] == normal[0]["home_form"]
     assert "home_form" not in source_match
     assert "home_form" not in cache.find_one({"_id": "ucl2026:matches_cache"})["data"][0]
+
+
+def test_ucl_match_route_reads_all_team_forms_in_one_database_query():
+    class CountingCollection(MemoryCollection):
+        def __init__(self, documents):
+            super().__init__(documents)
+            self.form_reads = 0
+            self.bulk_reads = 0
+
+        def find_one(self, query):
+            if str(query.get("_id", "")).startswith("ucl2026:team_form:"):
+                self.form_reads += 1
+            return super().find_one(query)
+
+        def find(self, query=None):
+            if query and isinstance(query.get("_id"), dict):
+                self.bulk_reads += 1
+            return super().find(query)
+
+    fixtures = [
+        {"id": str(i), "home_team": "Arsenal", "away_team": "Lille", "completed": True,
+         "actual_score": "1:0", "raw_match": {}}
+        for i in range(4)
+    ]
+    cache = CountingCollection([
+        {"_id": "ucl2026:matches_cache", "data": fixtures},
+        {"_id": "ucl2026:team_form_teams", "teams": [
+            {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Lille"},
+        ]},
+        {"_id": "ucl2026:team_form:10", "status": "fresh", "source": "espn", "matches": [
+            {"fixture_id": "a", "played_at": "2026-09-20T18:00:00+00:00", "result": "W"},
+        ]},
+        {"_id": "ucl2026:team_form:20", "status": "fresh", "source": "espn", "matches": [
+            {"fixture_id": "b", "played_at": "2026-09-20T18:00:00+00:00", "result": "L"},
+        ]},
+    ])
+
+    class Engine:
+        team_forms = {}
+
+    endpoint = matches_router(
+        Engine(), object(), {"ucl2026": cache}, {"ucl2026": MemoryCollection()},
+        team_form_service=TeamFormService(cache, client=None),
+    ).routes[0].endpoint
+
+    result = endpoint(competition="ucl2026")
+
+    assert [row["home_form"]["form"] for row in result] == [["W"]] * 4
+    assert [row["away_form"]["form"] for row in result] == [["L"]] * 4
+    assert cache.bulk_reads == 1
+    assert cache.form_reads == 0
 
 
 def test_wc_match_route_keeps_legacy_math_engine_form_unchanged():

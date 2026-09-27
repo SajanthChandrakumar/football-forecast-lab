@@ -690,6 +690,104 @@ def test_no_due_bucket_and_fresh_daily_discovery_does_not_spend_credits_or_write
     assert not [doc for doc in cache.documents.values() if "snapshot" in doc.get("_id", "")]
 
 
+def test_maintenance_reuses_recent_ucl_fixtures_and_ratings_between_odds_windows():
+    now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
+    fixture = {
+        "id": "e1", "home_team": "Arsenal", "away_team": "Lille",
+        "commence_time": (now + timedelta(days=3)).isoformat(), "completed": False,
+    }
+    cache = MemoryCollection([
+        {"_id": "ucl2026:matches_cache", "data": [fixture], "status": "fresh", "source": "espn",
+         "observed_at": (now - timedelta(hours=1)).isoformat()},
+        {"_id": "ucl2026:clubelo_ratings", "status": "fresh", "source": "clubelo",
+         "observed_at": (now - timedelta(hours=1)).isoformat(), "rows": [{"team_name": "Arsenal", "elo_rating": 1900}]},
+        {"_id": "ucl2026:odds_discovery_state", "observed_at": now.isoformat()},
+    ])
+    fixture_calls = []
+    rating_calls = []
+
+    def fetcher(**kwargs):
+        fixture_calls.append(kwargs)
+        return [fixture]
+
+    def ratings(*args, **kwargs):
+        rating_calls.append((args, kwargs))
+        return {"status": "fresh", "rows": []}
+
+    result = run_maintenance(
+        cache, object(), competition="ucl2026", now=now,
+        fixture_fetcher=fetcher, clubelo_ingestor=ratings,
+    )
+
+    assert result["status"] == "idle"
+    assert result["fixture_status"]["source"] == "cache"
+    assert result["clubelo_status"]["rows"][0]["team_name"] == "Arsenal"
+    assert fixture_calls == rating_calls == []
+
+
+def test_maintenance_refreshes_ucl_fixtures_near_unfinished_kickoff():
+    now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
+    fixture = {
+        "id": "e1", "home_team": "Arsenal", "away_team": "Lille",
+        "commence_time": (now + timedelta(minutes=10)).isoformat(), "completed": False,
+    }
+    cache = MemoryCollection([
+        {"_id": "ucl2026:matches_cache", "data": [fixture], "status": "fresh", "source": "espn",
+         "observed_at": (now - timedelta(minutes=20)).isoformat()},
+        {"_id": "ucl2026:clubelo_ratings", "status": "fresh", "source": "clubelo",
+         "observed_at": now.isoformat(), "rows": [{"team_name": "Arsenal", "elo_rating": 1900}]},
+        {"_id": "ucl2026:odds_discovery_state", "observed_at": now.isoformat()},
+        {"_id": "ucl2026:odds_bucket_state", "events": {"e1": {
+            bucket: {"status": "fresh"} for bucket in BUCKET_OFFSETS
+        }}},
+    ])
+    calls = []
+    rating_calls = []
+
+    def fetcher(**kwargs):
+        calls.append(kwargs)
+        return [{**fixture, "completed": True, "actual_score": "2:0"}]
+
+    def ratings(*args, **kwargs):
+        rating_calls.append((args, kwargs))
+        return {"status": "fresh", "rows": [{"team_name": "Arsenal", "elo_rating": 1901}]}
+
+    result = run_maintenance(
+        cache, object(), competition="ucl2026", now=now,
+        fixture_fetcher=fetcher, clubelo_ingestor=ratings,
+    )
+
+    assert len(calls) == 1
+    assert len(rating_calls) == 1
+    assert result["fixture_status"]["changed"] is True
+    assert cache.find_one({"_id": "ucl2026:matches_cache"})["data"][0]["actual_score"] == "2:0"
+
+
+def test_maintenance_reads_odds_bucket_state_once_for_all_fixtures():
+    now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
+
+    class CountingCollection(MemoryCollection):
+        bucket_reads = 0
+
+        def find_one(self, query):
+            if query.get("_id") == "ucl2026:odds_bucket_state":
+                self.bucket_reads += 1
+            return super().find_one(query)
+
+    cache = CountingCollection([
+        {"_id": "ucl2026:matches_cache", "data": [
+            {"id": str(i), "commence_time": (now + timedelta(days=3)).isoformat()}
+            for i in range(4)
+        ]},
+        {"_id": "ucl2026:odds_discovery_state", "observed_at": now.isoformat()},
+    ])
+
+    result = run_maintenance(cache, object(), competition="ucl2026", now=now)
+
+    assert result["status"] == "idle"
+    assert cache.bucket_reads == 1
+
+
 def test_provider_failure_marks_bucket_failed_without_fabricating_odds():
     kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
     cache = MemoryCollection([{

@@ -578,8 +578,49 @@ class TeamFormService:
 
     def cached_form_for_match(self, team_name, fallback_team_id=None) -> dict:
         """Return display-only form data from MongoDB without provider access."""
-        team_id = str(fallback_team_id) if fallback_team_id is not None else None
         roster = self.cache_collection.find_one({"_id": self._id("team_form_teams")}) or {}
+        team_id = self._resolve_team_id(team_name, fallback_team_id, roster)
+        document = (
+            self.cache_collection.find_one({"_id": self._id(f"team_form:{team_id}")})
+            if team_id is not None else None
+        ) or {}
+        return self._display_form(document, roster)
+
+    def cached_forms_for_matches(self, matches):
+        """Attach cached form with one roster read and one indexed batch read."""
+        roster = self.cache_collection.find_one({"_id": self._id("team_form_teams")}) or {}
+        team_ids = {
+            team_id
+            for match in matches if isinstance(match, dict)
+            for side in ("home", "away")
+            if (team_id := self._resolve_team_id(
+                match.get(f"{side}_team"), match.get(f"{side}_team_id"), roster,
+            )) is not None
+        }
+        documents = {
+            str(document["_id"]): document
+            for document in self.cache_collection.find({
+                "_id": {"$in": [self._id(f"team_form:{team_id}") for team_id in sorted(team_ids)]}
+            })
+        } if team_ids else {}
+        presented = []
+        for match in matches:
+            if not isinstance(match, dict):
+                presented.append(match)
+                continue
+            row = dict(match)
+            for side in ("home", "away"):
+                team_id = self._resolve_team_id(
+                    row.get(f"{side}_team"), row.get(f"{side}_team_id"), roster,
+                )
+                document = documents.get(self._id(f"team_form:{team_id}"), {}) if team_id else {}
+                row[f"{side}_form"] = self._display_form(document, roster)
+            presented.append(row)
+        return presented
+
+    @staticmethod
+    def _resolve_team_id(team_name, fallback_team_id, roster):
+        team_id = str(fallback_team_id) if fallback_team_id is not None else None
         if team_id is None:
             requested = TEAM_MAPPING.get(str(team_name), str(team_name))
             for team in roster.get("teams", []):
@@ -587,13 +628,12 @@ class TeamFormService:
                 if provider_name == str(team_name) or TEAM_MAPPING.get(provider_name, provider_name) == requested:
                     team_id = str(team.get("team_id")) if team.get("team_id") is not None else None
                     break
+        return team_id
 
-        document = (
-            self.cache_collection.find_one({"_id": self._id(f"team_form:{team_id}")})
-            if team_id is not None else None
-        ) or {}
+    @classmethod
+    def _display_form(cls, document, roster):
         matches = [dict(match) for match in document.get("matches", []) if isinstance(match, dict)]
-        matches = self._latest(matches)
+        matches = cls._latest(matches)
         if not matches:
             return {
                 "status": "unavailable",

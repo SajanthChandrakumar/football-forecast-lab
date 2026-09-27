@@ -17,11 +17,12 @@ from src.services.archive import (
 from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
-from src.services.snapshots import append_odds_snapshot, bucket_state, due_buckets, mark_bucket, parse_time
+from src.services.snapshots import append_odds_snapshot, due_buckets, mark_bucket, parse_time
 
 
 LEASE_SECONDS = 300
 DISCOVERY_INTERVAL = timedelta(days=1)
+FIXTURE_LIVE_INTERVAL = timedelta(minutes=15)
 
 
 def run_maintenance(
@@ -106,9 +107,13 @@ def run_maintenance(
                 except Exception as exc:
                     team_form_status = {"status": "stale", "source": "api_football", "error": str(exc), "observed_at": current.isoformat()}
         if fixture_fetcher is not None:
-            fixture_status = _refresh_fixtures(cache_collection, comp, fixture_fetcher, current)
+            cached_fixture_status = _recent_ucl_fixtures(cache_collection, comp, current)
+            fixture_status = cached_fixture_status or _refresh_fixtures(cache_collection, comp, fixture_fetcher, current)
         if comp.id == "ucl2026" and clubelo_ingestor is not None:
-            clubelo_status = clubelo_ingestor(cache_collection, competition=comp, observed_at=current)
+            cached_ratings = None if fixture_status.get("changed") else _recent_ucl_ratings(cache_collection, comp, current)
+            clubelo_status = cached_ratings or clubelo_ingestor(
+                cache_collection, competition=comp, observed_at=current,
+            )
         fixtures = _fixtures(cache_collection, comp)
         archived_results = 0
         reconstructed_results = 0
@@ -138,12 +143,15 @@ def run_maintenance(
                     upsert_archive_entry(archive_collection, match_id, entry)
         due_by_event = {}
         all_due = []
+        bucket_document = find_competition_document(cache_collection, comp, "odds_bucket_state") or {}
+        event_states = bucket_document.get("events") or {}
         for fixture in fixtures:
             event_id = str(fixture.get("id") or fixture.get("event_id") or "")
             kickoff = fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")
             if not event_id or not kickoff:
                 continue
-            due = due_buckets(kickoff, current, bucket_state(cache_collection, comp, event_id).keys())
+            claimed = event_states.get(event_id) or {}
+            due = due_buckets(kickoff, current, claimed.keys() if isinstance(claimed, dict) else claimed)
             if due:
                 due_by_event[event_id] = (fixture, due)
                 all_due.extend(due)
@@ -250,6 +258,44 @@ def run_maintenance(
 def _fixtures(cache_collection, competition) -> list[dict]:
     document = find_competition_document(cache_collection, competition, "matches_cache") or {}
     return document.get("data") or []
+
+
+def _recent_ucl_fixtures(cache_collection, competition, current):
+    if competition.id != "ucl2026":
+        return None
+    document = find_competition_document(cache_collection, competition, "matches_cache") or {}
+    fixtures = document.get("data")
+    if document.get("status") != "fresh" or not isinstance(fixtures, list) or not fixtures:
+        return None
+    try:
+        age = current - parse_time(document["observed_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    live = any(
+        not fixture.get("completed")
+        and (kickoff := parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")))
+        and kickoff - timedelta(hours=1) <= current <= kickoff + timedelta(hours=6)
+        for fixture in fixtures if fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")
+    )
+    interval = FIXTURE_LIVE_INTERVAL if live else DISCOVERY_INTERVAL
+    if not timedelta(0) <= age < interval:
+        return None
+    return {
+        "status": "fresh", "source": "cache", "observed_at": document["observed_at"],
+        "fixtures": len(fixtures), "changed": False,
+    }
+
+
+def _recent_ucl_ratings(cache_collection, competition, current):
+    document = find_competition_document(cache_collection, competition, "clubelo_ratings") or {}
+    if document.get("status") not in {"fresh", "stale"} or not document.get("rows"):
+        return None
+    try:
+        age = current - parse_time(document["observed_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    interval = DISCOVERY_INTERVAL if document["status"] == "fresh" else timedelta(hours=1)
+    return document if timedelta(0) <= age < interval else None
 
 
 def _persist_ucl_predictions(cache_collection, competition, math_engine, clubelo_status) -> int:

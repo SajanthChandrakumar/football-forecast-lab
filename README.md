@@ -133,8 +133,9 @@ maintenance runs.
 
 | Trigger | Provider calls |
 |---|---:|
-| Every UCL maintenance run | 2 ESPN season-scoreboard calls (2026 and 2027; repeated calls within five minutes reuse the in-process cache) |
-| Every UCL maintenance run | 1 conditional ClubElo ranking request, plus one team-page request only for each rating still missing from the ranking response |
+| UCL fixtures older than 24 hours | 2 ESPN season-scoreboard calls (2026 and 2027); recent results stay in MongoDB between runs |
+| Unfinished UCL match from one hour before until six hours after kickoff | ESPN fixtures refresh every 15 minutes at most, so completed results appear promptly |
+| ClubElo ratings older than 24 hours | 1 conditional ranking request, plus one team-page request only for each rating missing from the ranking response; stale ratings retry after one hour |
 | First maintenance run per Zurich day | 1 ESPN daily team-form scoreboard call; teams previously requiring supplementation add 1 ESPN schedule + 2 FotMob calls each. The current 36-team cache has two such teams, so this is 7 calls normally |
 | Team-form catch-up after downtime | At most 7 ESPN daily scoreboard calls plus the same supplemented-team refreshes; 13 calls with the current two supplemented teams |
 | Odds discovery or any due snapshot | 1 The Odds API bulk call for all events, never one call per match. With one region (`eu`) and two markets (`h2h,totals`), that call costs 2 credits |
@@ -155,6 +156,10 @@ then remains on the ESPN fallback. The current fallback bootstrap uses 1 failed
 API-Football attempt, 1 ESPN roster call, 36 ESPN schedule calls, and 4 FotMob
 calls for the two supplemented teams: 42 one-time outbound requests. Bootstrap
 progress is resumable, so completed teams are not fetched again.
+
+The UCL match response reads the team roster once and loads the required form
+documents in one indexed MongoDB query. The existing `_id` keys already provide
+the required index; no data migration or new collection is needed.
 
 ### Champions League team form
 
