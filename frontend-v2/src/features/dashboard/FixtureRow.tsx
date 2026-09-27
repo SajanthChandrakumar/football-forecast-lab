@@ -36,8 +36,8 @@ export function FixtureRow({
         <div className="p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-fg-3">Anstoß</span>
-              <span className="mt-0.5 block text-sm font-semibold tabular-nums text-fg-2">
+              <span className="block text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Anstoß</span>
+              <span className="mt-1 block text-sm font-semibold tabular-nums text-fg">
                 {ct && Number.isFinite(Date.parse(ct)) ? `${shortDate(ct)} · ${kickoffTime(ct)}` : 'Zeit noch offen'}
               </span>
             </div>
@@ -46,14 +46,14 @@ export function FixtureRow({
             {isPlayed && <span className="rounded-full border border-line px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-fg-3">Gespielt</span>}
           </div>
 
-          <div className="mt-5 grid grid-cols-[minmax(0,1fr)_minmax(4.5rem,7rem)_minmax(0,1fr)] items-center gap-2 sm:mt-6 sm:gap-4">
+          <div className="mt-5 grid grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] items-start gap-2 sm:mt-6 sm:grid-cols-[minmax(0,1fr)_minmax(4.5rem,7rem)_minmax(0,1fr)] sm:items-center sm:gap-4">
             <div className="min-w-0 text-left">
-              <TeamLabel name={match.home_team} disp={match.home_disp} logo={match.home_logo} wrap className="justify-start text-left text-base sm:text-xl" />
-              <FormBadges form={match.home_form} className="mt-2" />
+              <TeamLabel name={match.home_team} disp={match.home_disp} logo={match.home_logo} wrap className="justify-start text-left text-lg leading-tight sm:text-xl" />
+              <div className="mt-2"><FormBadges form={match.home_form} /></div>
             </div>
-            <div className="text-center">
+            <div className="pt-0.5 text-center sm:pt-0">
               {isPlayed ? (
-                <span className="display-num inline-flex min-w-16 justify-center rounded-xl border border-line-2 bg-surface-2 px-3 py-1 text-xl text-fg sm:text-2xl">
+                <span className="display-num inline-flex justify-center rounded-xl border border-line-2 bg-surface-2 px-1 py-1 text-lg text-fg sm:min-w-16 sm:px-3 sm:text-2xl">
                   {match.actual_score ?? '–'}
                 </span>
               ) : isPending ? (
@@ -62,14 +62,14 @@ export function FixtureRow({
                 <span className="font-display text-xs font-bold uppercase tracking-widest text-fg-3">vs</span>
               )}
             </div>
-            <div className="min-w-0">
-              <TeamLabel name={match.away_team} disp={match.away_disp} logo={match.away_logo} wrap className="justify-end text-right text-base sm:text-xl" />
-              <FormBadges form={match.away_form} className="mt-2" />
+            <div className="min-w-0 text-right">
+              <TeamLabel name={match.away_team} disp={match.away_disp} logo={match.away_logo} wrap className="justify-end text-right text-lg leading-tight sm:text-xl" />
+              <div className="mt-2"><FormBadges form={match.away_form} /></div>
             </div>
           </div>
 
           {status === 'upcoming' && (
-            <div className="mx-auto mt-5 max-w-sm">
+            <div className="mx-auto mt-5 hidden max-w-sm sm:block">
               <ProbBar
                 odds={match.odds}
                 probabilities={match.probabilities}
@@ -81,24 +81,24 @@ export function FixtureRow({
           )}
         </div>
 
-        <div className="flex flex-col justify-between gap-2 border-t border-line bg-surface-2/35 p-4 lg:border-l lg:border-t-0 lg:p-5">
+        <div className="flex flex-col justify-between gap-3 border-t border-line bg-surface-2/35 p-4 lg:border-l lg:border-t-0 lg:p-5">
           {canShowTip ? (
             <>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-fg-3">
+                <span className="text-xs font-bold uppercase tracking-[0.12em] text-fg-2">
                   Modelltipp
                 </span>
-                <TipBadge tip={match.top_tip} highlight />
+                <TipBadge tip={match.top_tip} highlight className="px-3 py-1 !text-2xl" />
               </div>
               <div className="border-t border-line pt-2">
-                <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-fg-3">Quotenlage</span>
+                <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Quotenlage</span>
                 <MatchHintCard match={match} compact />
               </div>
               {trailing && <div className="flex justify-end border-t border-line pt-2">{trailing}</div>}
               <Link
                 to={`/match/${match.id}`}
                 aria-label={`${isPlayed ? 'Analyse ansehen' : 'Tipp ansehen'}: ${match.home_team} gegen ${match.away_team}`}
-                className="mt-auto inline-flex min-h-11 items-center justify-between rounded-xl border border-emerald-a/30 bg-emerald-dim px-4 py-2.5 text-sm font-bold text-emerald-a transition hover:border-emerald-a/60 hover:bg-emerald-dim/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a/50"
+                className="mt-auto inline-flex min-h-11 items-center justify-between rounded-xl border border-emerald-a bg-emerald-a px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a/50"
               >
                 <span>{isPlayed ? 'Analyse ansehen' : 'Tipp ansehen'}</span>
                 <span aria-hidden="true" className="text-lg">→</span>

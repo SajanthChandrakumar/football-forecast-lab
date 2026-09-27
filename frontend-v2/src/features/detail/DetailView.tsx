@@ -30,25 +30,25 @@ function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
         ? 'API-Football'
         : form?.source
   return (
-    <section className="rounded-xl border border-line bg-surface p-3 text-left">
+    <section className="rounded-xl border border-line bg-surface p-4 text-left">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-bold text-fg">{team}</h3>
-          <p className="text-[10px] text-fg-3">
+          <h3 className="text-base font-bold text-fg">{team}</h3>
+          <p className="mt-1 text-xs text-fg-2">
             Letzte Pflichtspiele · alle Wettbewerbe{sourceLabel ? ` · Quelle: ${sourceLabel}` : ''}
           </p>
         </div>
-        {form?.status === 'stale' && <span className="text-[10px] font-semibold text-amber-a">Stand möglicherweise veraltet</span>}
+        {form?.status === 'stale' && <span className="text-xs font-semibold text-amber-a">Stand möglicherweise veraltet</span>}
       </div>
       {items.length ? (
         <ul className="mt-3 space-y-2">
           {items.map((item) => (
-            <li key={item.fixture_id} className="rounded-lg bg-surface-2 px-2.5 py-2 text-xs">
+            <li key={item.fixture_id} className="rounded-lg bg-surface-2 px-3 py-2.5 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate font-semibold text-fg">{item.opponent_name}</span>
                 <span className="shrink-0 font-bold tabular-nums text-fg">{item.score}</span>
               </div>
-              <div className="mt-0.5 flex flex-wrap justify-between gap-x-2 text-[10px] text-fg-3">
+              <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-xs text-fg-2">
                 <span>{item.competition_name} · {item.venue === 'home' ? 'Heim' : 'Auswärts'}</span>
                 <span>{shortDate(item.played_at)}</span>
               </div>
@@ -56,7 +56,7 @@ function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-xs font-semibold text-fg-3">Form nicht verfügbar</p>
+        <p className="mt-3 text-sm font-semibold text-fg-2">Form nicht verfügbar</p>
       )}
     </section>
   )
@@ -210,9 +210,10 @@ export function DetailView() {
 
       {/* Header */}
       <header className="mb-6">
-        <h1 className="font-display text-4xl font-extrabold uppercase tracking-wide text-fg">
-          <TeamLogo name={match.home_team} src={match.home_logo} /> {match.home_team} <span className="text-fg-3">vs</span>{' '}
-          <TeamLogo name={match.away_team} src={match.away_logo} /> {match.away_team}
+        <h1 className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 font-display text-2xl font-extrabold uppercase leading-tight tracking-wide text-fg sm:gap-4 sm:text-4xl">
+          <span className="flex min-w-0 items-center gap-2 text-left"><TeamLogo name={match.home_team} src={match.home_logo} /><span className="min-w-0 break-words">{match.home_team}</span></span>
+          <span className="text-base text-fg-3 sm:text-xl">vs</span>
+          <span className="flex min-w-0 items-center justify-end gap-2 text-right"><span className="min-w-0 break-words">{match.away_team}</span><TeamLogo name={match.away_team} src={match.away_logo} /></span>
         </h1>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Chip>{match.is_ko_phase ? 'K.O. Phase — Punkte ×2' : (match.stage ?? 'League stage')}</Chip>
@@ -237,16 +238,11 @@ export function DetailView() {
         </GlassCard>
       )}
 
-      <GlassCard className="mb-4">
-        <SectionTitle className="mb-3">Spiel-Einschätzung aus Quoten und Daten</SectionTitle>
-        <MatchHintCard match={match} />
-      </GlassCard>
-
       <GlassCard className="mb-4 border-emerald-a/30">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-fg-3">Modelltipp</div>
-            <div className="display-num mt-1 text-3xl text-fg">{activeTip && activeTip !== 'N/A' ? activeTip : '–'}</div>
+            <div className="text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Modelltipp</div>
+            <div className="display-num mt-1 text-4xl text-fg">{activeTip && activeTip !== 'N/A' ? activeTip : '–'}</div>
           </div>
           {canTip ? (
             <div className="flex flex-col gap-2 sm:min-w-64">
@@ -271,11 +267,16 @@ export function DetailView() {
             </p>
           )}
         </div>
-        <p className="mt-3 text-xs leading-relaxed text-fg-3">
+        <p className="mt-3 text-sm leading-relaxed text-fg-2">
           „Tipp kopieren“ überträgt ihn nicht an den Server. „Gemeinsamen Spieltipp speichern“ schreibt einen zentralen Eintrag für dieses Spiel; er ist derzeit nicht nutzergetrennt.
         </p>
         {copyStatus && <p role="status" className="mt-2 text-xs font-semibold text-emerald-a">{copyStatus}</p>}
         {adoptStatus && <p role="status" className="mt-2 text-xs font-semibold text-fg-2">{adoptStatus}</p>}
+      </GlassCard>
+
+      <GlassCard className="mb-4">
+        <SectionTitle className="mb-3">Spiel-Einschätzung aus Quoten und Daten</SectionTitle>
+        <MatchHintCard match={match} />
       </GlassCard>
 
       <div className="grid gap-4 lg:grid-cols-2">

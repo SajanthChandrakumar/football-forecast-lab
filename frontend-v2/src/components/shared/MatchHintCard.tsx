@@ -22,7 +22,7 @@ export function MatchHintCard({ match, compact = false }: { match: Match; compac
       <p className={cn('font-semibold leading-snug text-fg', compact ? 'text-sm' : 'text-base', hint.available && 'mt-2')}>
         {hint.summary}
       </p>
-      <p className={cn('mt-1 font-semibold text-fg-3', compact ? 'text-[10px]' : 'text-base')}>{hint.sourceLabel}</p>
+      <p className={cn('mt-1 font-semibold text-fg-3', compact ? 'text-xs' : 'text-base')}>{hint.sourceLabel}</p>
 
       {!compact && hint.reasons.length > 0 && (
         <details className="group/hint mt-2 border-t border-line pt-1">

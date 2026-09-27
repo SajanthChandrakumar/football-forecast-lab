@@ -26,10 +26,10 @@ export function ProbBar({ odds, probabilities, sourceMode, observedAt, oddsObser
   }).format(new Date(effectiveObservedAt)) : null
   return (
     <div className="w-full">
-      <div className="mb-1 text-center text-[9px] leading-tight text-fg-3" title={effectiveObservedAt ?? undefined}>
+      <div className="mb-2 text-center text-xs leading-tight text-fg-2" title={effectiveObservedAt ?? undefined}>
         {source}{freshness ? ` · ${freshness}` : ''}
       </div>
-      <div className="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full">
+      <div className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full">
         {empty ? (
           <div className="h-full w-full bg-surface-2" />
         ) : (
@@ -42,15 +42,15 @@ export function ProbBar({ odds, probabilities, sourceMode, observedAt, oddsObser
       </div>
       {showLabels && (
         empty ? (
-          <div className="mt-1 text-center text-[10px] text-fg-3">Keine Quoten oder Elo-Werte</div>
+          <div className="mt-2 text-center text-xs text-fg-2">Keine Quoten oder Elo-Werte</div>
         ) : (
           <>
-            <div className="mt-1 flex justify-between text-[11px] font-semibold tabular-nums">
+            <div className="mt-2 flex justify-between text-xs font-semibold tabular-nums">
               <span className="text-blue-a">{pct(p.home)}</span>
               <span className="text-fg-3">{pct(p.draw)} X</span>
               <span className="text-red-a">{pct(p.away)}</span>
             </div>
-            <div className="mt-0.5 flex justify-between text-[10px] tabular-nums text-fg-3">
+            <div className="mt-1 flex justify-between text-xs tabular-nums text-fg-2">
               <span>1&nbsp; {prices!.home.toFixed(2)}</span>
               <span>X&nbsp; {prices!.draw.toFixed(2)}</span>
               <span>2&nbsp; {prices!.away.toFixed(2)}</span>
