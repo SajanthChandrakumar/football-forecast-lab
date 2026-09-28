@@ -31,16 +31,16 @@ export function FixtureRow({
 
   if (compact) {
     return (
-      <motion.article variants={staggerItem} className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+      <motion.article variants={staggerItem} className="rounded-2xl border border-line bg-surface p-4 transition-colors hover:border-emerald-a/50">
         <div className="flex items-center justify-between gap-2 text-xs font-semibold text-fg-2">
           <span>{ct && Number.isFinite(Date.parse(ct)) ? `${shortDate(ct)} · ${kickoffTime(ct)}` : 'Anstoß offen'}</span>
           {isPlayed && <span className="display-num text-base text-fg">{match.actual_score ?? '–'}</span>}
           {isPending && <span>Ergebnis ausstehend</span>}
         </div>
         <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-          <TeamLabel name={match.home_team} disp={match.home_disp} logo={match.home_logo} wrap className="text-left text-base leading-tight" />
+          <TeamLabel name={match.home_team} disp={match.home_disp} logo={match.home_logo} wrap className="text-left font-display text-lg leading-tight" />
           <span className="text-xs font-bold uppercase text-fg-3">vs</span>
-          <TeamLabel name={match.away_team} disp={match.away_disp} logo={match.away_logo} wrap className="justify-end text-right text-base leading-tight" />
+          <TeamLabel name={match.away_team} disp={match.away_disp} logo={match.away_logo} wrap className="justify-end text-right font-display text-lg leading-tight" />
         </div>
         <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3">
           {canShowTip ? (

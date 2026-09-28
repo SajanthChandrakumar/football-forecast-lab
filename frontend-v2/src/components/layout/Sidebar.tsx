@@ -10,10 +10,10 @@ const NAV = [
 ]
 
 const MORE_NAV = [
-  { to: '/value-bets', icon: '↑', label: 'Top Value Bets' },
-  { to: '/edge', icon: '⇄', label: 'Model Edge' },
-  { to: '/team-form', icon: '∿', label: 'Team Form' },
-  { to: '/groups', icon: '▤', label: 'Groups' },
+  { to: '/value-bets', icon: '↑', label: 'Tipp-Chancen' },
+  { to: '/edge', icon: '⇄', label: 'Modellvergleich' },
+  { to: '/team-form', icon: '∿', label: 'Teamvergleich' },
+  { to: '/groups', icon: '▤', label: 'Tabelle' },
   { to: '/simulator', icon: '🎲', label: 'K.O. Simulator' },
 ]
 
@@ -81,17 +81,14 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 shrink-0 flex-col gap-5 border-r border-line bg-surface p-5 lg:flex">
       {/* Brand */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5 rounded-2xl bg-[#193b2b] px-3 py-3">
         <span
-          className="rounded-lg px-2 py-1 font-display text-sm font-black text-white"
-          style={{
-            background: 'var(--cobalt)',
-          }}
+          className="font-display text-lg font-bold text-[#d4b77d]"
         >
           {competition === 'ucl2026' ? 'UCL' : 'WC'}
         </span>
-        <span className="font-display text-xl font-extrabold text-fg">
-          2026 <span className="font-semibold text-fg-3">Predictor</span>
+        <span className="font-display text-xl font-bold text-[#f8f7f2]">
+          2026 <span className="font-semibold text-[#cbdccf]">Predictor</span>
         </span>
       </div>
 

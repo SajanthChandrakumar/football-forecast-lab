@@ -93,7 +93,7 @@ export function GroupsView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Groups" subtitle="Live-Tabellen aus den bisherigen Resultaten — Top 2 qualifiziert, Platz 3 Playoff-Chance" />
+      <PageHeader title="Gruppen" subtitle="Tabellen aus den bisherigen Resultaten — Top 2 qualifiziert, Platz 3 mit Playoff-Chance." />
       {isLoading && <CardGridSkeleton count={6} cols="md:grid-cols-2 xl:grid-cols-3" />}
 
       <motion.div
@@ -154,7 +154,7 @@ function UclStandings({ rows, valid, isLoading }: { rows: StandingsRow[]; valid:
   const sorted = [...rows].sort((a, b) => (a.pos ?? 999) - (b.pos ?? 999))
   return (
     <PageTransition>
-      <PageHeader title="UCL League Table" subtitle="36-team league phase — official standings when available" />
+      <PageHeader title="Ligatabelle" subtitle="Die Ligaphase mit 36 Teams, sobald offizielle Daten verfügbar sind." />
       {isLoading && <p className="text-fg-2">Loading league table…</p>}
       {!isLoading && !valid && <p className="text-fg-2">League table unavailable — expected exactly 36 unique ranked teams.</p>}
       {valid && <GlassCard className="!p-0 overflow-hidden">

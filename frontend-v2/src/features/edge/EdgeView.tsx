@@ -97,7 +97,7 @@ export function EdgeView() {
   return (
     <PageTransition>
       <PageHeader
-        title="Model Edge"
+        title="Modellvergleich"
         subtitle="Wo das Elo-Modell den Buchmachern am stärksten widerspricht — inkl. historischer Trefferbilanz"
       />
 

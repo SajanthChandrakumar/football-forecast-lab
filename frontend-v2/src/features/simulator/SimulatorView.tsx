@@ -114,7 +114,7 @@ function UclSimulator({ data, isLoading, error }: { data?: UclSimulation; isLoad
   const hasResults = hasUclSimulationResults(data)
   return (
     <PageTransition>
-      <PageHeader title="UCL Tournament Simulator" subtitle="Seeded league-phase and knockout simulation from the stored fixture model" />
+      <PageHeader title="Turnier-Simulator" subtitle="Mögliche Turnierverläufe auf Basis des gespeicherten Spielmodells." />
       {isLoading && <p className="text-fg-2">Simulating tournament paths…</p>}
       {error && <p className="text-red-a">Error: {error.message}</p>}
       {data?.status === 'unavailable' && <p className="text-amber-a">Simulation unavailable: {data.error || data.reason || data.warnings?.join(' ') || 'missing model inputs'}</p>}

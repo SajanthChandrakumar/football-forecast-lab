@@ -24,7 +24,7 @@ export function ValueBetsView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Top Value Bets" subtitle="Spiele mit den höchsten erwarteten Punkten (xP)" />
+      <PageHeader title="Tipp-Chancen" subtitle="Spiele mit den höchsten erwarteten Punkten (xP)." />
       {isLoading && <FixtureListSkeleton days={1} rowsPerDay={6} />}
 
       <motion.div

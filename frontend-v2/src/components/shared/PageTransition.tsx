@@ -28,13 +28,11 @@ export const staggerItem = {
 export function PageHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   const { competition, competitions } = useAppState()
   return (
-    <header className="mb-7">
-      <div className="kicker mb-1.5 flex items-center gap-2">
-        <span className="h-px w-6 bg-emerald-a/60" />
-        {competitionLabel(competition, competitions)}
-      </div>
-      <h1 className="text-glow font-display text-5xl font-black uppercase tracking-wide">{title}</h1>
-      {subtitle && <p className="mt-1.5 text-sm text-fg-2">{subtitle}</p>}
+    <header className="relative mb-7 overflow-hidden rounded-[1.75rem] bg-[#193b2b] px-5 py-7 text-left shadow-[0_18px_35px_-25px_rgba(22,48,33,0.8)] sm:px-8 sm:py-9">
+      <span className="absolute inset-x-0 top-0 h-1 bg-[#c9ad78]" aria-hidden="true" />
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#cbdccf]">{competitionLabel(competition, competitions)}</p>
+      <h1 className="mt-3 font-display text-4xl font-bold leading-none text-[#f8f7f2] sm:text-5xl">{title}</h1>
+      {subtitle && <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#d5e3d7]">{subtitle}</p>}
     </header>
   )
 }

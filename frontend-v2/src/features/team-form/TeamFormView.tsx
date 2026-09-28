@@ -28,7 +28,7 @@ export function TeamFormView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Team Form" subtitle="Elo Power Rankings & Verlauf — bis zu 4 Teams vergleichen" />
+      <PageHeader title="Teamvergleich" subtitle="Stärke und Form von bis zu vier Teams vergleichen." />
       {isLoading && (
         <div className="space-y-4">
           <ChartSkeleton />

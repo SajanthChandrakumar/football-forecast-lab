@@ -11,10 +11,10 @@ const PRIMARY_NAV = [
 ] as const
 
 const MORE_NAV = [
-  { to: '/value-bets', label: 'Top Value Bets' },
-  { to: '/edge', label: 'Model Edge' },
-  { to: '/team-form', label: 'Team Form' },
-  { to: '/groups', label: 'Groups' },
+  { to: '/value-bets', label: 'Tipp-Chancen' },
+  { to: '/edge', label: 'Modellvergleich' },
+  { to: '/team-form', label: 'Teamvergleich' },
+  { to: '/groups', label: 'Tabelle' },
   { to: '/simulator', label: 'K.-o.-Simulator' },
 ] as const
 
@@ -95,13 +95,8 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
 function MobileTopBar() {
   const { competition } = useAppState()
   return (
-    <header className="flex min-h-14 items-center border-b border-line bg-surface px-4 lg:hidden">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <span className="rounded-lg bg-action px-2 py-1 text-xs font-black text-white">
-          {competition === 'ucl2026' ? 'UCL' : 'WM'}
-        </span>
-        <span className="truncate font-display text-lg font-extrabold text-fg">2026 Predictor</span>
-      </div>
+    <header className="flex min-h-14 items-center border-b border-[#c9ad78]/40 bg-[#193b2b] px-4 lg:hidden">
+      <span className="truncate font-display text-xl font-bold text-[#f8f7f2]">{competition === 'ucl2026' ? 'UCL' : 'WM'} <span className="text-[#cbdccf]">2026 Predictor</span></span>
     </header>
   )
 }

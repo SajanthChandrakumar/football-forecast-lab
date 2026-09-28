@@ -81,22 +81,20 @@ export function DashboardView() {
 
   return (
     <PageTransition>
-      <div className="text-center">
-        <PageHeader title="Spiele" subtitle="Spielwoche öffnen und Spiel auswählen" />
-      </div>
+      <PageHeader title="Spiele" subtitle="Wähle eine Spielwoche und finde deinen Tipp." />
 
       {/* Tab switcher — keeps past results out of the way */}
-      <div className="mb-6 flex flex-wrap gap-1.5">
+      <div className="mb-6 flex flex-wrap gap-2">
         {tabs.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setSelection({ competition, tab: key })}
             aria-pressed={activeTab === key}
             className={cn(
-              'min-h-11 rounded-xl border px-4 py-2 text-sm font-bold transition',
+              'min-h-11 rounded-lg border px-4 py-2 text-sm font-semibold transition-colors',
               activeTab === key
-                ? 'border-emerald-a/50 bg-emerald-dim text-emerald-a'
-                : 'border-line bg-surface text-fg-2 hover:bg-surface-2',
+                ? 'border-[#193b2b] bg-[#193b2b] text-[#f8f7f2]'
+                : 'border-line bg-surface text-fg-2 hover:border-emerald-a hover:text-fg',
             )}
           >
             {label}
@@ -123,10 +121,10 @@ export function DashboardView() {
 
       <motion.div key={activeTab} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="space-y-4">
         {visibleRounds.map((round) => (
-          <details key={`${competition}:${activeTab}:${round.key}`} name={`fixture-rounds-${competition}-${activeTab}`} className="group overflow-hidden rounded-2xl border border-line bg-surface">
-            <summary className="flex min-h-20 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a sm:px-5 [&::-webkit-details-marker]:hidden">
+          <details key={`${competition}:${activeTab}:${round.key}`} name={`fixture-rounds-${competition}-${activeTab}`} className="group overflow-hidden rounded-[1.5rem] border border-line bg-surface shadow-[0_18px_35px_-32px_rgba(22,48,33,0.55)]">
+            <summary className="flex min-h-20 cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a sm:px-6 [&::-webkit-details-marker]:hidden">
               <span className="min-w-0">
-                <span className="block text-lg font-bold text-fg">{round.label}</span>
+                <span className="block font-display text-2xl font-bold text-fg">{round.label}</span>
                 {Number.isFinite(round.firstKickoff) && (
                   <span className="mt-1 block text-sm text-fg-2">
                     {shortDate(new Date(round.firstKickoff).toISOString())}
@@ -135,7 +133,7 @@ export function DashboardView() {
                 )}
               </span>
               <span className="flex shrink-0 items-center gap-3 text-sm font-semibold text-fg-2">
-                {round.matches.length} Spiele <span aria-hidden="true" className="text-lg transition-transform group-open:rotate-180">⌄</span>
+                {round.matches.length} Spiele <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#193b2b] text-lg text-[#f8f7f2] transition-transform group-open:rotate-180">⌄</span>
               </span>
             </summary>
             <div className="grid gap-2 border-t border-line bg-bg/35 p-2 sm:grid-cols-2 sm:p-3">
