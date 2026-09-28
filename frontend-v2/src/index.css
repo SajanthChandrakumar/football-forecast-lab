@@ -23,6 +23,7 @@
   --purple: #a78bfa;
   --red: var(--orange);
   --amber: var(--orange);
+  --match-note-bg: #273b2e;
   --heat-0: 13 18 32;
   --heat-1: 90 55 10;
   --heat-2: 210 148 26;
@@ -49,6 +50,7 @@
   --purple: #6d4bc1;
   --red: var(--orange);
   --amber: var(--orange);
+  --match-note-bg: #e8eee7;
   --heat-0: 245 240 230;
   --heat-1: 217 140 88;
   --heat-2: 200 121 65;

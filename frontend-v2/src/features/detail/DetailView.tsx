@@ -213,135 +213,107 @@ export function DetailView() {
         ← Zurück
       </button>
 
-      {/* Header */}
-      <header className="mb-6">
-        <h1 className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 font-display text-2xl font-extrabold uppercase leading-tight tracking-wide text-fg sm:gap-4 sm:text-4xl">
-          <span className="flex min-w-0 items-center gap-2 text-left"><TeamLogo name={match.home_team} src={match.home_logo} /><span className="min-w-0 break-words">{match.home_team}</span></span>
-          <span className="text-base text-fg-3 sm:text-xl">vs</span>
-          <span className="flex min-w-0 items-center justify-end gap-2 text-right"><span className="min-w-0 break-words">{match.away_team}</span><TeamLogo name={match.away_team} src={match.away_logo} /></span>
+      <header className="relative mb-5 overflow-hidden rounded-[1.75rem] bg-[#193b2b] px-5 py-6 text-[#f8f7f2] shadow-[0_18px_35px_-25px_rgba(22,48,33,0.8)] sm:px-8 sm:py-8">
+        <div className="absolute inset-x-0 top-0 h-1 bg-[#c9ad78]" aria-hidden="true" />
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#cbdccf]">{match.is_ko_phase ? 'K.-o.-Phase · doppelte Punkte' : match.stage === 'League stage' ? 'Ligaphase' : (match.stage ?? 'Ligaphase')}</p>
+        <h1 className="mt-6 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 font-display text-3xl font-bold leading-none text-[#f8f7f2] sm:gap-6 sm:text-5xl">
+          <span className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center"><TeamLogo name={match.home_team} src={match.home_logo} className="h-7 w-7" /><span className="min-w-0 break-words">{match.home_team}</span></span>
+          <span className="font-sans text-sm font-medium text-[#b7cabd]">vs</span>
+          <span className="flex min-w-0 flex-col items-end gap-2 text-right sm:flex-row-reverse sm:items-center"><TeamLogo name={match.away_team} src={match.away_logo} className="h-7 w-7" /><span className="min-w-0 break-words">{match.away_team}</span></span>
         </h1>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Chip>{match.is_ko_phase ? 'K.O. Phase — Punkte ×2' : (match.stage ?? 'League stage')}</Chip>
+        <div className="mt-7 flex flex-col gap-5 border-t border-white/20 pt-6 min-[480px]:flex-row min-[480px]:items-end min-[480px]:justify-between">
+          <div>
+            <p className="text-sm text-[#cbdccf]">Unser Tipp</p>
+            <div className="font-display text-6xl font-bold leading-none tabular-nums text-[#f8f7f2]">{activeTip && activeTip !== 'N/A' ? activeTip : '–'}</div>
+            <p className="mt-1 text-xs text-[#cbdccf]">Nach erwarteten Tippspielpunkten</p>
+          </div>
+          {canTip ? (
+            <div className="flex flex-col items-start gap-2 min-[480px]:items-end">
+              <button type="button" onClick={copyTip} className="min-h-11 rounded-lg bg-[#f8f7f2] px-5 py-2.5 text-sm font-bold text-[#193b2b] transition hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Tipp kopieren <span aria-hidden="true">↗</span></button>
+              <button onClick={adopt} disabled={saveTip.isPending || !canSaveSharedTip} className="min-h-10 text-left text-sm font-medium text-[#e2ede4] underline underline-offset-4 hover:text-white disabled:opacity-50">{saveTip.isPending ? 'Speichere…' : canSaveSharedTip ? 'Gemeinsamen Spieltipp speichern' : 'Gemeinsamer Tipp geschlossen'}</button>
+            </div>
+          ) : (
+            <p className="text-sm text-[#e2ede4]">{fixtureStatus(match, now) === 'pending' ? 'Ergebnis ausstehend · Tipps geschlossen.' : fixtureStatus(match, now) === 'played' ? 'Spiel abgeschlossen · Tipps geschlossen.' : 'Anstoßzeit fehlt · Tipp-Aktion geschlossen.'}</p>
+          )}
         </div>
+        <details className="mt-4 text-xs text-[#cbdccf]"><summary className="cursor-pointer underline-offset-4 hover:underline">Was passiert mit meinem Tipp?</summary><p className="mt-2 max-w-prose leading-relaxed">„Tipp kopieren“ überträgt ihn nicht an den Server. „Gemeinsamen Spieltipp speichern“ schreibt einen zentralen Eintrag für dieses Spiel; er ist derzeit nicht nutzergetrennt.</p></details>
+        {copyStatus && <p role="status" className="mt-2 text-sm text-[#f8f7f2]">{copyStatus}</p>}
+        {adoptStatus && <p role="status" className="mt-2 text-sm text-[#f8f7f2]">{adoptStatus}</p>}
       </header>
 
-      {/* Lineup alert */}
       {missing.length > 0 && (
-        <GlassCard className="mb-4 border-amber-a/40 bg-amber-a/5">
+        <GlassCard className="mb-5 border-amber-a/40 bg-amber-a/5">
           <SectionTitle className="mb-2 text-amber-a">Aufstellungs-Alarm</SectionTitle>
-          {missing.map(([team, v]) => (
-            <p key={team} className="text-sm text-fg-2">
-              <b className="text-fg">{team}:</b> fehlend — {v.missing.join(', ')}
-            </p>
-          ))}
+          {missing.map(([team, v]) => <p key={team} className="text-sm text-fg-2"><b className="text-fg">{team}:</b> fehlend — {v.missing.join(', ')}</p>)}
         </GlassCard>
       )}
 
-      <GlassCard className="mb-4 border-emerald-a/30">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Modelltipp</div>
-            <div className="display-num mt-1 text-4xl text-fg">{activeTip && activeTip !== 'N/A' ? activeTip : '–'}</div>
-          </div>
-          {canTip ? (
-            <div className="flex flex-col gap-2 sm:min-w-64">
-              <button type="button" onClick={copyTip} className="min-h-11 rounded-xl bg-action px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110">
-                Tipp kopieren
-              </button>
-              <button
-                onClick={adopt}
-                disabled={saveTip.isPending || !canSaveSharedTip}
-                className="min-h-10 rounded-xl border border-line-2 bg-surface px-4 py-2 text-xs font-bold text-fg-2 transition hover:bg-surface-2 disabled:opacity-50"
-              >
-                {saveTip.isPending ? 'Speichere…' : canSaveSharedTip ? 'Gemeinsamen Spieltipp speichern' : 'Gemeinsamer Tipp geschlossen'}
-              </button>
-            </div>
-          ) : (
-            <p className="rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg-2">
-              {fixtureStatus(match, now) === 'pending'
-                ? 'Ergebnis ausstehend · Tipps sind geschlossen.'
-                : fixtureStatus(match, now) === 'played'
-                  ? 'Spiel abgeschlossen · Tipps sind geschlossen.'
-                  : 'Anstoßzeit fehlt · Tipp-Aktion geschlossen.'}
-            </p>
-          )}
+      <section className="mb-5 overflow-hidden rounded-[1.5rem] border border-line bg-surface shadow-[0_18px_35px_-32px_rgba(22,48,33,0.55)]">
+        <div className="border-b border-line px-5 py-5 sm:px-7">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Tipp-Check</p>
+          <h2 className="mt-1 font-display text-3xl font-bold text-fg">So liest du dieses Spiel</h2>
         </div>
-        <details className="mt-3 text-sm text-fg-2">
-          <summary className="cursor-pointer font-semibold text-fg-2">Was passiert mit meinem Tipp?</summary>
-          <p className="mt-2 leading-relaxed">„Tipp kopieren“ überträgt ihn nicht an den Server. „Gemeinsamen Spieltipp speichern“ schreibt einen zentralen Eintrag für dieses Spiel; er ist derzeit nicht nutzergetrennt.</p>
-        </details>
-        {copyStatus && <p role="status" className="mt-2 text-xs font-semibold text-emerald-a">{copyStatus}</p>}
-        {adoptStatus && <p role="status" className="mt-2 text-xs font-semibold text-fg-2">{adoptStatus}</p>}
-      </GlassCard>
-
-      <div className="mb-4 grid gap-4 lg:grid-cols-2">
-        <GlassCard>
-          <SectionTitle>Wie könnte das Spiel ausgehen?</SectionTitle>
-          <p className="mt-2 text-sm leading-relaxed text-fg-2">Diese Chancen betreffen Sieg oder Unentschieden, nicht das genaue Resultat.</p>
+        <div className="grid lg:grid-cols-2">
+        <div className="px-5 py-6 sm:px-7 lg:border-r lg:border-line">
+          <h3 className="text-lg font-bold text-fg">Wer gewinnt?</h3>
+          <p className="mt-1 text-sm leading-relaxed text-fg-2">Siegchance, unabhängig vom genauen Ergebnis.</p>
           {hasOutcomeProbabilities ? (
-            <div className="mt-5 space-y-4">
-              {[
-                { label: `${match.home_team} gewinnt`, chance: probs.home, color: 'var(--emerald)' },
-                { label: 'Unentschieden', chance: probs.draw, color: 'var(--text-3)' },
-                { label: `${match.away_team} gewinnt`, chance: probs.away, color: 'var(--amber)' },
-              ].map(({ label, chance, color }) => (
-                <div key={label}>
-                  <div className="flex justify-between gap-3 text-sm font-semibold text-fg"><span>{label}</span><span className="tabular-nums">{pct(chance)}</span></div>
-                  <div className="mt-2 h-3 overflow-hidden rounded-full bg-surface-2" role="img" aria-label={`${label}: ${pct(chance)}`}>
-                    <div className="h-full rounded-full" style={{ width: `${chance * 100}%`, backgroundColor: color }} />
-                  </div>
-                </div>
-              ))}
-              <p className="text-xs text-fg-3">Quelle: {quoteSource}. {hasBookmakerOdds ? 'Buchmacherquoten ohne Marge.' : 'Modellschätzung; keine wettbare Quote.'}</p>
+            <div className="mt-6">
+              <div className="flex h-5 overflow-hidden rounded-full bg-surface-2" role="img" aria-label={`${match.home_team} Sieg ${pct(probs.home)}, Unentschieden ${pct(probs.draw)}, ${match.away_team} Sieg ${pct(probs.away)}`}>
+                <span className="bg-[#2c6049]" style={{ width: `${probs.home * 100}%` }} />
+                <span className="bg-[#9aa99c]" style={{ width: `${probs.draw * 100}%` }} />
+                <span className="bg-[#bf795b]" style={{ width: `${probs.away * 100}%` }} />
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-fg-2">
+                <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-[#2c6049]" /><b className="block text-base tabular-nums text-fg">{pct(probs.home)}</b>{match.home_team}</div>
+                <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-[#9aa99c]" /><b className="block text-base tabular-nums text-fg">{pct(probs.draw)}</b>Remis</div>
+                <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-[#bf795b]" /><b className="block text-base tabular-nums text-fg">{pct(probs.away)}</b>{match.away_team}</div>
+              </div>
+              <p className="mt-5 text-xs text-fg-3">Quelle: {quoteSource}. {hasBookmakerOdds ? 'Buchmacherquoten ohne Marge.' : 'Modellschätzung; keine wettbare Quote.'}</p>
             </div>
           ) : <p className="mt-4 text-sm text-fg-2">Für diese Einschätzung fehlen Daten.</p>}
-        </GlassCard>
+        </div>
 
-        <GlassCard>
-          <SectionTitle>Welche Ergebnisse lohnen sich als Tipp?</SectionTitle>
-          <p className="mt-2 text-sm leading-relaxed text-fg-2">Sortiert nach erwarteten Tippspielpunkten (xP). Die Prozentzahl zeigt, wie oft genau dieses Ergebnis laut Modell eintritt.</p>
+        <div className="border-t border-line px-5 py-6 sm:px-7 lg:border-t-0">
+          <h3 className="text-lg font-bold text-fg">Welches Ergebnis tippen?</h3>
+          <p className="mt-1 text-sm leading-relaxed text-fg-2">Die drei besten Optionen nach erwarteten Punkten.</p>
           {tipInsights.length ? (
-            <div className="mt-5 space-y-4">
+            <div className="mt-4 divide-y divide-line">
               {tipInsights.map((item, index) => (
-                <div key={item.tip} className={cn('rounded-xl px-3 py-3', index === 0 ? 'bg-emerald-dim' : 'bg-surface-2')}>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-semibold text-fg"><b className="display-num mr-2 text-xl">{item.tip}</b>{index === 0 && <span className="text-xs text-emerald-a">Empfehlung</span>}</span>
-                    <span className="shrink-0 text-sm font-semibold tabular-nums text-fg-2">{item.expectedPoints.toFixed(2)} xP</span>
-                  </div>
-                  <div className="mt-2 flex items-center gap-3 text-xs text-fg-2">
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-emerald-a" style={{ width: `${(item.exactChance ?? 0) * 100}%` }} /></div>
-                    <span className="min-w-16 text-right tabular-nums">{item.exactChance === null ? 'Chance offen' : `${(item.exactChance * 100).toFixed(1)} % genau`}</span>
-                  </div>
+                <div key={item.tip} className="flex items-center justify-between gap-4 py-3">
+                  <div className="flex items-center gap-3"><span className={cn('font-display text-2xl font-bold tabular-nums', index === 0 ? 'text-emerald-a' : 'text-fg')}>{item.tip}</span>{index === 0 && <span className="text-xs font-semibold text-emerald-a">Empfehlung</span>}</div>
+                  <div className="text-right"><div className="text-sm font-bold tabular-nums text-fg">{item.expectedPoints.toFixed(2)} xP</div><div className="text-xs tabular-nums text-fg-3">{item.exactChance === null ? 'Chance offen' : `${(item.exactChance * 100).toFixed(1)} % exakt`}</div></div>
                 </div>
               ))}
-              <p className="text-xs leading-relaxed text-fg-3">xP ist der Durchschnitt der Punkte über alle möglichen Ergebnisse. Der beste Tipp muss deshalb nicht das wahrscheinlichste exakte Ergebnis sein.</p>
+              <p className="pt-3 text-xs leading-relaxed text-fg-3">xP = durchschnittliche Tippspielpunkte über alle möglichen Ergebnisse. Die exakte Trefferchance ist eine andere Zahl.</p>
             </div>
           ) : <p className="mt-4 text-sm text-fg-2">Die Tipp-Alternativen werden berechnet oder sind nicht verfügbar.</p>}
-        </GlassCard>
-      </div>
+        </div>
+        </div>
+      </section>
 
-      <GlassCard className="mb-4">
-        <SectionTitle className="mb-3">Warum dieser Tipp?</SectionTitle>
+      <section className="mb-5 rounded-[1.5rem] bg-[var(--match-note-bg)] p-5 sm:p-7">
+        <h2 className="mb-4 font-display text-2xl font-bold text-fg">Was spricht dafür?</h2>
         <MatchHintCard match={match} />
         {xgHome != null && xgAway != null && xgTotal > 0 && (
-          <div className="mt-5 border-t border-line pt-4">
-            <p className="mb-3 text-sm font-semibold text-fg">Erwartete Tore im Vergleich</p>
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="mt-5 border-t border-line pt-5">
+            <p className="mb-4 text-sm font-semibold text-fg">Torerwartung & letzte Spiele</p>
+            <div className="grid gap-5 sm:grid-cols-2">
               {[
                 { team: match.home_team, xg: xgHome, form: match.home_form },
                 { team: match.away_team, xg: xgAway, form: match.away_form },
               ].map(({ team, xg, form }) => (
-                <div key={team} className="rounded-xl bg-surface-2 p-3">
+                <div key={team}>
                   <div className="flex items-center justify-between gap-2 text-sm font-semibold text-fg"><span>{team}</span><span className="tabular-nums">{xg.toFixed(2)}</span></div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-emerald-a" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
-                  <p className="mt-3 text-xs text-fg-2">{recentFormSummary(form)}{form?.status === 'stale' ? ' · Stand möglicherweise veraltet' : ''}</p>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-emerald-a" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
+                  <p className="mt-2 text-xs text-fg-2">{recentFormSummary(form)}{form?.status === 'stale' ? ' · Stand möglicherweise veraltet' : ''}</p>
                 </div>
               ))}
             </div>
             <p className="mt-2 text-xs text-fg-3">Die Balken vergleichen die Anteile an der gesamten Torerwartung. Das ist ein Modelldurchschnitt, kein versprochenes Ergebnis.</p>
           </div>
         )}
-      </GlassCard>
+      </section>
 
       <details className="mb-4 overflow-hidden rounded-2xl border border-line bg-surface">
         <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-5 py-3 text-sm font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a [&::-webkit-details-marker]:hidden">
@@ -492,14 +464,6 @@ export function DetailView() {
         </div>
       </details>
     </PageTransition>
-  )
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className={cn('rounded-full border border-line bg-surface px-3 py-1 text-xs font-semibold text-fg-2')}>
-      {children}
-    </span>
   )
 }
 
