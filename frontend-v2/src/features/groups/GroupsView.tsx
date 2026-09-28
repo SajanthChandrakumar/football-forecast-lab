@@ -154,10 +154,11 @@ function UclStandings({ rows, valid, isLoading }: { rows: StandingsRow[]; valid:
   const sorted = [...rows].sort((a, b) => (a.pos ?? 999) - (b.pos ?? 999))
   return (
     <PageTransition>
-      <PageHeader title="Ligatabelle" subtitle="Die Ligaphase mit 36 Teams, sobald offizielle Daten verfügbar sind." />
-      {isLoading && <p className="text-fg-2">Loading league table…</p>}
-      {!isLoading && !valid && <p className="text-fg-2">League table unavailable — expected exactly 36 unique ranked teams.</p>}
+      <PageHeader title="Ligatabelle" subtitle="Die aktuelle Ligaphase mit Spielen, Torverhältnis und Punkten aller 36 Teams." />
+      {isLoading && <p className="text-fg-2">Ligatabelle wird geladen…</p>}
+      {!isLoading && !valid && <p className="text-fg-2">Die offizielle Ligatabelle ist derzeit nicht vollständig verfügbar.</p>}
       {valid && <GlassCard className="!p-0 overflow-hidden">
+        <p className="border-b border-line px-5 py-3 text-xs text-fg-2">P Spiele · S Siege · U Unentschieden · N Niederlagen · TD Tordifferenz · Pkt Punkte</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-[10px] font-bold uppercase tracking-wider text-fg-3">

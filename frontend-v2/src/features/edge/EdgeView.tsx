@@ -98,7 +98,7 @@ export function EdgeView() {
     <PageTransition>
       <PageHeader
         title="Modellvergleich"
-        subtitle="Wo das Elo-Modell den Buchmachern am stärksten widerspricht — inkl. historischer Trefferbilanz"
+        subtitle="Wo das Elo-Modell und der Markt unterschiedliche Einschätzungen zeigen."
       />
 
       {/* Tabs */}
@@ -167,7 +167,7 @@ export function EdgeView() {
               )}
             </p>
           ) : (
-            <p>Noch keine beendeten Spiele für eine Trefferanalyse vorhanden.</p>
+            <p>Für abgeschlossene Spiele liegen noch keine auswertbaren Modell-Markt-Vergleiche vor.</p>
           )}
         </div>
       )}

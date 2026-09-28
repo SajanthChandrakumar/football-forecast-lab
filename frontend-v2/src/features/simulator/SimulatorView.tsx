@@ -114,14 +114,14 @@ function UclSimulator({ data, isLoading, error }: { data?: UclSimulation; isLoad
   const hasResults = hasUclSimulationResults(data)
   return (
     <PageTransition>
-      <PageHeader title="Turnier-Simulator" subtitle="Mögliche Turnierverläufe auf Basis des gespeicherten Spielmodells." />
-      {isLoading && <p className="text-fg-2">Simulating tournament paths…</p>}
-      {error && <p className="text-red-a">Error: {error.message}</p>}
-      {data?.status === 'unavailable' && <p className="text-amber-a">Simulation unavailable: {data.error || data.reason || data.warnings?.join(' ') || 'missing model inputs'}</p>}
+      <PageHeader title="Turnier-Simulator" subtitle="Eine experimentelle Orientierung auf Basis des gespeicherten Spielmodells." />
+      {isLoading && <p className="text-fg-2">Turnierverläufe werden berechnet…</p>}
+      {error && <p className="text-red-a">Simulation fehlgeschlagen: {error.message}</p>}
+      {data?.status === 'unavailable' && <p className="text-amber-a">Simulation derzeit nicht verfügbar: {data.error || data.reason || data.warnings?.join(' ') || 'Modelldaten fehlen'}</p>}
       {hasResults && data && <div className="space-y-4">
-        {data.warnings?.length ? <GlassCard><SectionTitle className="mb-2">Data status</SectionTitle><ul className="space-y-1 text-xs text-fg-2">{data.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></GlassCard> : null}
+        {data.warnings?.length ? <GlassCard><SectionTitle className="mb-2">Datenlage</SectionTitle><ul className="space-y-1 text-xs text-fg-2">{data.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></GlassCard> : null}
         <GlassCard className="!p-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4"><SectionTitle>Full UCL output</SectionTitle><span className="text-xs text-fg-3">{(data.n_runs ?? data.runs ?? 0).toLocaleString('de-CH')} runs · seed {data.seed ?? '—'}</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4"><SectionTitle>Simulationsergebnisse</SectionTitle><span className="text-xs text-fg-3">{(data.n_runs ?? data.runs ?? 0).toLocaleString('de-CH')} Durchläufe · Startwert {data.seed ?? '—'}</span></div>
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-[10px] font-bold uppercase tracking-wider text-fg-3">
             {['#', 'Team', 'Ø Pkt', 'Ø Rank', 'Top 8', 'Top 24', 'R16', 'QF', 'SF', 'Final', 'Champion'].map((label) => <th key={label} className="whitespace-nowrap px-3 py-2 text-right first:text-left">{label}</th>)}
           </tr></thead><tbody>{data.results.map((team, index) => <tr key={team.team} className={cn('border-t border-line', index === 0 && 'bg-gold-dim/30')}>

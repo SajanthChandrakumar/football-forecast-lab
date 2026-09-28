@@ -26,6 +26,7 @@ export function ValueBetsView() {
     <PageTransition>
       <PageHeader title="Tipp-Chancen" subtitle="Spiele mit den höchsten erwarteten Punkten (xP)." />
       {isLoading && <FixtureListSkeleton days={1} rowsPerDay={6} />}
+      {!isLoading && ranked.length === 0 && <p className="rounded-xl border border-line bg-surface p-5 text-sm text-fg-2">Aktuell gibt es keine kommenden Spiele mit berechnetem Tippwert.</p>}
 
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}

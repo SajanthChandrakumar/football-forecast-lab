@@ -68,7 +68,7 @@ export function TeamFormView() {
         {/* Chart + picker */}
         <GlassCard>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <SectionTitle>Elo-Verlauf</SectionTitle>
+            <SectionTitle>Teams vergleichen</SectionTitle>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -83,11 +83,13 @@ export function TeamFormView() {
               return (
                 <button
                   key={r.team}
+                  type="button"
+                  aria-pressed={active}
                   onClick={() => toggleTeam(r.team)}
                   className={cn(
-                    'rounded-full border px-2.5 py-1 text-xs font-semibold transition',
+                    'rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition',
                     active
-                      ? 'border-emerald-a/50 bg-emerald-dim text-emerald-a'
+                      ? 'border-[#193b2b] bg-[#193b2b] text-white'
                       : 'border-line bg-surface text-fg-2 hover:border-line-2',
                   )}
                 >
@@ -97,6 +99,21 @@ export function TeamFormView() {
             })}
           </div>
 
+          {selectedTeams.length > 0 && (
+            <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {selectedTeams.map((team) => {
+                const row = rows.find((item) => item.team === team)
+                if (!row) return null
+                return (
+                  <div key={team} className="rounded-xl border border-line bg-surface-2 px-3 py-3">
+                    <div className="truncate text-xs font-semibold text-fg-2">{flag(team)} {team}</div>
+                    <div className="mt-1 font-display text-2xl font-bold tabular-nums text-fg">{Math.round(row.elo)} <span className="text-xs font-medium text-fg-3">Elo</span></div>
+                    <div className="mt-1 text-xs text-fg-2">Letzte Spiele: {row.last5.length ? row.last5.map((result) => result === 'W' ? 'S' : result === 'D' ? 'U' : 'N').join(' · ') : 'keine Resultate'}</div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           <EloChart teams={selectedTeams} history={history} matchInfo={matchInfo} />
         </GlassCard>
 
