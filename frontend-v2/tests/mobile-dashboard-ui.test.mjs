@@ -31,9 +31,8 @@ test('mobile Mehr menu has dialog, focus, Escape, and close contracts', () => {
 
 test('dashboard uses plain-language mobile prediction cards', () => {
   const row = read('src/features/dashboard/FixtureRow.tsx')
-  assert.match(row, /Unser Tipp/)
-  assert.match(row, /min-h-\[48px\]/)
-  assert.match(row, /data-mobile-trailing/)
+  assert.match(row, /Modelltipp/)
+  assert.match(row, /min-h-11/)
   assert.match(row, /\{trailing\}/)
 })
 
@@ -43,19 +42,58 @@ test('dashboard and detail share the automatic hint component', () => {
   const detail = read('src/features/detail/DetailView.tsx')
 
   assert.match(card, /buildMatchHint/)
-  assert.match(card, /Sicherheit/)
+  assert.match(card, /Spielausgang/)
   assert.match(card, /<details/)
   assert.match(card, /Warum\?/)
   assert.match(card, /min-h-11/)
-  assert.doesNotMatch(card, /text-(?:xs|sm)/)
+  assert.match(card, /compact \? 'text-sm' : 'text-base'/)
   assert.match(dashboard, /<MatchHintCard match=\{match\}/)
   assert.match(detail, /<MatchHintCard match=\{match\}/)
 })
 
-test('global styling uses the approved palette and removes the blueprint grid', () => {
+test('fixture cards show the model tip, a short reason and an explicit detail action', () => {
+  const row = read('src/features/dashboard/FixtureRow.tsx')
+  assert.match(row, /Modelltipp/)
+  assert.match(row, /<MatchHintCard match=\{match\} compact/)
+  assert.match(row, /Tipp ansehen/)
+})
+
+test('detail exposes local copy first and discloses that the saved tip is shared', () => {
+  const detail = read('src/features/detail/DetailView.tsx')
+  assert.match(detail, /Tipp kopieren/)
+  assert.match(detail, /Gemeinsamen Spieltipp speichern/)
+  assert.match(detail, /nicht nutzergetrennt/)
+  assert.match(detail, /navigator\.clipboard\.writeText/)
+})
+
+test('score table uses team names when display names are missing', () => {
+  const detail = read('src/features/detail/DetailView.tsx')
+  assert.match(detail, /homeDisp=\{match\.home_disp \|\| match\.home_team\}/)
+  assert.match(detail, /awayDisp=\{match\.away_disp \|\| match\.away_team\}/)
+})
+
+test('past fixtures without a result are separated and no longer offer a tip', () => {
+  const dashboard = read('src/features/dashboard/DashboardView.tsx')
+  const row = read('src/features/dashboard/FixtureRow.tsx')
+  assert.match(dashboard, /pendingResult/)
+  assert.match(dashboard, /Ergebnis ausstehend/)
+  assert.match(dashboard, /Anstoß offen/)
+  assert.match(row, /pendingResult/)
+  assert.match(row, /Ergebnis ausstehend/)
+})
+
+test('unavailable match data keeps its status and last observation for the empty state', () => {
+  const queries = read('src/hooks/queries.ts')
+  const dashboard = read('src/features/dashboard/DashboardView.tsx')
+  assert.match(queries, /observed_at/)
+  assert.match(dashboard, /Spieldaten gerade nicht verfügbar/)
+  assert.match(dashboard, /observed_at/)
+})
+
+test('global styling uses the calmer neutral palette and removes the blueprint grid', () => {
   const css = read('src/index.css')
-  assert.match(css, /#315efb/i)
-  assert.match(css, /#edf1f6/i)
+  assert.match(css, /#2c6049/i)
+  assert.match(css, /#f5f4ef/i)
   assert.doesNotMatch(css, /blueprint grid/i)
 })
 

@@ -24,7 +24,7 @@ export function ValueBetsView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Top Value Bets" subtitle="Spiele mit den höchsten erwarteten Punkten (xP)" />
+      <PageHeader title="Tipp-Chancen" subtitle="Spiele mit den höchsten erwarteten Punkten (xP)." />
       {isLoading && <FixtureListSkeleton days={1} rowsPerDay={6} />}
 
       <motion.div
@@ -37,6 +37,7 @@ export function ValueBetsView() {
             <div className="min-w-0 flex-1">
               <FixtureRow
                 match={m}
+                now={now}
                 trailing={
                   <span className="text-right">
                     <span className="display-num block text-lg text-emerald-a">{m.max_xp.toFixed(2)}</span>

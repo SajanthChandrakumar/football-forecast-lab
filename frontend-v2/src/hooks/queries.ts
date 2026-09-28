@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAppState } from '../state/AppState'
-import type { CustomBotParams, Match, PoolContext, RawMatch } from '../lib/types'
+import type { CustomBotParams, Match, MatchesResponse, PoolContext, RawMatch, UnavailablePayload } from '../lib/types'
 
 /** The cache can hold the same fixture under two ids (provider switch) —
  *  keep the entry with the richer prediction per team-pair + kickoff. */
@@ -17,17 +17,23 @@ function dedupeMatches(matches: Match[]): Match[] {
   return [...byKey.values()]
 }
 
+type MatchListData = { matches: Match[] } & Partial<Pick<UnavailablePayload, 'status' | 'source' | 'observed_at' | 'error'>>
+
+function normalizeMatches(result: MatchesResponse): MatchListData {
+  return Array.isArray(result)
+    ? { matches: result }
+    : { ...result, matches: result.data ?? [] }
+}
+
 export const useMatches = () => {
   const { competition } = useAppState()
-  return useQuery({
+  const query = useQuery({
     queryKey: ['matches', competition],
-    queryFn: async () => {
-      const result = await api.matches(competition)
-      return Array.isArray(result) ? result : []
-    },
+    queryFn: async () => normalizeMatches(await api.matches(competition)),
     staleTime: 60_000,
-    select: dedupeMatches,
+    select: (result) => ({ ...result, matches: dedupeMatches(result.matches) }),
   })
+  return { ...query, data: query.data?.matches, availability: query.data }
 }
 
 export const useArchive = () => {
@@ -140,9 +146,9 @@ export const useRefreshData = () => {
   const { competition } = useAppState()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => api.matches(competition, true),
+    mutationFn: async () => normalizeMatches(await api.matches(competition, true)),
     onSuccess: (data) => {
-      qc.setQueryData(['matches', competition], Array.isArray(data) ? data : [])
+      qc.setQueryData(['matches', competition], data)
       qc.invalidateQueries({ queryKey: ['archive', competition] })
       qc.invalidateQueries({ queryKey: ['quota', competition] })
     },

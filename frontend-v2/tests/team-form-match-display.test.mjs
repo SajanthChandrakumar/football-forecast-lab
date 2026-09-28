@@ -27,8 +27,8 @@ test('fixture cards show compact form for both teams without replacing the prima
   const row = read('src/features/dashboard/FixtureRow.tsx')
   assert.match(row, /<FormBadges form=\{match\.home_form\}/)
   assert.match(row, /<FormBadges form=\{match\.away_form\}/)
-  assert.match(row, /Unser Tipp/)
-  assert.match(row, /min-h-\[48px\]/)
+  assert.match(row, /Modelltipp/)
+  assert.match(row, /min-h-11/)
 })
 
 test('match detail lists the five newest competitive matches in a mobile stack', () => {

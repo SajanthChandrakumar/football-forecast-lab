@@ -9,11 +9,11 @@ export function TeamLogo({ name, src, className }: { name: string; src?: string 
   return <img src={src} alt="" aria-hidden className={cn('h-5 w-5 shrink-0 object-contain', className)} onError={() => setFailed(true)} />
 }
 
-export function TeamLabel({ name, disp, logo, className }: { name: string; disp?: string; logo?: string | null; className?: string }) {
+export function TeamLabel({ name, disp, logo, wrap = false, className }: { name: string; disp?: string; logo?: string | null; wrap?: boolean; className?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-1.5 font-semibold text-fg', className)}>
       <TeamLogo name={name} src={logo} />
-      <span className="truncate">{disp?.replace(/^\p{RI}\p{RI}\s*/u, '') || name}</span>
+      <span className={wrap ? 'min-w-0 whitespace-normal break-words' : 'truncate'}>{disp?.replace(/^\p{RI}\p{RI}\s*/u, '') || name}</span>
     </span>
   )
 }
@@ -35,7 +35,7 @@ export function FormBadges({ form, className }: { form?: TeamForm; className?: s
   const label = `Letzte Spiele: ${visible.map((result) => resultWord[result]).join(', ')}`
   return (
     <span
-      className={cn('inline-flex items-center gap-0.5', className)}
+      className={cn('inline-flex flex-wrap items-center gap-1', className)}
       aria-label={label}
       title={form.status === 'stale' ? `${label} · möglicherweise veraltet` : label}
     >
@@ -43,7 +43,7 @@ export function FormBadges({ form, className }: { form?: TeamForm; className?: s
         <span
           key={i}
           aria-hidden="true"
-          className={cn('flex h-4 w-4 items-center justify-center rounded text-[9px] font-extrabold', FORM_STYLE[r])}
+          className={cn('flex h-5 w-5 items-center justify-center rounded text-[10px] font-extrabold', FORM_STYLE[r])}
         >
           {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
         </span>

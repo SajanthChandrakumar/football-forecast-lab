@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMatches, usePoolContext, usePredict, useSavePoolContext, useSaveUserTip } from '../../hooks/queries'
 import { computeImpliedProbs, pct, flag, cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
+import { fixtureStatus, sharedTipIsOpen } from '../../lib/fixture-status.mjs'
 import type { BotKey, Match, TeamForm } from '../../lib/types'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { FormBadges, TeamLogo } from '../../components/shared/Badges'
@@ -10,6 +11,7 @@ import { MatchHintCard } from '../../components/shared/MatchHintCard'
 import { PageTransition } from '../../components/shared/PageTransition'
 import { ChartSkeleton, CardGridSkeleton } from '../../components/shared/Skeleton'
 import { ScoreHeatmap } from './ScoreHeatmap'
+import { rankedTipInsights, recentFormSummary, matchLoadSummary } from '../../lib/tip-insights.mjs'
 
 const BOT_META: Record<BotKey, { label: string; color: string }> = {
   broker: { label: 'Broker', color: 'var(--blue)' },
@@ -18,9 +20,10 @@ const BOT_META: Record<BotKey, { label: string; color: string }> = {
   gambler: { label: 'Zocker', color: 'var(--text-2)' },
 }
 
-function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
+function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamForm; kickoff?: string }) {
   if (!form?.status && !form?.matches?.length) return null
   const items = form?.matches?.slice(0, 5) ?? []
+  const load = matchLoadSummary(form, kickoff)
   const sourceLabel = form?.source === 'espn+fotmob'
     ? 'ESPN + FotMob'
     : form?.source === 'espn'
@@ -29,25 +32,30 @@ function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
         ? 'API-Football'
         : form?.source
   return (
-    <section className="rounded-xl border border-line bg-surface p-3 text-left">
+    <section className="rounded-xl border border-line bg-surface p-4 text-left">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-bold text-fg">{team}</h3>
-          <p className="text-[10px] text-fg-3">
+          <h3 className="text-base font-bold text-fg">{team}</h3>
+          <p className="mt-1 text-xs text-fg-2">
             Letzte Pflichtspiele · alle Wettbewerbe{sourceLabel ? ` · Quelle: ${sourceLabel}` : ''}
           </p>
         </div>
-        {form?.status === 'stale' && <span className="text-[10px] font-semibold text-amber-a">Stand möglicherweise veraltet</span>}
+        {form?.status === 'stale' && <span className="text-xs font-semibold text-amber-a">Stand möglicherweise veraltet</span>}
       </div>
+      {load ? (
+        <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs font-semibold text-fg-2">{load}</p>
+      ) : items.length > 0 && kickoff && Date.parse(kickoff) > Date.now() ? (
+        <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs font-semibold text-fg-2">Belastung kurz vor Anpfiff verfügbar</p>
+      ) : null}
       {items.length ? (
         <ul className="mt-3 space-y-2">
           {items.map((item) => (
-            <li key={item.fixture_id} className="rounded-lg bg-surface-2 px-2.5 py-2 text-xs">
+            <li key={item.fixture_id} className="rounded-lg bg-surface-2 px-3 py-2.5 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate font-semibold text-fg">{item.opponent_name}</span>
                 <span className="shrink-0 font-bold tabular-nums text-fg">{item.score}</span>
               </div>
-              <div className="mt-0.5 flex flex-wrap justify-between gap-x-2 text-[10px] text-fg-3">
+              <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-xs text-fg-2">
                 <span>{item.competition_name} · {item.venue === 'home' ? 'Heim' : 'Auswärts'}</span>
                 <span>{shortDate(item.played_at)}</span>
               </div>
@@ -55,7 +63,7 @@ function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-xs font-semibold text-fg-3">Form nicht verfügbar</p>
+        <p className="mt-3 text-sm font-semibold text-fg-2">Form nicht verfügbar</p>
       )}
     </section>
   )
@@ -70,9 +78,16 @@ export function DetailView() {
   const pool = usePoolContext(id)
   const savePool = useSavePoolContext()
   const [adoptStatus, setAdoptStatus] = useState('')
+  const [copyStatus, setCopyStatus] = useState('')
   const [poolOpen, setPoolOpen] = useState(false)
   const [poolForm, setPoolForm] = useState({ user_points: '', leader_points: '', remaining_srf_max_points: '', tip_counts: '{}' })
   const [poolStatus, setPoolStatus] = useState('')
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const clock = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(clock)
+  }, [])
 
   const match: Match | undefined = useMemo(
     () => matches?.find((m) => m.id === id),
@@ -134,20 +149,44 @@ export function DetailView() {
   const modelTip = calc?.model_tip ?? match.model_tip ?? calc?.top_tip
   const poolTip = calc?.pool_tip ?? match.pool_tip
   const topTip = calc?.xp_tips?.find((tip) => tip.Tipp === modelTip) ?? calc?.xp_tips?.[0]
+  const activeTip = topTip?.Tipp ?? modelTip ?? match.top_tip
+  const canTip = fixtureStatus(match, now) === 'upcoming' && Boolean(activeTip) && activeTip !== 'N/A'
+  const canSaveSharedTip = canTip && sharedTipIsOpen(match.raw_match?.commence_time, now)
   const runners = calc?.xp_tips?.slice(1, 4) ?? []
-  const h2h = match.h2h
+  const tipInsights = rankedTipInsights(calc?.xp_tips, calc?.matrix)
+  const xgHome = calc?.xg_home ?? match.xg_home
+  const xgAway = calc?.xg_away ?? match.xg_away
+  const xgTotal = (xgHome ?? 0) + (xgAway ?? 0)
+  const hasOutcomeProbabilities = probs.home + probs.draw + probs.away > 0
   const missing = Object.entries(match.lineup_diff ?? {}).filter(([, v]) => v.missing?.length)
 
   const adopt = () => {
-    if (!topTip) return
+    if (!activeTip || !sharedTipIsOpen(match.raw_match?.commence_time)) {
+      setNow(Date.now())
+      setAdoptStatus('Gemeinsamer Tipp ist geschlossen (5 Minuten vor Anstoß).')
+      return
+    }
     setAdoptStatus('Speichere…')
     saveTip.mutate(
-      { matchId: match.id, tip: topTip.Tipp },
+      { matchId: match.id, tip: activeTip },
       {
-        onSuccess: () => setAdoptStatus('✓ Übernommen'),
+        onSuccess: () => setAdoptStatus('✓ Gemeinsamer Spieltipp gespeichert'),
         onError: (e) => setAdoptStatus(`Fehler: ${(e as Error).message}`),
       },
     )
+  }
+
+  const copyTip = async () => {
+    if (!activeTip || fixtureStatus(match) !== 'upcoming') {
+      setNow(Date.now())
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(activeTip)
+      setCopyStatus('Tipp kopiert. Du kannst ihn jetzt in deine Tipprunde einfügen.')
+    } catch {
+      setCopyStatus('Kopieren nicht möglich. Bitte den Tipp manuell markieren.')
+    }
   }
 
   const savePoolContext = () => {
@@ -180,40 +219,113 @@ export function DetailView() {
         ← Zurück
       </button>
 
-      {/* Header */}
-      <header className="mb-6">
-        <h1 className="font-display text-4xl font-extrabold uppercase tracking-wide text-fg">
-          <TeamLogo name={match.home_team} src={match.home_logo} /> {match.home_team} <span className="text-fg-3">vs</span>{' '}
-          <TeamLogo name={match.away_team} src={match.away_logo} /> {match.away_team}
+      <header className="relative mb-5 overflow-hidden rounded-[1.75rem] bg-[#193b2b] px-5 py-6 text-[#f8f7f2] shadow-[0_18px_35px_-25px_rgba(22,48,33,0.8)] sm:px-8 sm:py-8">
+        <div className="absolute inset-x-0 top-0 h-1 bg-[#c9ad78]" aria-hidden="true" />
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#cbdccf]">{match.is_ko_phase ? 'K.-o.-Phase · doppelte Punkte' : match.stage === 'League stage' ? 'Ligaphase' : (match.stage ?? 'Ligaphase')}</p>
+        <h1 className="mt-6 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 font-display text-3xl font-bold leading-none text-[#f8f7f2] sm:gap-6 sm:text-5xl">
+          <span className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center"><TeamLogo name={match.home_team} src={match.home_logo} className="h-7 w-7" /><span className="min-w-0 break-words">{match.home_team}</span></span>
+          <span className="font-sans text-sm font-medium text-[#b7cabd]">vs</span>
+          <span className="flex min-w-0 flex-col items-end gap-2 text-right sm:flex-row-reverse sm:items-center"><TeamLogo name={match.away_team} src={match.away_logo} className="h-7 w-7" /><span className="min-w-0 break-words">{match.away_team}</span></span>
         </h1>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Chip>{match.is_ko_phase ? 'K.O. Phase — Punkte ×2' : (match.stage ?? 'League stage')}</Chip>
-          {calc && <Chip>xG {calc.xg_home?.toFixed(2) ?? '–'} : {calc.xg_away?.toFixed(2) ?? '–'}</Chip>}
-          {h2h && Object.keys(h2h).length > 0 && (
-            <Chip>
-              H2H {h2h[String(match.home_team_id ?? '')] ?? 0}–{h2h.draws ?? 0}–{h2h[String(match.away_team_id ?? '')] ?? 0}
-            </Chip>
+        <div className="mt-7 flex flex-col gap-5 border-t border-white/20 pt-6 min-[480px]:flex-row min-[480px]:items-end min-[480px]:justify-between">
+          <div>
+            <p className="text-sm text-[#cbdccf]">Unser Tipp</p>
+            <div className="font-display text-6xl font-bold leading-none tabular-nums text-[#f8f7f2]">{activeTip && activeTip !== 'N/A' ? activeTip : '–'}</div>
+            <p className="mt-1 text-xs text-[#cbdccf]">Nach erwarteten Tippspielpunkten</p>
+          </div>
+          {canTip ? (
+            <div className="flex flex-col items-start gap-2 min-[480px]:items-end">
+              <button type="button" onClick={copyTip} className="min-h-11 rounded-lg bg-[#f8f7f2] px-5 py-2.5 text-sm font-bold text-[#193b2b] transition hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Tipp kopieren <span aria-hidden="true">↗</span></button>
+              <button onClick={adopt} disabled={saveTip.isPending || !canSaveSharedTip} className="min-h-10 text-left text-sm font-medium text-[#e2ede4] underline underline-offset-4 hover:text-white disabled:opacity-50">{saveTip.isPending ? 'Speichere…' : canSaveSharedTip ? 'Gemeinsamen Spieltipp speichern' : 'Gemeinsamer Tipp geschlossen'}</button>
+            </div>
+          ) : (
+            <p className="text-sm text-[#e2ede4]">{fixtureStatus(match, now) === 'pending' ? 'Ergebnis ausstehend · Tipps geschlossen.' : fixtureStatus(match, now) === 'played' ? 'Spiel abgeschlossen · Tipps geschlossen.' : 'Anstoßzeit fehlt · Tipp-Aktion geschlossen.'}</p>
           )}
         </div>
+        <details className="mt-4 text-xs text-[#cbdccf]"><summary className="cursor-pointer underline-offset-4 hover:underline">Was passiert mit meinem Tipp?</summary><p className="mt-2 max-w-prose leading-relaxed">„Tipp kopieren“ überträgt ihn nicht an den Server. „Gemeinsamen Spieltipp speichern“ schreibt einen zentralen Eintrag für dieses Spiel; er ist derzeit nicht nutzergetrennt.</p></details>
+        {copyStatus && <p role="status" className="mt-2 text-sm text-[#f8f7f2]">{copyStatus}</p>}
+        {adoptStatus && <p role="status" className="mt-2 text-sm text-[#f8f7f2]">{adoptStatus}</p>}
       </header>
 
-      {/* Lineup alert */}
       {missing.length > 0 && (
-        <GlassCard className="mb-4 border-amber-a/40 bg-amber-a/5">
+        <GlassCard className="mb-5 border-amber-a/40 bg-amber-a/5">
           <SectionTitle className="mb-2 text-amber-a">Aufstellungs-Alarm</SectionTitle>
-          {missing.map(([team, v]) => (
-            <p key={team} className="text-sm text-fg-2">
-              <b className="text-fg">{team}:</b> fehlend — {v.missing.join(', ')}
-            </p>
-          ))}
+          {missing.map(([team, v]) => <p key={team} className="text-sm text-fg-2"><b className="text-fg">{team}:</b> fehlend — {v.missing.join(', ')}</p>)}
         </GlassCard>
       )}
 
-      <GlassCard className="mb-4">
-        <SectionTitle className="mb-3">Unser Tipp – einfach erklärt</SectionTitle>
-        <MatchHintCard match={match} />
-      </GlassCard>
+      <section className="mb-5 overflow-hidden rounded-[1.5rem] border border-line bg-surface shadow-[0_18px_35px_-32px_rgba(22,48,33,0.55)]">
+        <div className="border-b border-line px-5 py-5 sm:px-7">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Tipp-Check</p>
+          <h2 className="mt-1 font-display text-3xl font-bold text-fg">So liest du dieses Spiel</h2>
+        </div>
+        <div className="grid lg:grid-cols-2">
+        <div className="px-5 py-6 sm:px-7 lg:border-r lg:border-line">
+          <h3 className="text-lg font-bold text-fg">Wer gewinnt?</h3>
+          <p className="mt-1 text-sm leading-relaxed text-fg-2">Siegchance, unabhängig vom genauen Ergebnis.</p>
+          {hasOutcomeProbabilities ? (
+            <div className="mt-6">
+              <div className="flex h-5 overflow-hidden rounded-full bg-surface-2" role="img" aria-label={`${match.home_team} Sieg ${pct(probs.home)}, Unentschieden ${pct(probs.draw)}, ${match.away_team} Sieg ${pct(probs.away)}`}>
+                <span className="bg-[#2c6049]" style={{ width: `${probs.home * 100}%` }} />
+                <span className="bg-[#9aa99c]" style={{ width: `${probs.draw * 100}%` }} />
+                <span className="bg-[#bf795b]" style={{ width: `${probs.away * 100}%` }} />
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-fg-2">
+                <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-[#2c6049]" /><b className="block text-base tabular-nums text-fg">{pct(probs.home)}</b>{match.home_team}</div>
+                <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-[#9aa99c]" /><b className="block text-base tabular-nums text-fg">{pct(probs.draw)}</b>Remis</div>
+                <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-[#bf795b]" /><b className="block text-base tabular-nums text-fg">{pct(probs.away)}</b>{match.away_team}</div>
+              </div>
+              <p className="mt-5 text-xs text-fg-3">Quelle: {quoteSource}. {hasBookmakerOdds ? 'Buchmacherquoten ohne Marge.' : 'Modellschätzung; keine wettbare Quote.'}</p>
+            </div>
+          ) : <p className="mt-4 text-sm text-fg-2">Für diese Einschätzung fehlen Daten.</p>}
+        </div>
 
+        <div className="border-t border-line px-5 py-6 sm:px-7 lg:border-t-0">
+          <h3 className="text-lg font-bold text-fg">Welches Ergebnis tippen?</h3>
+          <p className="mt-1 text-sm leading-relaxed text-fg-2">Die drei besten Optionen nach erwarteten Punkten.</p>
+          {tipInsights.length ? (
+            <div className="mt-4 divide-y divide-line">
+              {tipInsights.map((item, index) => (
+                <div key={item.tip} className="flex items-center justify-between gap-4 py-3">
+                  <div className="flex items-center gap-3"><span className={cn('font-display text-2xl font-bold tabular-nums', index === 0 ? 'text-emerald-a' : 'text-fg')}>{item.tip}</span>{index === 0 && <span className="text-xs font-semibold text-emerald-a">Empfehlung</span>}</div>
+                  <div className="text-right"><div className="text-sm font-bold tabular-nums text-fg">{item.expectedPoints.toFixed(2)} xP</div><div className="text-xs tabular-nums text-fg-3">{item.exactChance === null ? 'Chance offen' : `${(item.exactChance * 100).toFixed(1)} % exakt`}</div></div>
+                </div>
+              ))}
+              <p className="pt-3 text-xs leading-relaxed text-fg-3">xP = durchschnittliche Tippspielpunkte über alle möglichen Ergebnisse. Die exakte Trefferchance ist eine andere Zahl.</p>
+            </div>
+          ) : <p className="mt-4 text-sm text-fg-2">Die Tipp-Alternativen werden berechnet oder sind nicht verfügbar.</p>}
+        </div>
+        </div>
+      </section>
+
+      <section className="mb-5 rounded-[1.5rem] bg-[var(--match-note-bg)] p-5 sm:p-7">
+        <h2 className="mb-4 font-display text-2xl font-bold text-fg">Was spricht dafür?</h2>
+        <MatchHintCard match={match} />
+        {xgHome != null && xgAway != null && xgTotal > 0 && (
+          <div className="mt-5 border-t border-line pt-5">
+            <p className="mb-4 text-sm font-semibold text-fg">Torerwartung & letzte Spiele</p>
+            <div className="grid gap-5 sm:grid-cols-2">
+              {[
+                { team: match.home_team, xg: xgHome, form: match.home_form },
+                { team: match.away_team, xg: xgAway, form: match.away_form },
+              ].map(({ team, xg, form }) => (
+                <div key={team}>
+                  <div className="flex items-center justify-between gap-2 text-sm font-semibold text-fg"><span>{team}</span><span className="tabular-nums">{xg.toFixed(2)}</span></div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-emerald-a" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
+                  <p className="mt-2 text-xs text-fg-2">{recentFormSummary(form)}{form?.status === 'stale' ? ' · Stand möglicherweise veraltet' : ''}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-fg-3">Die Balken vergleichen die Anteile an der gesamten Torerwartung. Das ist ein Modelldurchschnitt, kein versprochenes Ergebnis.</p>
+          </div>
+        )}
+      </section>
+
+      <details className="mb-4 overflow-hidden rounded-2xl border border-line bg-surface">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-5 py-3 text-sm font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a [&::-webkit-details-marker]:hidden">
+          Ausführliche Daten und Score-Tabelle <span aria-hidden="true">⌄</span>
+        </summary>
+        <div className="space-y-4 border-t border-line p-4">
       <div className="grid gap-4 lg:grid-cols-2">
         {/* xG + Form */}
         <GlassCard>
@@ -231,8 +343,8 @@ export function DetailView() {
             ))}
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <TeamFormHistory team={match.home_team} form={match.home_form} />
-            <TeamFormHistory team={match.away_team} form={match.away_form} />
+            <TeamFormHistory team={match.home_team} form={match.home_form} kickoff={match.raw_match?.commence_time} />
+            <TeamFormHistory team={match.away_team} form={match.away_form} kickoff={match.raw_match?.commence_time} />
           </div>
         </GlassCard>
 
@@ -267,7 +379,7 @@ export function DetailView() {
         <GlassCard>
           <SectionTitle className="mb-4">Score-Wahrscheinlichkeiten</SectionTitle>
           {calc?.matrix ? (
-            <ScoreHeatmap calc={calc} homeDisp={match.home_disp} awayDisp={match.away_disp} />
+            <ScoreHeatmap calc={calc} homeDisp={match.home_disp || match.home_team} awayDisp={match.away_disp || match.away_team} />
           ) : (
             <p className="text-sm text-fg-3">{predict.isPending ? 'Rechne…' : 'Keine Daten'}</p>
           )}
@@ -309,14 +421,6 @@ export function DetailView() {
                   </div>
                 ))}
               </div>
-              <button
-                onClick={adopt}
-                disabled={saveTip.isPending}
-                className="mt-4 w-full rounded-xl bg-gold-a/90 px-4 py-2.5 text-sm font-bold text-black transition hover:brightness-110 disabled:opacity-50"
-              >
-                Tipp übernehmen
-              </button>
-              {adoptStatus && <p className="mt-2 text-center text-xs text-fg-2">{adoptStatus}</p>}
             </>
           ) : (
             <p className="text-sm text-fg-3">{predict.isPending ? 'Rechne…' : 'Keine Empfehlung verfügbar'}</p>
@@ -363,15 +467,9 @@ export function DetailView() {
           )}
         </GlassCard>
       </div>
+        </div>
+      </details>
     </PageTransition>
-  )
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className={cn('rounded-full border border-line bg-surface px-3 py-1 text-xs font-semibold text-fg-2')}>
-      {children}
-    </span>
   )
 }
 

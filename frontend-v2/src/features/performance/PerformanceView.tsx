@@ -13,7 +13,7 @@ export function PerformanceView() {
   if (isLoading) {
     return (
       <PageTransition>
-        <PageHeader title="Algorithm Performance" subtitle="Prediction accuracy vs actual results" />
+        <PageHeader title="Tipps & Auswertung" subtitle="So haben deine Tipps und das Modell abgeschnitten." />
         <PerformanceSkeleton />
       </PageTransition>
     )
@@ -22,13 +22,13 @@ export function PerformanceView() {
   if (totals.completed === 0) {
     return (
       <PageTransition>
-        <PageHeader title="Algorithm Performance" subtitle="Prediction accuracy vs actual results" />
+        <PageHeader title="Tipps & Auswertung" subtitle="So haben deine Tipps und das Modell abgeschnitten." />
         <p className="text-fg-2">Noch keine abgeschlossenen Spiele. Die geschützte Wartung synchronisiert Ergebnisse nach Spielende.</p>
       </PageTransition>
     )
   }
 
-  const hitRate = totals.userCount > 0 ? ((totals.correctTendency / totals.userCount) * 100).toFixed(1) : '0.0'
+  const hitRate = totals.userCount > 0 ? `${((totals.correctTendency / totals.userCount) * 100).toFixed(1)}%` : '—'
   const algoHitRate = totals.algoCount > 0 ? ((totals.algoTendency / totals.algoCount) * 100).toFixed(1) : '0.0'
   const maxPts = Math.max(totals.totalPoints, totals.algoTotal, 1)
 
@@ -36,21 +36,21 @@ export function PerformanceView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Algorithm Performance" subtitle="Prediction accuracy vs actual results" />
+      <PageHeader title="Tipps & Auswertung" subtitle="So haben deine Tipps und das Modell abgeschnitten." />
 
       {/* Quick-nav — one click to every section */}
       <div className="mb-6 flex flex-wrap gap-1.5">
         {[
           ['sec-overview', 'Übersicht'],
-          ['sec-bots', 'Bot Scoreboard'],
-          ['sec-bob', 'Build a Bot'],
-          ['sec-race', 'Points Race'],
-          ['sec-history', 'Match History'],
+          ['sec-bots', 'Bot-Vergleich'],
+          ['sec-bob', 'Eigener Bot'],
+          ['sec-race', 'Punkteverlauf'],
+          ['sec-history', 'Spielverlauf'],
         ].map(([id, label]) => (
           <button
             key={id}
             onClick={() => jumpTo(id)}
-            className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs font-semibold text-fg-2 transition hover:border-emerald-a/40 hover:text-fg"
+            className="rounded-lg border border-line bg-surface px-3.5 py-2 text-xs font-semibold text-fg-2 transition hover:border-emerald-a/40 hover:text-fg"
           >
             {label}
           </button>
@@ -58,21 +58,23 @@ export function PerformanceView() {
       </div>
 
       <div className="space-y-4">
-        {/* KPI cards */}
-        <div id="sec-overview" className="grid scroll-mt-6 gap-4 sm:grid-cols-3">
-          <Kpi label="Completed Matches" value={String(totals.completed)} color="var(--text-1)" />
-          <Kpi label="Total SRF Points" value={String(totals.totalPoints)} color="var(--emerald)" />
-          <Kpi label="Hit Rate (Tendenz)" value={`${hitRate}%`} color="var(--gold)" />
-        </div>
+        <GlassCard id="sec-overview" className="scroll-mt-6 !p-0">
+          <div className="grid grid-cols-3 divide-x divide-line">
+            <Kpi label="Spiele" value={String(totals.completed)} />
+            <Kpi label="Deine Punkte" value={String(totals.totalPoints)} />
+            <Kpi label="Trefferquote" value={hitRate} />
+          </div>
+          {totals.userCount === 0 && <p className="border-t border-line px-5 py-3 text-xs text-fg-2">Noch kein eigener Tipp eingetragen. Deine Trefferquote erscheint nach dem ersten ausgewerteten Tipp.</p>}
+        </GlassCard>
 
         {/* You vs Algo */}
         <GlassCard>
-          <SectionTitle className="mb-4">You vs Algo</SectionTitle>
+          <SectionTitle className="mb-4">Du und das Modell</SectionTitle>
           <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-widest text-gold-a">Du · {totals.userCount} Tipps</div>
               <div className="display-num text-4xl text-gold-a">{totals.totalPoints}</div>
-              <div className="text-xs text-fg-3">{hitRate}% Tendenz</div>
+              <div className="text-xs text-fg-3">{hitRate} Tendenz</div>
             </div>
             <div className="text-sm font-extrabold text-fg-2">vs.</div>
             <div className="text-right">
@@ -119,18 +121,12 @@ export function PerformanceView() {
   )
 }
 
-function Kpi({ label, value, color }: { label: string; value: string; color: string }) {
+function Kpi({ label, value }: { label: string; value: string }) {
   return (
-    <GlassCard className="relative overflow-hidden">
-      <div
-        className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-20 blur-2xl"
-        style={{ background: color }}
-      />
-      <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-fg-3">{label}</div>
-      <div className="display-num mt-1 text-6xl" style={{ color, textShadow: `0 0 32px color-mix(in srgb, ${color} 35%, transparent)` }}>
-        {value}
-      </div>
-    </GlassCard>
+    <div className="min-w-0 px-3 py-5 sm:px-6">
+      <div className="text-xs font-semibold text-fg-2">{label}</div>
+      <div className="mt-2 font-display text-4xl font-bold leading-none tabular-nums text-fg sm:text-5xl">{value}</div>
+    </div>
   )
 }
 
