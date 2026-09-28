@@ -11,7 +11,7 @@ import { MatchHintCard } from '../../components/shared/MatchHintCard'
 import { PageTransition } from '../../components/shared/PageTransition'
 import { ChartSkeleton, CardGridSkeleton } from '../../components/shared/Skeleton'
 import { ScoreHeatmap } from './ScoreHeatmap'
-import { rankedTipInsights, recentFormSummary } from '../../lib/tip-insights.mjs'
+import { rankedTipInsights, recentFormSummary, matchLoadSummary } from '../../lib/tip-insights.mjs'
 
 const BOT_META: Record<BotKey, { label: string; color: string }> = {
   broker: { label: 'Broker', color: 'var(--blue)' },
@@ -20,9 +20,10 @@ const BOT_META: Record<BotKey, { label: string; color: string }> = {
   gambler: { label: 'Zocker', color: 'var(--text-2)' },
 }
 
-function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
+function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamForm; kickoff?: string }) {
   if (!form?.status && !form?.matches?.length) return null
   const items = form?.matches?.slice(0, 5) ?? []
+  const load = matchLoadSummary(form, kickoff)
   const sourceLabel = form?.source === 'espn+fotmob'
     ? 'ESPN + FotMob'
     : form?.source === 'espn'
@@ -41,6 +42,11 @@ function TeamFormHistory({ team, form }: { team: string; form?: TeamForm }) {
         </div>
         {form?.status === 'stale' && <span className="text-xs font-semibold text-amber-a">Stand möglicherweise veraltet</span>}
       </div>
+      {load ? (
+        <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs font-semibold text-fg-2">{load}</p>
+      ) : items.length > 0 && kickoff && Date.parse(kickoff) > Date.now() ? (
+        <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs font-semibold text-fg-2">Belastung kurz vor Anpfiff verfügbar</p>
+      ) : null}
       {items.length ? (
         <ul className="mt-3 space-y-2">
           {items.map((item) => (
@@ -337,8 +343,8 @@ export function DetailView() {
             ))}
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <TeamFormHistory team={match.home_team} form={match.home_form} />
-            <TeamFormHistory team={match.away_team} form={match.away_form} />
+            <TeamFormHistory team={match.home_team} form={match.home_form} kickoff={match.raw_match?.commence_time} />
+            <TeamFormHistory team={match.away_team} form={match.away_form} kickoff={match.raw_match?.commence_time} />
           </div>
         </GlassCard>
 

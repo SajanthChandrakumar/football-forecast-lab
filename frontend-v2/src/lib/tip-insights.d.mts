@@ -13,3 +13,4 @@ export function rankedTipInsights(
 ): TipInsight[]
 
 export function recentFormSummary(form?: TeamForm): string
+export function matchLoadSummary(form?: TeamForm, kickoff?: string): string | null
