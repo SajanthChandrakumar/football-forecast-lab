@@ -270,7 +270,8 @@ def test_public_ui_does_not_expose_protected_elo_sync_control():
     assert "useSyncElo" not in sidebar
     assert "syncElo:" not in api
     assert "useSyncElo" not in queries
-    assert "Refresh Data" in sidebar
+    assert "useRefreshData" in sidebar
+    assert "refresh.mutate()" in sidebar
 
 
 def test_empty_ucl_clubelo_sync_has_truthful_metadata(tmp_path):
