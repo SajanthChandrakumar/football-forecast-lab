@@ -6,8 +6,8 @@ import { cn } from '../../lib/util'
 import { Sidebar } from './Sidebar'
 
 const PRIMARY_NAV = [
-  { to: '/', label: 'Spiele', icon: '▦' },
-  { to: '/performance', label: 'Meine Tipps', icon: '◈' },
+  { to: '/', label: 'Spiele' },
+  { to: '/performance', label: 'Meine Tipps' },
 ] as const
 
 const MORE_NAV = [
@@ -95,13 +95,8 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
 function MobileTopBar() {
   const { competition } = useAppState()
   return (
-    <header className="flex min-h-14 items-center border-b border-line bg-surface px-4 lg:hidden">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <span className="rounded-lg bg-action px-2 py-1 text-xs font-black text-white">
-          {competition === 'ucl2026' ? 'UCL' : 'WM'}
-        </span>
-        <span className="truncate font-display text-lg font-extrabold text-fg">2026 Predictor</span>
-      </div>
+    <header className="flex min-h-14 items-center border-b border-line px-4 lg:hidden">
+      <span className="truncate text-sm font-semibold tracking-tight text-fg">{competition === 'ucl2026' ? 'UCL 2026/27' : 'WM 2026'} <span className="font-normal text-fg-2">· Predictor</span></span>
     </header>
   )
 }
@@ -113,19 +108,18 @@ function MobileBottomNav({ onMore, moreOpen, moreButtonRef, onNavigate }: {
   onNavigate: () => void
 }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-3 border-t border-line bg-surface p-2 shadow-[0_-8px_24px_-20px_rgba(15,23,42,0.8)] lg:hidden" aria-label="Hauptnavigation">
-      {PRIMARY_NAV.map(({ to, label, icon }) => (
+    <nav className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-3 border-t border-line bg-surface px-3 pb-2 lg:hidden" aria-label="Hauptnavigation">
+      {PRIMARY_NAV.map(({ to, label }) => (
         <NavLink
           key={to}
           to={to}
           end={to === '/'}
           onClick={onNavigate}
           className={({ isActive }) => cn(
-            'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-bold transition',
-            isActive ? 'bg-emerald-dim text-emerald-a' : 'text-fg-3 hover:bg-surface-2 hover:text-fg',
+            'flex min-h-12 items-center justify-center border-t-2 text-sm font-medium transition-colors',
+            isActive ? 'border-emerald-a text-fg' : 'border-transparent text-fg-2 hover:text-fg',
           )}
         >
-          <span className="text-base" aria-hidden>{icon}</span>
           {label}
         </NavLink>
       ))}
@@ -136,11 +130,10 @@ function MobileBottomNav({ onMore, moreOpen, moreButtonRef, onNavigate }: {
         aria-controls="mobile-more-menu"
         aria-expanded={moreOpen}
         className={cn(
-          'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-bold transition',
-          moreOpen ? 'bg-emerald-dim text-emerald-a' : 'text-fg-3 hover:bg-surface-2 hover:text-fg',
+          'flex min-h-12 items-center justify-center border-t-2 text-sm font-medium transition-colors',
+          moreOpen ? 'border-emerald-a text-fg' : 'border-transparent text-fg-2 hover:text-fg',
         )}
       >
-        <span className="text-base" aria-hidden>•••</span>
         Mehr
       </button>
     </nav>
