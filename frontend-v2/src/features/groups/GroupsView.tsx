@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useArchive, useStandings } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
-import { flag, cn } from '../../lib/util'
+import { cn } from '../../lib/util'
 import { GlassCard } from '../../components/shared/GlassCard'
 import { TeamLogo } from '../../components/shared/Badges'
 import type { StandingsRow } from '../../lib/types'
@@ -91,6 +91,10 @@ export function GroupsView() {
     return <UclStandings rows={rows ?? []} valid={Boolean(rows)} isLoading={standingsLoading} />
   }
 
+  if (competition !== 'wc2026') {
+    return <PageTransition><PageHeader title="Tabelle" subtitle="Tabellen für diesen Wettbewerb." /><p className="text-sm text-fg-2">Für diesen Wettbewerb ist noch keine Tabellenansicht eingerichtet.</p></PageTransition>
+  }
+
   return (
     <PageTransition>
       <PageHeader title="Gruppen" subtitle="Tabellen aus den bisherigen Resultaten — Top 2 qualifiziert, Platz 3 mit Playoff-Chance." />
@@ -129,7 +133,7 @@ export function GroupsView() {
                       )}
                     >
                       <td className="py-1.5 font-semibold text-fg">
-                        {flag(r.team)} <span className="ml-1">{r.team}</span>
+                        <span className="inline-flex items-center gap-1.5"><TeamLogo name={r.team} />{r.team}</span>
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-fg-2">{r.p}</td>
                       <td className="py-1.5 text-right tabular-nums text-fg-2">{r.w}</td>

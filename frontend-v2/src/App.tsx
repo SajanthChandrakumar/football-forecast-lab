@@ -4,6 +4,7 @@ import { AppShell } from './components/layout/AppShell'
 import { AppStateProvider } from './state/AppState'
 import { useTheme } from './hooks/useTheme'
 import { CardGridSkeleton } from './components/shared/Skeleton'
+import { TeamVisualsProvider } from './components/shared/TeamVisuals'
 
 // Route-level code splitting: each view (and its heavy deps like recharts)
 // loads on demand instead of bloating the initial bundle.
@@ -26,20 +27,22 @@ export default function App() {
   const { light, toggle } = useTheme()
   return (
     <AppStateProvider light={light} toggleTheme={toggle}>
-      <HashRouter>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route path="/" element={suspend(DashboardView)} />
-            <Route path="/match/:id" element={suspend(DetailView)} />
-            <Route path="/value-bets" element={suspend(ValueBetsView)} />
-            <Route path="/edge" element={suspend(EdgeView)} />
-            <Route path="/team-form" element={suspend(TeamFormView)} />
-            <Route path="/groups" element={suspend(GroupsView)} />
-            <Route path="/performance" element={suspend(PerformanceView)} />
-            <Route path="/simulator" element={suspend(SimulatorView)} />
-          </Route>
-        </Routes>
-      </HashRouter>
+      <TeamVisualsProvider>
+        <HashRouter>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/" element={suspend(DashboardView)} />
+              <Route path="/match/:id" element={suspend(DetailView)} />
+              <Route path="/value-bets" element={suspend(ValueBetsView)} />
+              <Route path="/edge" element={suspend(EdgeView)} />
+              <Route path="/team-form" element={suspend(TeamFormView)} />
+              <Route path="/groups" element={suspend(GroupsView)} />
+              <Route path="/performance" element={suspend(PerformanceView)} />
+              <Route path="/simulator" element={suspend(SimulatorView)} />
+            </Route>
+          </Routes>
+        </HashRouter>
+      </TeamVisualsProvider>
     </AppStateProvider>
   )
 }

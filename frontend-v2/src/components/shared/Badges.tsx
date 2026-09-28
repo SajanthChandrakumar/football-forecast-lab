@@ -1,12 +1,17 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { flag, cn } from '../../lib/util'
 import { pointsTier, TIER_STYLES } from '../../lib/points'
 import type { TeamForm } from '../../lib/types'
+import { TeamLogos } from './TeamVisualsContext'
 
 export function TeamLogo({ name, src, className }: { name: string; src?: string | null; className?: string }) {
-  const [failed, setFailed] = useState(false)
-  if (!src || failed) return <span className={cn('shrink-0', className)} aria-hidden>{flag(name)}</span>
-  return <img src={src} alt="" aria-hidden className={cn('h-5 w-5 shrink-0 object-contain', className)} onError={() => setFailed(true)} />
+  const cachedLogo = useContext(TeamLogos)[name]
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  const countryFlag = flag(name)
+  const logo = src || cachedLogo
+  if (countryFlag !== '🏳️') return <span className={cn('inline-flex h-5 w-5 shrink-0 items-center justify-center text-base', className)} aria-hidden>{countryFlag}</span>
+  if (logo && failedSrc !== logo) return <img src={logo} alt="" aria-hidden className={cn('h-5 w-5 shrink-0 object-contain', className)} onError={() => setFailedSrc(logo)} />
+  return <span className={cn('inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-surface-2 text-[9px] font-bold text-fg-2', className)} aria-hidden>{name.slice(0, 2).toUpperCase()}</span>
 }
 
 export function TeamLabel({ name, disp, logo, wrap = false, className }: { name: string; disp?: string; logo?: string | null; wrap?: boolean; className?: string }) {

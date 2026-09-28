@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMatches, usePoolContext, usePredict, useSavePoolContext, useSaveUserTip } from '../../hooks/queries'
-import { computeImpliedProbs, pct, flag, cn } from '../../lib/util'
+import { computeImpliedProbs, pct, cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
 import { fixtureStatus, sharedTipIsOpen } from '../../lib/fixture-status.mjs'
 import type { BotKey, Match, TeamForm } from '../../lib/types'
@@ -336,7 +336,7 @@ export function DetailView() {
               { team: match.away_team, xg: calc?.xg_away, form: match.away_form },
             ].map(({ team, xg, form }) => (
               <div key={team} className="text-center">
-                <div className="text-sm font-semibold text-fg-2">{flag(team)} {team}</div>
+                <div className="flex items-center justify-center gap-1.5 text-sm font-semibold text-fg-2"><TeamLogo name={team} />{team}</div>
                 <div className="display-num mt-1 text-4xl text-emerald-a">{xg?.toFixed(2) ?? '…'}</div>
                 <div className="mt-2 flex justify-center"><FormBadges form={form} /></div>
               </div>

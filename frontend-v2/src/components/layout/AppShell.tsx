@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
+import { competitionLabel } from '../../lib/competition.mjs'
 import { Sidebar } from './Sidebar'
 
 const PRIMARY_NAV = [
@@ -64,7 +65,7 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
           <select
             aria-label="Wettbewerb"
             value={competition}
-            onChange={(event) => setCompetition(event.target.value as 'wc2026' | 'ucl2026')}
+            onChange={(event) => setCompetition(event.target.value)}
             className="min-h-11 max-w-36 rounded-lg border border-line bg-surface-2 px-2 text-sm font-semibold text-fg outline-none focus:border-emerald-a"
           >
             {options.map((item) => <option key={item.id} value={item.id}>{item.short_name}</option>)}
@@ -93,10 +94,10 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
 }
 
 function MobileTopBar() {
-  const { competition } = useAppState()
+  const { competition, competitions } = useAppState()
   return (
     <header className="flex min-h-14 items-center border-b border-[#c9ad78]/40 bg-[#193b2b] px-4 lg:hidden">
-      <span className="truncate font-display text-xl font-bold text-[#f8f7f2]">{competition === 'ucl2026' ? 'UCL' : 'WM'} <span className="text-[#cbdccf]">2026 Predictor</span></span>
+      <span className="truncate font-display text-xl font-bold text-[#f8f7f2]">{competitionLabel(competition, competitions)} <span className="text-[#cbdccf]">Predictor</span></span>
     </header>
   )
 }
@@ -143,11 +144,14 @@ function MobileBottomNav({ onMore, moreOpen, moreButtonRef, onNavigate }: {
 }
 
 export function AppShell() {
+  const { competition, competitions } = useAppState()
   const [moreOpen, setMoreOpen] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const moreMenuRef = useRef<HTMLDivElement>(null)
   const toggleMore = () => setMoreOpen((open) => !open)
   const closeMore = () => setMoreOpen(false)
+
+  useEffect(() => { document.title = `${competitionLabel(competition, competitions)} Predictor` }, [competition, competitions])
 
   useEffect(() => {
     if (!moreOpen) return

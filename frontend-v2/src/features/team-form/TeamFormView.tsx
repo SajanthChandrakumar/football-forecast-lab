@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useAppState } from '../../state/AppState'
-import { flag, cn } from '../../lib/util'
+import { cn } from '../../lib/util'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
+import { TeamLogo } from '../../components/shared/Badges'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { ChartSkeleton, CardGridSkeleton } from '../../components/shared/Skeleton'
 import { useTeamFormData } from './useTeamFormData'
@@ -93,7 +94,7 @@ export function TeamFormView() {
                       : 'border-line bg-surface text-fg-2 hover:border-line-2',
                   )}
                 >
-                  {flag(r.team)} {r.team}
+                  <span className="inline-flex items-center gap-1.5"><TeamLogo name={r.team} />{r.team}</span>
                 </button>
               )
             })}
@@ -106,7 +107,7 @@ export function TeamFormView() {
                 if (!row) return null
                 return (
                   <div key={team} className="rounded-xl border border-line bg-surface-2 px-3 py-3">
-                    <div className="truncate text-xs font-semibold text-fg-2">{flag(team)} {team}</div>
+                    <div className="flex items-center gap-1.5 truncate text-xs font-semibold text-fg-2"><TeamLogo name={team} /><span className="truncate">{team}</span></div>
                     <div className="mt-1 font-display text-2xl font-bold tabular-nums text-fg">{Math.round(row.elo)} <span className="text-xs font-medium text-fg-3">Elo</span></div>
                     <div className="mt-1 text-xs text-fg-2">Letzte Spiele: {row.last5.length ? row.last5.map((result) => result === 'W' ? 'S' : result === 'D' ? 'U' : 'N').join(' · ') : 'keine Resultate'}</div>
                   </div>
@@ -150,7 +151,7 @@ export function TeamFormView() {
                       )}
                     >
                       <td className="px-5 py-2 tabular-nums text-fg-3">{i + 1}</td>
-                      <td className="px-2 py-2 font-semibold text-fg">{flag(r.team)} <span className="ml-1">{r.team}</span></td>
+                      <td className="px-2 py-2 font-semibold text-fg"><span className="inline-flex items-center gap-1.5"><TeamLogo name={r.team} />{r.team}</span></td>
                       <td className="display-num px-2 py-2 text-right text-fg">{Math.round(r.elo)}</td>
                       <td className={cn('px-2 py-2 text-right tabular-nums', r.delta == null ? 'text-fg-3' : r.delta > 0 ? 'text-emerald-a' : r.delta < 0 ? 'text-red-a' : 'text-fg-3')}>
                         {r.delta == null ? '–' : `${r.delta > 0 ? '+' : ''}${Math.round(r.delta)}`}
