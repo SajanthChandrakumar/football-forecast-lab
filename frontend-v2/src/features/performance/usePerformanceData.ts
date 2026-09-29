@@ -40,9 +40,15 @@ export interface PerformanceTotals {
   algoTotal: number
   algoTendency: number
   algoCount: number
+  legacyCount: number
+  legacyPoints: number
+  legacyTendency: number
   reconstructedCount: number
   reconstructedPoints: number
   reconstructedTendency: number
+  probabilityCount: number
+  brierScore: number | null
+  hasLegacy: boolean
   hasReconstructed: boolean
 }
 
@@ -54,8 +60,10 @@ export function aggregate(archive: Archive | undefined) {
   const completed: CompletedMatch[] = []
   const totals: PerformanceTotals = {
     completed: 0, userCount: 0, totalPoints: 0, correctTendency: 0,
-    algoTotal: 0, algoTendency: 0, algoCount: 0, reconstructedCount: 0,
-    reconstructedPoints: 0, reconstructedTendency: 0,
+    algoTotal: 0, algoTendency: 0, algoCount: 0, legacyCount: 0,
+    legacyPoints: 0, legacyTendency: 0, reconstructedCount: 0,
+    reconstructedPoints: 0, reconstructedTendency: 0, probabilityCount: 0,
+    brierScore: null, hasLegacy: false,
     hasReconstructed: false,
   }
   const official = officialPerformance(archive, HOUSE_BOTS.map(({ key }) => key))
@@ -63,9 +71,15 @@ export function aggregate(archive: Archive | undefined) {
   totals.algoTotal = official.algoTotal
   totals.algoCount = official.algoCount
   totals.algoTendency = official.algoTendency
+  totals.legacyCount = official.legacyCount
+  totals.legacyPoints = official.legacyPoints
+  totals.legacyTendency = official.legacyTendency
   totals.reconstructedCount = official.reconstructedCount
   totals.reconstructedPoints = official.reconstructedPoints
   totals.reconstructedTendency = official.reconstructedTendency
+  totals.probabilityCount = official.probabilityCount
+  totals.brierScore = official.brierScore
+  totals.hasLegacy = official.legacyCount > 0
   totals.hasReconstructed = official.reconstructedCount > 0
 
   for (const [id, entry] of Object.entries(archive ?? {})) {

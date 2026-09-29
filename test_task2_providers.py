@@ -43,7 +43,11 @@ class MemoryCollection:
         values = list(self.documents.values())
         if not query:
             return values
-        return [doc for doc in values if all(doc.get(k) == v for k, v in query.items())]
+        def matches(document, field, expected):
+            if isinstance(expected, dict) and "$in" in expected:
+                return document.get(field) in expected["$in"]
+            return document.get(field) == expected
+        return [doc for doc in values if all(matches(doc, k, v) for k, v in query.items())]
 
     def insert_one(self, document):
         if document["_id"] in self.documents:
@@ -688,6 +692,39 @@ def test_no_due_bucket_and_fresh_daily_discovery_does_not_spend_credits_or_write
     assert result["provider_calls"] == 0
     assert provider.calls == 0
     assert not [doc for doc in cache.documents.values() if "snapshot" in doc.get("_id", "")]
+
+
+def test_authenticated_maintenance_runs_the_bounded_history_backfill_once():
+    now = datetime(2026, 9, 28, 12, tzinfo=timezone.utc)
+    cache = MemoryCollection([{
+        "_id": competition_document_id("ucl2026", "odds_discovery_state"),
+        "observed_at": now.isoformat(),
+    }])
+
+    class TeamFormService:
+        def __init__(self):
+            self.history_calls = 0
+
+        def refresh_daily(self, now=None):
+            return {"status": "fresh"}
+
+        def refresh_history_depth(self, now=None):
+            self.history_calls += 1
+            return {"status": "fresh", "teams_attempted": 6}
+
+        def cached_history_fixtures(self):
+            return []
+
+    service = TeamFormService()
+    result = run_maintenance(
+        cache, object(), competition="ucl2026", now=now,
+        team_form_service=service,
+    )
+
+    assert service.history_calls == 1
+    assert result["team_form_status"]["history_backfill"] == {
+        "status": "fresh", "teams_attempted": 6,
+    }
 
 
 def test_maintenance_reuses_recent_ucl_fixtures_and_ratings_between_odds_windows():

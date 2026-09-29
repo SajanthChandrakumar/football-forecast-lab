@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useMatches, usePoolContext, usePredict, useSavePoolContext, useSaveUserTip } from '../../hooks/queries'
-import { computeImpliedProbs, pct, flag, cn } from '../../lib/util'
+import { useMatches, useMatchHistory, usePredict, useSaveUserTip } from '../../hooks/queries'
+import { computeImpliedProbs, pct, cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
 import { fixtureStatus, sharedTipIsOpen } from '../../lib/fixture-status.mjs'
-import type { BotKey, Match, TeamForm } from '../../lib/types'
+import type { BotKey, Match, TeamForm, TeamFormMatch } from '../../lib/types'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { FormBadges, TeamLogo } from '../../components/shared/Badges'
 import { MatchHintCard } from '../../components/shared/MatchHintCard'
 import { PageTransition } from '../../components/shared/PageTransition'
 import { ChartSkeleton, CardGridSkeleton } from '../../components/shared/Skeleton'
 import { ScoreHeatmap } from './ScoreHeatmap'
-import { rankedTipInsights, recentFormSummary, matchLoadSummary } from '../../lib/tip-insights.mjs'
+import { matchFormInsights, rankedTipInsights, matchLoadSummary, playerFormStatusMessage, playerFormSummary, teamHistoryAnalysis, teamHistoryMetrics } from '../../lib/tip-insights.mjs'
+import { lineupState } from '../../lib/match-intelligence.mjs'
+import { lineupRows } from '../../lib/lineup-layout.mjs'
+import type { MatchLineup, MatchPlayer } from '../../lib/types'
 
 const BOT_META: Record<BotKey, { label: string; color: string }> = {
   broker: { label: 'Broker', color: 'var(--blue)' },
@@ -22,8 +25,11 @@ const BOT_META: Record<BotKey, { label: string; color: string }> = {
 
 function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamForm; kickoff?: string }) {
   if (!form?.status && !form?.matches?.length) return null
-  const items = form?.matches?.slice(0, 5) ?? []
+  const items = form?.matches?.slice(0, 10) ?? []
   const load = matchLoadSummary(form, kickoff)
+  const analysis = teamHistoryAnalysis(form)
+  const metrics = teamHistoryMetrics(form)
+  const playerForm = form?.player_form
   const sourceLabel = form?.source === 'espn+fotmob'
     ? 'ESPN + FotMob'
     : form?.source === 'espn'
@@ -47,25 +53,117 @@ function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamFor
       ) : items.length > 0 && kickoff && Date.parse(kickoff) > Date.now() ? (
         <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs font-semibold text-fg-2">Belastung kurz vor Anpfiff verfügbar</p>
       ) : null}
+      {analysis && <p className="mt-3 rounded-lg border border-emerald-a/20 bg-emerald-a/5 px-3 py-2 text-xs font-semibold leading-relaxed text-fg">Unsere Analyse: {analysis}</p>}
+      {metrics && (
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-center">
+          <div className="rounded-lg bg-surface-2 px-2 py-2"><dt className="text-[11px] text-fg-3">Tore</dt><dd className="mt-1 font-bold tabular-nums text-fg">{metrics.goalsFor}:{metrics.goalsAgainst}</dd></div>
+          <div className="rounded-lg bg-surface-2 px-2 py-2"><dt className="text-[11px] text-fg-3">Ø pro Spiel</dt><dd className="mt-1 font-bold tabular-nums text-fg">{metrics.averageFor.toFixed(1)}:{metrics.averageAgainst.toFixed(1)}</dd></div>
+          <div className="rounded-lg bg-surface-2 px-2 py-2"><dt className="text-[11px] text-fg-3">Zu null</dt><dd className="mt-1 font-bold tabular-nums text-fg">{metrics.cleanSheets} von {metrics.matches}</dd></div>
+          <div className="rounded-lg bg-surface-2 px-2 py-2"><dt className="text-[11px] text-fg-3">Beide treffen</dt><dd className="mt-1 font-bold tabular-nums text-fg">{metrics.bothTeamsScored} von {metrics.matches}</dd></div>
+        </dl>
+      )}
+      <div className="mt-3 rounded-lg border border-line px-3 py-3">
+        <p className="text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Spieler in Form</p>
+        {playerForm?.status === 'fresh' && playerForm.players.length ? (
+          <ol className="mt-2 space-y-2">
+            {playerForm.players.map((player) => (
+              <li key={player.id || player.name} className="flex items-start justify-between gap-3 text-sm">
+                <span className="font-bold text-fg">{player.name}</span>
+                <span className="text-right text-fg-2">{playerFormSummary(player)}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-2 text-xs leading-relaxed text-fg-2">{playerFormStatusMessage(playerForm)}</p>
+        )}
+      </div>
       {items.length ? (
         <ul className="mt-3 space-y-2">
-          {items.map((item) => (
-            <li key={item.fixture_id} className="rounded-lg bg-surface-2 px-3 py-2.5 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate font-semibold text-fg">{item.opponent_name}</span>
-                <span className="shrink-0 font-bold tabular-nums text-fg">{item.score}</span>
-              </div>
-              <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-xs text-fg-2">
-                <span>{item.competition_name} · {item.venue === 'home' ? 'Heim' : 'Auswärts'}</span>
-                <span>{shortDate(item.played_at)}</span>
-              </div>
-            </li>
-          ))}
+          {items.map((item) => <HistoricalMatchRow key={item.fixture_id} item={item} />)}
         </ul>
       ) : (
         <p className="mt-3 text-sm font-semibold text-fg-2">Form nicht verfügbar</p>
       )}
     </section>
+  )
+}
+
+function HistoricalMatchRow({ item }: { item: TeamFormMatch }) {
+  const [open, setOpen] = useState(false)
+  const history = useMatchHistory(item.fixture_id, open)
+  const lineups = Object.entries(history.data?.lineups ?? {})
+  const hasCompleteLineups = lineups.length >= 2 && lineups.every(([, lineup]) => lineup.starters.length > 0)
+  return (
+    <li className="rounded-lg bg-surface-2 px-3 py-2.5 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0 truncate font-semibold text-fg">{item.opponent_name}</span>
+        <span className="shrink-0 font-bold tabular-nums text-fg">{item.score}</span>
+      </div>
+      <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-xs text-fg-2">
+        <span>{item.competition_name} · {item.venue === 'home' ? 'Heim' : 'Auswärts'}</span>
+        <span>{shortDate(item.played_at)}</span>
+      </div>
+      <button type="button" onClick={() => setOpen((value) => !value)} className="mt-2 min-h-9 text-xs font-bold text-emerald-a underline underline-offset-4">
+        {open ? 'Aufstellung schließen' : 'Aufstellung ansehen'}
+      </button>
+      {open && (
+        <div className="mt-3 border-t border-line pt-3">
+          {history.isLoading ? <p className="text-xs text-fg-2">Aufstellung wird geladen…</p> : hasCompleteLineups ? (
+            <div className="grid gap-5">
+              {lineups.map(([team, lineup]) => <TeamLineup key={team} team={team} lineup={lineup} />)}
+            </div>
+          ) : <p className="text-xs leading-relaxed text-fg-2">Diese historische Aufstellung ist noch nicht archiviert. Wir ergänzen sie schrittweise, falls der Anbieter sie bereitstellt.</p>}
+        </div>
+      )}
+    </li>
+  )
+}
+
+function TeamLineup({ team, lineup }: { team: string; lineup: MatchLineup }) {
+  const rows = lineupRows(lineup.starters)
+  return (
+    <div>
+      <h3 className="font-display text-xl font-bold text-fg">{team}</h3>
+      <div className="relative mt-3 min-h-[30rem] overflow-hidden rounded-2xl border-2 border-white/70 bg-emerald-700 px-2 py-5 shadow-inner">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-1/2 border-t-2 border-white/55" />
+        <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/55" />
+        <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-0 h-14 w-36 -translate-x-1/2 border-x-2 border-b-2 border-white/55" />
+        <div aria-hidden="true" className="pointer-events-none absolute bottom-0 left-1/2 h-14 w-36 -translate-x-1/2 border-x-2 border-t-2 border-white/55" />
+        <ol className="relative z-10 flex min-h-[27.5rem] flex-col justify-around gap-3">
+          {rows.map((row) => (
+            <li key={row.role}>
+              <span className="sr-only">{row.role}</span>
+              <ol className="flex items-start justify-around gap-1">
+                {row.players.map((player, index) => <PitchPlayer key={player.id || `${player.name}-${index}`} player={player} />)}
+              </ol>
+            </li>
+          ))}
+        </ol>
+      </div>
+      {lineup.substitutes.length > 0 && (
+        <details className="mt-3 rounded-xl border border-line px-3 py-2 text-sm text-fg-2">
+          <summary className="cursor-pointer font-semibold text-fg">Ersatzbank ({lineup.substitutes.length})</summary>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {lineup.substitutes.map((player, index) => (
+              <li key={player.id || `${player.name}-${index}`} className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
+                <span className="w-6 text-center font-semibold tabular-nums text-fg-3">{player.jersey || '–'}</span>
+                <span className="font-semibold text-fg">{player.name}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
+}
+
+function PitchPlayer({ player }: { player: MatchPlayer }) {
+  const surname = player.name.trim().split(/\s+/).at(-1) || player.name
+  return (
+    <li className="flex min-w-0 max-w-[5.5rem] flex-1 flex-col items-center text-center text-white">
+      <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-emerald-950/80 text-xs font-extrabold shadow-md">{player.jersey || '–'}</span>
+      <span className="mt-1 rounded-md bg-emerald-950/85 px-1.5 py-0.5 text-[10px] font-bold leading-tight shadow-sm" title={player.name}>{surname}</span>
+    </li>
   )
 }
 
@@ -75,13 +173,8 @@ export function DetailView() {
   const { data: matches } = useMatches()
   const predict = usePredict()
   const saveTip = useSaveUserTip()
-  const pool = usePoolContext(id)
-  const savePool = useSavePoolContext()
   const [adoptStatus, setAdoptStatus] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
-  const [poolOpen, setPoolOpen] = useState(false)
-  const [poolForm, setPoolForm] = useState({ user_points: '', leader_points: '', remaining_srf_max_points: '', tip_counts: '{}' })
-  const [poolStatus, setPoolStatus] = useState('')
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -112,16 +205,6 @@ export function DetailView() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.id])
-  useEffect(() => {
-    if (!pool.data) return
-    setPoolForm({
-      user_points: String(pool.data.user_points),
-      leader_points: String(pool.data.leader_points),
-      remaining_srf_max_points: String(pool.data.remaining_srf_max_points),
-      tip_counts: JSON.stringify(pool.data.tip_counts ?? {}, null, 0),
-    })
-  }, [pool.data])
-
   if (!matches) {
     return (
       <PageTransition>
@@ -147,18 +230,18 @@ export function DetailView() {
     : (hasModelOdds ? 'Elo-Modellquote – nicht wettbar' : 'Nicht verfügbar')
   const quoteObservedAt = hasBookmakerOdds ? match.odds_observed_at : (calc?.observed_at ?? match.observed_at)
   const modelTip = calc?.model_tip ?? match.model_tip ?? calc?.top_tip
-  const poolTip = calc?.pool_tip ?? match.pool_tip
   const topTip = calc?.xp_tips?.find((tip) => tip.Tipp === modelTip) ?? calc?.xp_tips?.[0]
   const activeTip = topTip?.Tipp ?? modelTip ?? match.top_tip
   const canTip = fixtureStatus(match, now) === 'upcoming' && Boolean(activeTip) && activeTip !== 'N/A'
   const canSaveSharedTip = canTip && sharedTipIsOpen(match.raw_match?.commence_time, now)
   const runners = calc?.xp_tips?.slice(1, 4) ?? []
   const tipInsights = rankedTipInsights(calc?.xp_tips, calc?.matrix)
-  const xgHome = calc?.xg_home ?? match.xg_home
-  const xgAway = calc?.xg_away ?? match.xg_away
-  const xgTotal = (xgHome ?? 0) + (xgAway ?? 0)
+  const formInsights = fixtureStatus(match, now) === 'upcoming'
+    ? matchFormInsights(match.home_team, match.home_form, match.away_team, match.away_form)
+    : []
   const hasOutcomeProbabilities = probs.home + probs.draw + probs.away > 0
   const missing = Object.entries(match.lineup_diff ?? {}).filter(([, v]) => v.missing?.length)
+  const lineup = lineupState(match.match_intelligence, match.home_team, match.away_team)
 
   const adopt = () => {
     if (!activeTip || !sharedTipIsOpen(match.raw_match?.commence_time)) {
@@ -187,30 +270,6 @@ export function DetailView() {
     } catch {
       setCopyStatus('Kopieren nicht möglich. Bitte den Tipp manuell markieren.')
     }
-  }
-
-  const savePoolContext = () => {
-    let tipCounts: Record<string, number>
-    try {
-      tipCounts = JSON.parse(poolForm.tip_counts)
-      if (!tipCounts || Array.isArray(tipCounts) || typeof tipCounts !== 'object') throw new Error('JSON object required')
-    } catch {
-      setPoolStatus('Invalid tip counts JSON')
-      return
-    }
-    setPoolStatus('Saving…')
-    savePool.mutate({
-      matchId: match.id,
-      context: {
-        user_points: Number(poolForm.user_points),
-        leader_points: Number(poolForm.leader_points),
-        remaining_srf_max_points: Number(poolForm.remaining_srf_max_points),
-        tip_counts: tipCounts,
-      },
-    }, {
-      onSuccess: () => setPoolStatus('✓ Saved'),
-      onError: (e) => setPoolStatus(`Error: ${(e as Error).message}`),
-    })
   }
 
   return (
@@ -247,12 +306,62 @@ export function DetailView() {
         {adoptStatus && <p role="status" className="mt-2 text-sm text-[#f8f7f2]">{adoptStatus}</p>}
       </header>
 
+      <section className="mb-5 rounded-[1.5rem] bg-[var(--match-note-bg)] p-5 sm:p-7">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Auf einen Blick</p>
+        <h2 className="mt-1 font-display text-2xl font-bold text-fg">Was die Daten zeigen</h2>
+        <div className="mt-4"><MatchHintCard match={match} /></div>
+        {formInsights.length > 0 && (
+          <div className="mt-5 border-t border-line pt-4">
+            <p className="text-sm font-bold text-fg">Aus den letzten Spielen</p>
+            <ul className="mt-3 grid gap-3">
+              {formInsights.map((insight) => (
+                <li key={insight.kind} className={cn(
+                  'relative overflow-hidden rounded-2xl border px-5 py-4',
+                  insight.kind === 'form'
+                    ? 'border-[#c5d4c6] bg-[#fffdfa] shadow-[0_12px_28px_-22px_rgba(22,48,33,0.55)] before:absolute before:inset-y-0 before:left-0 before:w-1.5 before:bg-[#b69b68]'
+                    : 'border-line bg-surface/70',
+                )}>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-a">{insight.kind === 'form' ? 'Formvergleich' : 'Tore'}</p>
+                  <p className={cn('mt-1 font-display font-bold leading-tight text-fg', insight.kind === 'form' ? 'text-2xl' : 'text-xl')}>{insight.title}</p>
+                  <p className="mt-2 text-base leading-relaxed text-fg-2">{insight.detail}</p>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs text-fg-3">Der Ergebnistipp ist auf Tippspielpunkte berechnet. Die Form beschreibt separat die letzten erfassten Pflichtspiele aller Wettbewerbe.{match.home_form?.status === 'stale' || match.away_form?.status === 'stale' ? ' Datenstand möglicherweise veraltet.' : ''}</p>
+          </div>
+        )}
+      </section>
+
       {missing.length > 0 && (
         <GlassCard className="mb-5 border-amber-a/40 bg-amber-a/5">
           <SectionTitle className="mb-2 text-amber-a">Aufstellungs-Alarm</SectionTitle>
           {missing.map(([team, v]) => <p key={team} className="text-sm text-fg-2"><b className="text-fg">{team}:</b> fehlend — {v.missing.join(', ')}</p>)}
         </GlassCard>
       )}
+
+      <GlassCard className="mb-5">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Kurz vor Anpfiff</p>
+            <SectionTitle className="mt-1">Aufstellungen & Spieler</SectionTitle>
+          </div>
+          {lineup.kind === 'confirmed' && <span className="rounded-full bg-emerald-a/10 px-3 py-1 text-xs font-bold text-emerald-a">Bestätigt · {lineup.source === 'api_football' ? 'API-Football' : 'ESPN'}</span>}
+        </div>
+        {lineup.kind === 'confirmed' ? (
+          <div className="mt-5 grid gap-7 lg:grid-cols-2">
+            <TeamLineup team={match.home_team} lineup={lineup.home} />
+            <TeamLineup team={match.away_team} lineup={lineup.away} />
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl bg-surface-2 px-4 py-4">
+            <p className="font-semibold text-fg">{lineup.message}</p>
+            <p className="mt-1 text-sm leading-relaxed text-fg-2">Wir prüfen automatisch etwa 35 und 15 Minuten vor dem Anpfiff. Bis dahin entstehen keine zusätzlichen API-Abfragen beim Öffnen dieser Seite.</p>
+          </div>
+        )}
+        {match.match_intelligence?.injuries?.status === 'unavailable' && (
+          <p className="mt-4 text-xs text-fg-3">Verletzungsdaten derzeit nicht zuverlässig verfügbar.</p>
+        )}
+      </GlassCard>
 
       <section className="mb-5 overflow-hidden rounded-[1.5rem] border border-line bg-surface shadow-[0_18px_35px_-32px_rgba(22,48,33,0.55)]">
         <div className="border-b border-line px-5 py-5 sm:px-7">
@@ -298,29 +407,6 @@ export function DetailView() {
         </div>
       </section>
 
-      <section className="mb-5 rounded-[1.5rem] bg-[var(--match-note-bg)] p-5 sm:p-7">
-        <h2 className="mb-4 font-display text-2xl font-bold text-fg">Was spricht dafür?</h2>
-        <MatchHintCard match={match} />
-        {xgHome != null && xgAway != null && xgTotal > 0 && (
-          <div className="mt-5 border-t border-line pt-5">
-            <p className="mb-4 text-sm font-semibold text-fg">Torerwartung & letzte Spiele</p>
-            <div className="grid gap-5 sm:grid-cols-2">
-              {[
-                { team: match.home_team, xg: xgHome, form: match.home_form },
-                { team: match.away_team, xg: xgAway, form: match.away_form },
-              ].map(({ team, xg, form }) => (
-                <div key={team}>
-                  <div className="flex items-center justify-between gap-2 text-sm font-semibold text-fg"><span>{team}</span><span className="tabular-nums">{xg.toFixed(2)}</span></div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-emerald-a" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
-                  <p className="mt-2 text-xs text-fg-2">{recentFormSummary(form)}{form?.status === 'stale' ? ' · Stand möglicherweise veraltet' : ''}</p>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-fg-3">Die Balken vergleichen die Anteile an der gesamten Torerwartung. Das ist ein Modelldurchschnitt, kein versprochenes Ergebnis.</p>
-          </div>
-        )}
-      </section>
-
       <details className="mb-4 overflow-hidden rounded-2xl border border-line bg-surface">
         <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-5 py-3 text-sm font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a [&::-webkit-details-marker]:hidden">
           Ausführliche Daten und Score-Tabelle <span aria-hidden="true">⌄</span>
@@ -332,17 +418,17 @@ export function DetailView() {
           <SectionTitle className="mb-4">Expected Goals & Form</SectionTitle>
           <div className="grid grid-cols-2 gap-4">
             {[
-              { team: match.home_team, xg: calc?.xg_home, form: match.home_form },
-              { team: match.away_team, xg: calc?.xg_away, form: match.away_form },
-            ].map(({ team, xg, form }) => (
+              { team: match.home_team, logo: match.home_logo, xg: calc?.xg_home, form: match.home_form },
+              { team: match.away_team, logo: match.away_logo, xg: calc?.xg_away, form: match.away_form },
+            ].map(({ team, logo, xg, form }) => (
               <div key={team} className="text-center">
-                <div className="text-sm font-semibold text-fg-2">{flag(team)} {team}</div>
+                <div className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-fg-2"><TeamLogo name={team} src={logo} className="h-5 w-5" />{team}</div>
                 <div className="display-num mt-1 text-4xl text-emerald-a">{xg?.toFixed(2) ?? '…'}</div>
                 <div className="mt-2 flex justify-center"><FormBadges form={form} /></div>
               </div>
             ))}
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
             <TeamFormHistory team={match.home_team} form={match.home_form} kickoff={match.raw_match?.commence_time} />
             <TeamFormHistory team={match.away_team} form={match.away_form} kickoff={match.raw_match?.commence_time} />
           </div>
@@ -379,7 +465,7 @@ export function DetailView() {
         <GlassCard>
           <SectionTitle className="mb-4">Score-Wahrscheinlichkeiten</SectionTitle>
           {calc?.matrix ? (
-            <ScoreHeatmap calc={calc} homeDisp={match.home_disp || match.home_team} awayDisp={match.away_disp || match.away_team} />
+            <ScoreHeatmap calc={calc} modelTip={modelTip} homeDisp={match.home_disp || match.home_team} awayDisp={match.away_disp || match.away_team} />
           ) : (
             <p className="text-sm text-fg-3">{predict.isPending ? 'Rechne…' : 'Keine Daten'}</p>
           )}
@@ -388,9 +474,8 @@ export function DetailView() {
         {/* Tip ladder + bots */}
         <GlassCard>
           <SectionTitle className="mb-4">Tipp-Empfehlung</SectionTitle>
-          <div className="mb-3 grid gap-2 sm:grid-cols-2">
+          <div className="mb-3">
             <TipSummary label="Model Tipp" tip={modelTip} status={calc?.status ?? match.status} />
-            <TipSummary label="Pool Tipp" tip={poolTip} status={calc?.pool_status ?? match.pool_status ?? 'unavailable'} />
           </div>
           <DataStatus
             status={calc?.source_status ?? match.source_status ?? match.status}
@@ -426,28 +511,6 @@ export function DetailView() {
             <p className="text-sm text-fg-3">{predict.isPending ? 'Rechne…' : 'Keine Empfehlung verfügbar'}</p>
           )}
 
-          <div className="mt-5 border-t border-line pt-4">
-            <div className="flex items-center justify-between gap-2">
-              <SectionTitle>Pool Context</SectionTitle>
-              <button onClick={() => setPoolOpen((open) => !open)} className="text-xs font-semibold text-fg-2 hover:text-fg">
-                {poolOpen ? 'Close' : 'Edit'}
-              </button>
-            </div>
-            {!poolOpen && <p className="mt-1 text-xs text-fg-3">{pool.data?.pool_status === 'unavailable' || !pool.data ? 'Pool data unavailable' : `Pool tip: ${pool.data.pool_tip ?? 'unavailable'}`}</p>}
-            {poolOpen && (
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <NumberField label="Your points" value={poolForm.user_points} onChange={(value) => setPoolForm((v) => ({ ...v, user_points: value }))} />
-                <NumberField label="Leader points" value={poolForm.leader_points} onChange={(value) => setPoolForm((v) => ({ ...v, leader_points: value }))} />
-                <NumberField label="Remaining max" value={poolForm.remaining_srf_max_points} onChange={(value) => setPoolForm((v) => ({ ...v, remaining_srf_max_points: value }))} />
-                <label className="sm:col-span-3 text-xs font-semibold text-fg-2">Tip counts (JSON)
-                  <textarea value={poolForm.tip_counts} onChange={(e) => setPoolForm((v) => ({ ...v, tip_counts: e.target.value }))} rows={2} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 font-mono text-xs text-fg outline-none focus:border-emerald-a/50" />
-                </label>
-                <button onClick={savePoolContext} disabled={savePool.isPending} className="rounded-lg border border-emerald-a/40 bg-emerald-dim px-3 py-2 text-xs font-bold text-emerald-a disabled:opacity-50">{savePool.isPending ? 'Saving…' : 'Save context'}</button>
-                {poolStatus && <span className="self-center text-xs text-fg-2">{poolStatus}</span>}
-              </div>
-            )}
-          </div>
-
           {match.bots && Object.keys(match.bots).length > 0 && (
             <div className="mt-5 border-t border-line pt-4">
               <SectionTitle className="mb-2">Bot Tips</SectionTitle>
@@ -481,8 +544,4 @@ function TipSummary({ label, tip, status }: { label: string; tip?: string | null
 function DataStatus({ status, source, observedAt, provenance }: { status?: string; source?: string | null; observedAt?: string | null; provenance?: Record<string, unknown> }) {
   const state = status ?? 'unavailable'
   return <div className="mb-3 rounded-lg border border-dashed border-line px-3 py-2 text-[10px] text-fg-3">Data: <b className="text-fg-2">{state}</b>{source ? ` · ${source}` : ''}{observedAt ? ` · ${observedAt}` : ''}{provenance && Object.keys(provenance).length > 0 ? ` · ${Object.keys(provenance).join(', ')}` : ' · provenance unavailable'}</div>
-}
-
-function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label className="text-xs font-semibold text-fg-2">{label}<input type="number" min={0} value={value} onChange={(e) => onChange(e.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-fg outline-none focus:border-emerald-a/50" /></label>
 }

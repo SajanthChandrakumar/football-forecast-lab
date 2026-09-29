@@ -414,11 +414,13 @@ class FailoverTeamFormClient:
 
 class TeamFormService:
     ALLOWED_STATUSES = {"FT", "AET", "PEN"}
-    FORM_LIMIT = 5
+    FORM_LIMIT = 10
+    HISTORY_BACKFILL_TEAMS_PER_DAY = 6
 
-    def __init__(self, cache_collection, client, competition="ucl2026", now_fn=None):
+    def __init__(self, cache_collection, client, competition="ucl2026", now_fn=None, history_client=None):
         self.cache_collection = cache_collection
         self.client = client
+        self.history_client = history_client or getattr(client, "fallback", None) or client
         self.competition = get_competition(competition)
         self.now_fn = now_fn or (lambda: datetime.now(timezone.utc))
 
@@ -521,23 +523,68 @@ class TeamFormService:
             })
         return self._latest(matches)
 
-    def merge_matches(self, team_id, matches, observed_at=None):
+    @staticmethod
+    def _match_provider(match, provider):
+        if str(match.get("fixture_id") or "").startswith("fotmob:"):
+            return "fotmob"
+        if not provider:
+            return "unknown"
+        return "espn" if provider == "espn+fotmob" else provider
+
+    def merge_matches(self, team_id, matches, observed_at=None, provider=None):
         team_id = str(team_id)
         document_id = self._id(f"team_form:{team_id}")
         existing = self.cache_collection.find_one({"_id": document_id}) or {}
         by_fixture = {}
+        by_identity = {}
+
+        def store(row):
+            fixture_id = str(row["fixture_id"])
+            opponent = str(row.get("opponent_name") or "")
+            played_at = str(row.get("played_at") or "")
+            try:
+                parsed_at = datetime.fromisoformat(played_at.replace("Z", "+00:00"))
+                if parsed_at.tzinfo is None:
+                    parsed_at = parsed_at.replace(tzinfo=timezone.utc)
+                played_key = str(int(parsed_at.timestamp() // 60))
+            except ValueError:
+                played_key = played_at
+            identity = (
+                played_key,
+                TEAM_MAPPING.get(opponent, opponent).casefold(),
+                str(row.get("venue") or ""),
+                str(row.get("score") or ""),
+            )
+            if all(identity):
+                previous_id = by_identity.get(identity)
+                if previous_id and previous_id != fixture_id:
+                    by_fixture.pop(previous_id, None)
+                by_identity[identity] = fixture_id
+            by_fixture[fixture_id] = row
+
         for match in existing.get("matches", []):
             fixture_id = match.get("fixture_id")
             if fixture_id is not None:
-                by_fixture[str(fixture_id)] = dict(match)
+                row = dict(match)
+                # Legacy rows without per-match provenance may come from an
+                # earlier mixed-provider merge. Keep them explicitly unknown
+                # until a fresh provider response replaces that fixture.
+                inferred_provider = self._match_provider(row, None)
+                if "provider" not in row and inferred_provider:
+                    row["provider"] = inferred_provider
+                store(row)
+        provider = provider or self._provider()
         for match in matches:
             fixture_id = match.get("fixture_id")
             if fixture_id is not None:
-                by_fixture[str(fixture_id)] = dict(match)
+                row = dict(match)
+                inferred_provider = self._match_provider(row, provider)
+                if "provider" not in row and inferred_provider:
+                    row["provider"] = inferred_provider
+                store(row)
         latest = self._latest(list(by_fixture.values()))
         observed_at = observed_at or self.now_fn().isoformat()
         status = "fresh" if latest else "unavailable"
-        provider = self._provider()
         self.cache_collection.update_one(
             {"_id": document_id},
             {"$set": {
@@ -587,7 +634,7 @@ class TeamFormService:
         return self._display_form(document, roster)
 
     def cached_forms_for_matches(self, matches):
-        """Attach cached form with one roster read and one indexed batch read."""
+        """Attach cached form and player trends without provider access."""
         roster = self.cache_collection.find_one({"_id": self._id("team_form_teams")}) or {}
         team_ids = {
             team_id
@@ -603,6 +650,23 @@ class TeamFormService:
                 "_id": {"$in": [self._id(f"team_form:{team_id}") for team_id in sorted(team_ids)]}
             })
         } if team_ids else {}
+        history_ids = {
+            str(item.get("fixture_id"))
+            for document in documents.values()
+            for item in document.get("matches", []) or []
+            if item.get("fixture_id") is not None
+        }
+        history_documents = list(self.cache_collection.find({
+            "_id": {"$in": [self._id(f"match_intelligence:{event_id}") for event_id in history_ids]}
+        })) if history_ids else []
+        history_by_event = {
+            str(document.get("event_id") or str(document.get("_id") or "").rsplit(":", 1)[-1]): document
+            for document in history_documents
+        }
+        team_names = {
+            str(team.get("team_id")): str(team.get("name") or "")
+            for team in roster.get("teams", []) or [] if team.get("team_id") is not None
+        }
         presented = []
         for match in matches:
             if not isinstance(match, dict):
@@ -614,9 +678,197 @@ class TeamFormService:
                     row.get(f"{side}_team"), row.get(f"{side}_team_id"), roster,
                 )
                 document = documents.get(self._id(f"team_form:{team_id}"), {}) if team_id else {}
-                row[f"{side}_form"] = self._display_form(document, roster)
+                form = self._display_form(document, roster)
+                form["player_form"] = self._player_form(
+                    document, team_names.get(str(team_id), row.get(f"{side}_team", "")), history_by_event,
+                )
+                row[f"{side}_form"] = form
             presented.append(row)
         return presented
+
+    @staticmethod
+    def _player_form(document, team_name, history_by_event):
+        def contributions(entry):
+            stats = {str(name).casefold(): value for name, value in (entry.get("stats") or {}).items()}
+            parsed = {}
+            for field, keys in (("goals", ("totalgoals", "goals")), ("assists", ("goalassists", "assists"))):
+                value = next((stats[key] for key in keys if key in stats), None)
+                if isinstance(value, bool):
+                    continue
+                try:
+                    value = int(float(value))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if value >= 0:
+                    parsed[field] = value
+            return parsed
+
+        canonical_team = TEAM_MAPPING.get(str(team_name), str(team_name)).casefold()
+        players = {}
+        matches_sampled = 0
+        for match in TeamFormService._latest(document.get("matches", []) or []):
+            history = history_by_event.get(str(match.get("fixture_id"))) or {}
+            lineups = ((history.get("data") or {}).get("lineups") or {})
+            lineup = next((
+                value for name, value in lineups.items()
+                if TEAM_MAPPING.get(str(name), str(name)).casefold() == canonical_team
+            ), None)
+            if not lineup or not lineup.get("starters"):
+                continue
+            entries = (lineup.get("starters") or []) + (lineup.get("substitutes") or [])
+            if not any(contributions(entry) for entry in entries):
+                continue
+            matches_sampled += 1
+            seen = set()
+            for started, entries in ((True, lineup.get("starters") or []), (False, lineup.get("substitutes") or [])):
+                for entry in entries:
+                    name = str(entry.get("name") or "")
+                    key = str(entry.get("id") or name.casefold())
+                    if not name or key in seen:
+                        continue
+                    seen.add(key)
+                    recorded = contributions(entry)
+                    if not started and not any(recorded.values()):
+                        continue
+                    row = players.setdefault(key, {
+                        "id": str(entry.get("id") or ""), "name": name,
+                        "appearances": 0, "starts": 0, "goals": 0, "assists": 0,
+                        "goals_complete": True, "assists_complete": True,
+                    })
+                    row["appearances"] += 1
+                    row["starts"] += int(started)
+                    for field in ("goals", "assists"):
+                        if field in recorded:
+                            row[field] += recorded[field]
+                        else:
+                            row[f"{field}_complete"] = False
+        ranked_rows = sorted(
+            (row for row in players.values() if row["goals"] or row["assists"]),
+            key=lambda row: (-row["goals"], -row["assists"], -row["starts"], row["name"]),
+        )[:3]
+        ranked = [{
+            "id": row["id"], "name": row["name"],
+            "appearances": row["appearances"], "starts": row["starts"],
+            "goals": row["goals"] if row["goals_complete"] else None,
+            "assists": row["assists"] if row["assists_complete"] else None,
+        } for row in ranked_rows]
+        status = "fresh" if matches_sampled >= 3 and ranked_rows else "unavailable"
+        result = {
+            "status": status, "matches_sampled": matches_sampled,
+            "minimum_matches": 3, "players": ranked if status == "fresh" else [],
+        }
+        if status == "unavailable":
+            result["reason"] = "insufficient_sample" if matches_sampled < 3 else "no_contributions"
+        return result
+
+    def cached_history_fixtures(self):
+        """Return unique ESPN history rows suitable for summary backfill."""
+        roster = self.cache_collection.find_one({"_id": self._id("team_form_teams")}) or {}
+        teams = {
+            str(team.get("team_id")): str(team.get("name") or "")
+            for team in roster.get("teams", []) if team.get("team_id") is not None
+        }
+        documents = list(self.cache_collection.find({
+            "_id": {"$in": [self._id(f"team_form:{team_id}") for team_id in teams]}
+        })) if teams else []
+        fixtures = {}
+        for document in documents:
+            document_team_id = document.get("team_id") or str(document.get("_id") or "").rsplit(":", 1)[-1]
+            team_name = teams.get(str(document_team_id))
+            for match in document.get("matches", []) or []:
+                event_id = str(match.get("fixture_id") or "")
+                provider = match.get("provider")
+                legacy_espn = (
+                    not provider and event_id.isdecimal()
+                    and (document.get("provider") or document.get("source")) in {"espn", "espn+fotmob"}
+                )
+                if not event_id or event_id.startswith("fotmob:") or (provider not in {"espn", "espn+fotmob"} and not legacy_espn):
+                    continue
+                opponent = match.get("opponent_name")
+                played_at = match.get("played_at")
+                if not team_name or not opponent or not played_at:
+                    continue
+                home, away = (team_name, opponent) if match.get("venue") == "home" else (opponent, team_name)
+                fixtures[event_id] = {
+                    "id": event_id, "home_team": home, "away_team": away,
+                    "commence_time": played_at, "completed": True, "historical": True,
+                }
+        return list(fixtures.values())
+
+    def refresh_history_depth(self, now=None):
+        """Gradually expand legacy five-match caches without a request burst."""
+        current = now or self.now_fn()
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        local_date = current.astimezone(ZoneInfo("Europe/Zurich")).date().isoformat()
+        state = self.get_sync_state()
+        if state.get("history_backfill_date") == local_date:
+            return {"status": "idle", "teams_attempted": 0, "reason": "already_checked_today"}
+        roster = self.cache_collection.find_one({"_id": self._id("team_form_teams")}) or {}
+        team_ids = [
+            str(team.get("team_id")) for team in roster.get("teams", [])
+            if team.get("team_id") is not None
+        ]
+        documents = {
+            str(document.get("team_id") or str(document.get("_id") or "").rsplit(":", 1)[-1]): document
+            for document in self.cache_collection.find({
+                "_id": {"$in": [self._id(f"team_form:{team_id}") for team_id in team_ids]}
+            })
+        } if team_ids else {}
+        attempted = set(state.get("history_backfill_attempted_team_ids") or [])
+        due = [
+            team_id for team_id in team_ids
+            if team_id not in attempted and len((documents.get(team_id) or {}).get("matches") or []) < self.FORM_LIMIT
+        ][:self.HISTORY_BACKFILL_TEAMS_PER_DAY]
+        roster_provider = str(roster.get("provider") or roster.get("source") or "")
+        history_team_ids = {
+            str(key): str(value)
+            for key, value in (state.get("history_espn_team_ids") or {}).items()
+        }
+        if roster_provider in {"espn", "espn+fotmob"}:
+            history_team_ids.update({team_id: team_id for team_id in team_ids})
+        elif due and any(team_id not in history_team_ids for team_id in due):
+            season = int(str(self.competition.season).split("/", 1)[0])
+            history_roster = self.history_client.request("/teams", {"season": season})
+            by_name = {
+                TEAM_MAPPING.get(str((item.get("team") or {}).get("name") or ""), str((item.get("team") or {}).get("name") or "")).casefold():
+                    str((item.get("team") or {}).get("id"))
+                for item in history_roster.get("response", []) or []
+                if (item.get("team") or {}).get("id") is not None
+            }
+            for team in roster.get("teams", []) or []:
+                team_id = str(team.get("team_id"))
+                name = str(team.get("name") or "")
+                canonical_name = TEAM_MAPPING.get(name, name).casefold()
+                if by_name.get(canonical_name):
+                    history_team_ids[team_id] = by_name[canonical_name]
+            self.store_sync_state({"history_espn_team_ids": history_team_ids})
+        completed = []
+        for team_id in due:
+            history_team_id = history_team_ids.get(team_id)
+            if not history_team_id:
+                continue
+            try:
+                payload = self.history_client.request("/fixtures", {"team": history_team_id, "last": self.FORM_LIMIT})
+                history_provider = getattr(self.history_client, "provider", "espn")
+                self.merge_matches(
+                    team_id, self.parse_fixtures(history_team_id, payload), current.isoformat(),
+                    provider=history_provider,
+                )
+            except Exception as exc:
+                self.store_sync_state({
+                    "history_backfill_date": local_date,
+                    "history_backfill_attempted_team_ids": sorted(attempted | set(completed)),
+                    "history_backfill_error": str(exc),
+                })
+                return {"status": "stale", "teams_attempted": len(completed), "error": str(exc)}
+            completed.append(team_id)
+        self.store_sync_state({
+            "history_backfill_date": local_date,
+            "history_backfill_attempted_team_ids": sorted(attempted | set(completed)),
+            "history_backfill_error": None,
+        })
+        return {"status": "fresh" if completed else "idle", "teams_attempted": len(completed)}
 
     @staticmethod
     def _resolve_team_id(team_name, fallback_team_id, roster):
@@ -838,7 +1090,6 @@ class TeamFormService:
             team_id for team_id in completed
             if not (
                 (document := self.cache_collection.find_one({"_id": self._id(f"team_form:{team_id}")}))
-                and str(document.get("provider") or "").startswith("espn")
                 and len(document.get("matches") or []) < self.FORM_LIMIT
             )
         }
@@ -855,7 +1106,7 @@ class TeamFormService:
                 if delay > 0:
                     sleep_fn(delay)
             try:
-                payload = self.client.request("/fixtures", {"team": team_id, "last": 5})
+                payload = self.client.request("/fixtures", {"team": team_id, "last": self.FORM_LIMIT})
             except Exception as exc:
                 self._mark_stale([item["team_id"] for item in teams], exc, observed_at)
                 self._mark_bootstrap_stale(exc, observed_at)

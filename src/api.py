@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+from functools import partial
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -39,6 +40,7 @@ from src.competitions import (
 )
 from src.services.archive import load_archive_from_db, upsert_archive_entry
 from src.services.auth import require_cron_secret
+from src.services.input_validation import bounded_match_id, bounded_score
 from src.services.elo_sync import perform_elo_sync
 from src.services.prediction import PredictionService, infer_stage, rebuild_prediction, user_tip_is_open
 from src.services.ucl_simulation import _fixture_score, _fixture_teams, build_ucl_table
@@ -48,6 +50,7 @@ from src.services.team_form import (
     FailoverTeamFormClient,
     TeamFormService,
 )
+from src.services.match_intelligence import refresh_match_intelligence
 from src.routes.matches import init_router as matches_router
 from src.routes.predict import init_router as predict_router
 from src.routes.custom_bot import init_router as custom_bot_router
@@ -194,6 +197,10 @@ app.include_router(maintenance_router(
     archive_collections=archive_collections,
     math_engine=math_engine,
     team_form_service=team_form_service,
+    match_intelligence_refresher=partial(
+        refresh_match_intelligence,
+        api_football_client=_form_primary,
+    ),
 ))
 app.include_router(pool_router(cache_collections, archive_collections))
 app.include_router(elo_status_router(cache_collections))
@@ -240,15 +247,11 @@ def bonus_questions():
 def set_user_tip(request: Request, payload: dict, competition: str | None = None):
     comp = require_competition(competition or payload.get("competition"))
     archive_store = collection_for(archive_collections, comp)
-    match_id  = payload.get("match_id")
-    user_tip  = payload.get("user_tip", "").strip()
-
-    if not match_id or not user_tip:
-        raise HTTPException(status_code=400, detail="match_id and user_tip required")
-
-    parts = user_tip.split(":")
-    if len(parts) != 2 or not all(p.strip().isdigit() for p in parts):
-        raise HTTPException(status_code=400, detail="user_tip must be in format H:A (e.g. 2:1)")
+    try:
+        match_id = bounded_match_id(payload.get("match_id"))
+        user_tip = bounded_score(payload.get("user_tip"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     doc = archive_store.find_one({"_id": match_id})
     if not doc:

@@ -37,6 +37,24 @@ export interface TeamFormMatch {
   goals_against?: number
   score: string
   result: 'W' | 'D' | 'L'
+  provider?: string
+}
+
+export interface PlayerFormEntry {
+  id: string
+  name: string
+  appearances: number
+  starts: number
+  goals: number | null
+  assists: number | null
+}
+
+export interface PlayerForm {
+  status: 'fresh' | 'unavailable'
+  reason?: 'insufficient_sample' | 'no_contributions'
+  matches_sampled: number
+  minimum_matches: number
+  players: PlayerFormEntry[]
 }
 
 export interface TeamForm {
@@ -47,6 +65,30 @@ export interface TeamForm {
   observed_at?: string | null
   error?: string | null
   matches?: TeamFormMatch[]
+  player_form?: PlayerForm
+}
+
+export interface MatchPlayer {
+  id?: string
+  name: string
+  position?: string | null
+  jersey?: string
+  stats?: Record<string, string | number | null>
+}
+
+export interface MatchLineup {
+  starters: MatchPlayer[]
+  substitutes: MatchPlayer[]
+}
+
+export interface MatchIntelligence {
+  status: 'fresh' | 'stale' | 'unavailable'
+  source?: string
+  observed_at?: string | null
+  reason?: string | null
+  lineups?: Record<string, MatchLineup>
+  team_stats?: Record<string, Record<string, string | number | null>>
+  injuries?: { status: 'fresh' | 'stale' | 'unavailable'; players: MatchPlayer[] }
 }
 
 export interface BotTip {
@@ -98,6 +140,8 @@ export interface Match {
   odds_observed_at?: string | null
   odds_provenance?: Record<string, unknown>
   probabilities?: Probabilities | null
+  base_probabilities?: Probabilities | null
+  frozen_at?: string | null
   top_tip: string
   model_tip?: string | null
   pool_tip?: string | null
@@ -122,6 +166,7 @@ export interface Match {
   away_form?: TeamForm
   h2h?: Record<string, number>
   lineup_diff?: Record<string, { starters: Record<string, string>; missing: string[] }>
+  match_intelligence?: MatchIntelligence
   bots?: Partial<Record<BotKey, BotTip>>
   home_team_id?: number
   away_team_id?: number
@@ -203,6 +248,9 @@ export interface ArchiveEntry {
     model_version?: string | null
     input_provenance?: Record<string, unknown>
     provenance?: Record<string, unknown>
+    probabilities?: Probabilities | null
+    base_probabilities?: Probabilities | null
+    frozen_at?: string | null
     user_tip?: string | null
     algo_reconstructed?: boolean
     bots?: Partial<Record<BotKey, BotTip>>

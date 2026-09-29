@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from src.competitions import collection_for, competition_document_id, find_competition_document, require_competition
+from src.services.input_validation import bounded_match_id, bounded_tip_counts
 
 
 def _integer(value, *, positive=False):
@@ -39,6 +40,11 @@ def init_router(cache_collections, archive_collections=None):
 
     @router.put("/pool-context/{match_id}")
     def put_pool_context(match_id: str, payload: dict, competition: str | None = None):
+        try:
+            match_id = bounded_match_id(match_id)
+            tip_counts = bounded_tip_counts(payload.get("tip_counts", {}))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         comp, cache, archive = stores(competition or payload.get("competition"))
         values = {
             "user_points": payload.get("user_points", 0),
@@ -49,10 +55,6 @@ def init_router(cache_collections, archive_collections=None):
             raise HTTPException(status_code=400, detail="user_points and leader_points must be nonnegative integers")
         if not _integer(values["remaining_srf_max_points"], positive=True):
             raise HTTPException(status_code=400, detail="remaining_srf_max_points must be a positive integer")
-        tip_counts = payload.get("tip_counts", {})
-        if not isinstance(tip_counts, dict):
-            raise HTTPException(status_code=400, detail="tip_counts must be an object")
-
         # The prediction service deliberately treats malformed/empty field
         # counts as pool-unavailable; they must not invalidate model output.
         context_id = competition_document_id(comp, f"pool_context:{match_id}")

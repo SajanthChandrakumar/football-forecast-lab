@@ -36,6 +36,17 @@ export const useMatches = () => {
   return { ...query, data: query.data?.matches, availability: query.data }
 }
 
+export const useMatchHistory = (eventId: string, enabled: boolean) => {
+  const { competition } = useAppState()
+  return useQuery({
+    queryKey: ['matchHistory', competition, eventId],
+    queryFn: () => api.matchHistory(competition, eventId),
+    enabled: enabled && Boolean(eventId),
+    staleTime: 300_000,
+    retry: false,
+  })
+}
+
 export const useArchive = () => {
   const { competition } = useAppState()
   return useQuery({ queryKey: ['archive', competition], queryFn: () => api.archive(competition), staleTime: 60_000 })

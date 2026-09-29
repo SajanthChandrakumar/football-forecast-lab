@@ -31,15 +31,15 @@ test('fixture cards show compact form for both teams without replacing the prima
   assert.match(row, /min-h-11/)
 })
 
-test('match detail lists the five newest competitive matches in a mobile stack', () => {
+test('match detail lists the ten newest competitive matches in a mobile stack', () => {
   const detail = read('src/features/detail/DetailView.tsx')
   assert.match(detail, /Letzte Pflichtspiele/)
   assert.match(detail, /form\?\.matches/)
-  assert.match(detail, /slice\(0, 5\)/)
+  assert.match(detail, /slice\(0, 10\)/)
   assert.match(detail, /opponent_name/)
   assert.match(detail, /competition_name/)
   assert.match(detail, /shortDate\(item\.played_at\)/)
-  assert.match(detail, /sm:grid-cols-2/)
+  assert.match(detail, /lg:grid-cols-2/)
   assert.match(detail, /Form nicht verfügbar/)
   assert.match(detail, /Quelle:/)
   assert.match(detail, /ESPN \+ FotMob/)

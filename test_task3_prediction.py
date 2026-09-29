@@ -237,6 +237,8 @@ def test_freeze_uses_latest_eligible_t15_snapshot_and_is_idempotent():
     assert frozen["prediction"]["frozen_at"]
     assert frozen["prediction"]["model_tip"] == frozen["prediction"]["top_tip"]
     assert frozen["prediction"]["source_inputs"]["odds"]["home"] == 1.8
+    assert sum(frozen["prediction"]["probabilities"].values()) == pytest.approx(1.0)
+    assert sum(frozen["prediction"]["base_probabilities"].values()) == pytest.approx(1.0)
     writes = archive.replacements
     again = freeze_prediction(
         cache,
@@ -334,6 +336,40 @@ def test_pool_context_put_clears_stale_archived_pool_tip():
     endpoint("m1", {"tip_counts": {"1:1": 2}, "user_points": 4, "leader_points": 8, "remaining_srf_max_points": 30}, competition="ucl2026")
     assert archive.documents["m1"]["prediction"]["pool_tip"] is None
     assert archive.documents["m1"]["prediction"]["pool_status"] == "unavailable"
+
+
+@pytest.mark.parametrize("match_id,tip_counts", [
+    ("m" * 129, {"1:1": 2}),
+    ("m1", {"21:0": 2}),
+    ("m1", {"1:1": -1}),
+])
+def test_pool_context_rejects_unbounded_public_write_fields(match_id, tip_counts):
+    cache = MemoryCollection()
+    router = pool_router({"ucl2026": cache}, {"ucl2026": MemoryCollection()})
+    endpoint = next(route.endpoint for route in router.routes if route.path == "/api/pool-context/{match_id}" and route.methods == {"PUT"})
+
+    with pytest.raises(Exception) as error:
+        endpoint(match_id, {
+            "tip_counts": tip_counts,
+            "user_points": 4,
+            "leader_points": 8,
+            "remaining_srf_max_points": 30,
+        }, competition="ucl2026")
+
+    assert getattr(error.value, "status_code", None) == 400
+    assert cache.documents == {}
+
+
+def test_freeze_rejects_oversized_match_id_before_archive_lookup():
+    router = predict_router(
+        _engine(), object(), {"ucl2026": MemoryCollection()}, NoopLimiter(), {"ucl2026": MemoryCollection()},
+    )
+    endpoint = next(route.endpoint for route in router.routes if route.path == "/api/predict/freeze")
+
+    with pytest.raises(Exception) as error:
+        endpoint({"match_id": "m" * 129}, competition="ucl2026")
+
+    assert getattr(error.value, "status_code", None) == 400
 
 
 def test_user_tip_missing_kickoff_is_only_permissive_for_legacy_wc():

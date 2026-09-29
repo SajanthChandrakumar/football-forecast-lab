@@ -9,6 +9,7 @@ import { hasUclSimulationResults } from '../src/lib/simulation.mjs'
 import * as simulation from '../src/lib/simulation.mjs'
 
 let officialPerformance
+let performanceEntryKind
 let competitionLabel
 let rankUpcomingValueBets
 let teamFormTeamNames
@@ -17,7 +18,7 @@ let teamFormCoverage
 let teamFormSnapshotState
 let teamsWithoutHistory
 try {
-  ({ officialPerformance } = await import('../src/lib/performance.mjs'))
+  ({ officialPerformance, performanceEntryKind } = await import('../src/lib/performance.mjs'))
 } catch {
   // The assertion below reports the missing implementation as a failed behavior test.
 }
@@ -222,9 +223,14 @@ test('performance includes Elo reconstructions and reports their points separate
 
   const result = officialPerformance({
     tracked: {
-      prediction: { algo_reconstructed: false },
+      metadata: { commence_time: '2026-09-10T18:00:00Z' },
+      prediction: {
+        algo_reconstructed: false,
+        frozen_at: '2026-09-10T17:50:00Z',
+        probabilities: { home: 0.6, draw: 0.25, away: 0.15 },
+      },
       post_match_result: {
-        status: 'completed', algo_points: 6,
+        status: 'completed', actual_score: '2:1', algo_points: 6,
         bot_points: { broker: 5, professor: 6 },
       },
     },
@@ -249,12 +255,17 @@ test('performance includes Elo reconstructions and reports their points separate
     algoTotal: 6,
     algoCount: 1,
     algoTendency: 1,
+    legacyCount: 0,
+    legacyPoints: 0,
+    legacyTendency: 0,
     reconstructedCount: 1,
     reconstructedPoints: 10,
     reconstructedTendency: 1,
+    probabilityCount: 1,
+    brierScore: 0.245,
     botStats: {
-      broker: { pts: 15, tipped: 2, tendency: 2 },
-      professor: { pts: 16, tipped: 2, tendency: 2 },
+      broker: { pts: 5, tipped: 1, tendency: 1 },
+      professor: { pts: 6, tipped: 1, tendency: 1 },
     },
   })
 })
@@ -262,8 +273,13 @@ test('performance includes Elo reconstructions and reports their points separate
 test('official algorithm totals and hit rate exclude Elo reconstructions', () => {
   const result = officialPerformance({
     prematch: {
-      prediction: { algo_reconstructed: false },
-      post_match_result: { status: 'completed', algo_points: 6 },
+      metadata: { commence_time: '2026-09-10T18:00:00Z' },
+      prediction: {
+        algo_reconstructed: false,
+        frozen_at: '2026-09-10T17:50:00Z',
+        probabilities: { home: 0.6, draw: 0.25, away: 0.15 },
+      },
+      post_match_result: { status: 'completed', actual_score: '2:1', algo_points: 6 },
     },
     reconstructed: {
       prediction: { algo_reconstructed: true },
@@ -285,5 +301,56 @@ test('official algorithm totals and hit rate exclude Elo reconstructions', () =>
     reconstructedCount: 1,
     reconstructedPoints: 10,
     reconstructedTendency: 1,
+  })
+})
+
+test('performance separates unverifiable legacy tips from verified pre-match tips', () => {
+  assert.equal(typeof performanceEntryKind, 'function')
+  const verified = {
+    metadata: { commence_time: '2026-09-10T18:00:00Z' },
+    prediction: {
+      frozen_at: '2026-09-10T17:50:00Z',
+      probabilities: { home: 0.6, draw: 0.25, away: 0.15 },
+    },
+    post_match_result: { status: 'completed', actual_score: '2:1', algo_points: 6 },
+  }
+  const legacy = {
+    metadata: { commence_time: '2026-09-10T18:00:00Z' },
+    prediction: { probabilities: { home: 0.6, draw: 0.25, away: 0.15 } },
+    post_match_result: { status: 'completed', actual_score: '2:1', algo_points: 8 },
+  }
+  const afterKickoff = {
+    ...verified,
+    prediction: { ...verified.prediction, frozen_at: '2026-09-10T18:01:00Z' },
+  }
+  const reconstructed = {
+    ...verified,
+    prediction: { ...verified.prediction, algo_reconstructed: true },
+  }
+
+  assert.equal(performanceEntryKind(verified), 'verified')
+  assert.equal(performanceEntryKind(legacy), 'legacy')
+  assert.equal(performanceEntryKind(afterKickoff), 'legacy')
+  assert.equal(performanceEntryKind(reconstructed), 'reconstructed')
+
+  const result = officialPerformance({ verified, legacy, afterKickoff, reconstructed }, [])
+  assert.deepEqual({
+    algoTotal: result.algoTotal,
+    algoCount: result.algoCount,
+    legacyPoints: result.legacyPoints,
+    legacyCount: result.legacyCount,
+    reconstructedPoints: result.reconstructedPoints,
+    reconstructedCount: result.reconstructedCount,
+    probabilityCount: result.probabilityCount,
+    brierScore: result.brierScore,
+  }, {
+    algoTotal: 6,
+    algoCount: 1,
+    legacyPoints: 14,
+    legacyCount: 2,
+    reconstructedPoints: 6,
+    reconstructedCount: 1,
+    probabilityCount: 1,
+    brierScore: 0.245,
   })
 })

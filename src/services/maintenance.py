@@ -38,6 +38,7 @@ def run_maintenance(
     clubelo_ingestor=None,
     math_engine=None,
     team_form_service=None,
+    match_intelligence_refresher=None,
 ) -> dict:
     """Capture due odds buckets with at most one bulk provider call.
 
@@ -98,12 +99,15 @@ def run_maintenance(
     fixture_status = {"status": "fresh", "source": "cache", "observed_at": current.isoformat()}
     clubelo_status = None
     team_form_status = None
+    match_intelligence_status = None
     try:
         if comp.id == "ucl2026":
             team_form_status = {"status": "unavailable", "source": "api_football", "error": "team form service unavailable"}
             if team_form_service is not None:
                 try:
                     team_form_status = team_form_service.refresh_daily(now=current)
+                    if hasattr(team_form_service, "refresh_history_depth"):
+                        team_form_status["history_backfill"] = team_form_service.refresh_history_depth(now=current)
                 except Exception as exc:
                     team_form_status = {"status": "stale", "source": "api_football", "error": str(exc), "observed_at": current.isoformat()}
         if fixture_fetcher is not None:
@@ -115,6 +119,25 @@ def run_maintenance(
                 cache_collection, competition=comp, observed_at=current,
             )
         fixtures = _fixtures(cache_collection, comp)
+        if comp.id == "ucl2026" and team_form_service is not None and hasattr(team_form_service, "cached_history_fixtures"):
+            known_ids = {str(fixture.get("id") or fixture.get("event_id")) for fixture in fixtures}
+            fixtures = [
+                *fixtures,
+                *[
+                    fixture for fixture in team_form_service.cached_history_fixtures()
+                    if str(fixture.get("id") or fixture.get("event_id")) not in known_ids
+                ],
+            ]
+        if comp.id == "ucl2026" and match_intelligence_refresher is not None:
+            try:
+                match_intelligence_status = match_intelligence_refresher(
+                    cache_collection, fixtures, now=current, competition=comp,
+                )
+            except Exception as exc:
+                match_intelligence_status = {
+                    "status": "failed", "source": "espn", "espn_calls": 0,
+                    "api_football_calls": 0, "error": str(exc),
+                }
         archived_results = 0
         reconstructed_results = 0
         snapshot_predictions = 0
@@ -172,6 +195,7 @@ def run_maintenance(
                 "fixture_status": fixture_status,
                 "clubelo_status": clubelo_status,
                 **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
+                **({"match_intelligence_status": match_intelligence_status} if comp.id == "ucl2026" else {}),
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
@@ -200,6 +224,7 @@ def run_maintenance(
                 "fixture_status": fixture_status,
                 "clubelo_status": clubelo_status,
                 **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
+                **({"match_intelligence_status": match_intelligence_status} if comp.id == "ucl2026" else {}),
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
@@ -246,6 +271,7 @@ def run_maintenance(
             "fixture_status": fixture_status,
             "clubelo_status": clubelo_status,
             **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
+            **({"match_intelligence_status": match_intelligence_status} if comp.id == "ucl2026" else {}),
             "archived_results": archived_results,
             "reconstructed_results": reconstructed_results,
             "snapshot_predictions": snapshot_predictions,

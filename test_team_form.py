@@ -323,7 +323,7 @@ def test_espn_client_supplements_partial_club_schedule_from_fotmob_without_hardc
     service.parse_teams(client.request("/teams", {"season": 2026}))
     matches = service.parse_fixtures("494", client.request("/fixtures", {"team": "494", "last": 5}))
 
-    assert len(matches) == 5
+    assert len(matches) == 6
     assert matches[0]["competition_name"] == "1. Liga"
     assert matches[0]["opponent_name"] == "Opponent 0"
     assert client.provider == "espn+fotmob"
@@ -429,7 +429,7 @@ def test_friendlies_are_excluded_even_when_their_status_is_finished():
     assert [match["fixture_id"] for match in matches] == ["3"]
 
 
-def test_parsed_matches_sort_newest_first_and_are_limited_to_five():
+def test_parsed_matches_sort_newest_first_and_are_limited_to_ten():
     service = TeamFormService(MemoryCollection(), client=object())
     fixtures = [
         _fixture(
@@ -441,7 +441,7 @@ def test_parsed_matches_sort_newest_first_and_are_limited_to_five():
 
     matches = service.parse_fixtures("10", {"response": fixtures})
 
-    assert [match["fixture_id"] for match in matches] == ["7", "6", "5", "4", "3"]
+    assert [match["fixture_id"] for match in matches] == ["7", "6", "5", "4", "3", "2", "1"]
 
 
 def test_merge_replaces_duplicate_fixture_ids_sorts_and_caps_cached_form():
@@ -605,9 +605,9 @@ def test_bootstrap_fetches_provider_team_count_and_paces_fixture_requests():
     fixture_times = [at for path, _, at in requests if path == "/fixtures"]
     assert [params for path, params, _ in requests] == [
         {"league": 2, "season": 2026},
-        {"team": "10", "last": 5},
-        {"team": "20", "last": 5},
-        {"team": "30", "last": 5},
+            {"team": "10", "last": 10},
+            {"team": "20", "last": 10},
+            {"team": "30", "last": 10},
     ]
     assert [team["team_id"] for team in cache.find_one({"_id": "ucl2026:team_form_teams"})["teams"]] == ["10", "20", "30"]
     assert [later - earlier for earlier, later in zip(fixture_times, fixture_times[1:])] == [7, 7]
@@ -646,7 +646,7 @@ def test_bootstrap_resumes_only_unfinished_team_and_deduplicates_fixtures():
 
     assert requests == [
         ("teams", {"league": 2, "season": 2026}),
-        ("fixtures", {"team": "20", "last": 5}),
+            ("fixtures", {"team": "20", "last": 10}),
     ]
     assert [match["fixture_id"] for match in cache.find_one({"_id": "ucl2026:team_form:20"})["matches"]] == ["201"]
     assert result["teams_skipped"] == 1
@@ -693,7 +693,7 @@ def test_bootstrap_records_only_successful_teams_and_can_resume_after_api_error(
 
     service.bootstrap(sleep_fn=sleep_fn, min_interval_seconds=0)
 
-    assert requests == [("teams", None), ("fixtures", "20")]
+    assert requests == [("teams", None), ("fixtures", "10"), ("fixtures", "20")]
     assert cache.find_one({"_id": "ucl2026:team_form_bootstrap"})["completed_team_ids"] == ["10", "20"]
 
 
@@ -843,8 +843,13 @@ def test_daily_refresh_uses_zurich_yesterday_pages_and_only_stored_teams():
         "teams": [{"team_id": "10", "name": "Team"}],
     }])
     client = DailyClient({
-        ("2026-09-24", 1): _daily_payload([_fixture(101)], 1, 2),
-        ("2026-09-24", 2): _daily_payload([_fixture(102), _away_fixture(_fixture(103))], 2, 2),
+        ("2026-09-24", 1): _daily_payload([
+            _fixture(101, date="2026-09-24T16:00:00+00:00"),
+        ], 1, 2),
+        ("2026-09-24", 2): _daily_payload([
+            _fixture(102, date="2026-09-24T18:00:00+00:00"),
+            _away_fixture(_fixture(103, date="2026-09-24T20:00:00+00:00")),
+        ], 2, 2),
     })
     service = TeamFormService(cache, client)
 
@@ -856,7 +861,7 @@ def test_daily_refresh_uses_zurich_yesterday_pages_and_only_stored_teams():
     assert result["status"] == "fresh"
     assert cache.find_one({"_id": "ucl2026:team_form_sync"})["last_successful_date"] == "2026-09-24"
     stored = cache.find_one({"_id": "ucl2026:team_form:10"})
-    assert [match["fixture_id"] for match in stored["matches"]] == ["101", "102", "103"]
+    assert [match["fixture_id"] for match in stored["matches"]] == ["103", "102", "101"]
     assert "ucl2026:team_form:20" not in cache.documents
     assert stored["status"] == "fresh"
     assert stored["source"] == "api_football"
@@ -900,7 +905,7 @@ def test_daily_refresh_catches_up_oldest_seven_dates_and_is_idempotent():
     assert final_sync["last_successful_date"] == "2026-09-24"
     assert final_sync["remaining_dates"] == 0
     assert [match["fixture_id"] for match in cache.find_one({"_id": "ucl2026:team_form:10"})["matches"]] == [
-        "24", "23", "22", "21", "20",
+        "24", "23", "22", "21", "20", "19", "18", "17", "16", "15",
     ]
 
 
@@ -968,7 +973,7 @@ def test_daily_successful_empty_fixture_response_is_unavailable_for_new_team():
     assert result["status"] == "fresh"
     assert row["status"] == "unavailable"
     assert row["matches"] == []
-    assert row["coverage"] == {"matches": 0, "limit": 5}
+    assert row["coverage"] == {"matches": 0, "limit": 10}
     assert "no completed" in row["error"].lower()
 
 
@@ -984,7 +989,7 @@ def test_daily_successful_empty_day_keeps_existing_nonempty_row_fresh():
 
     row = cache.find_one({"_id": "ucl2026:team_form:10"})
     assert row["status"] == "fresh"
-    assert row["matches"] == [match]
+    assert row["matches"] == [{**match, "provider": "unknown"}]
 
 
 def test_daily_refresh_updates_supplemented_teams_once_per_zurich_day():
@@ -1016,7 +1021,7 @@ def test_daily_refresh_updates_supplemented_teams_once_per_zurich_day():
     first = service.refresh_daily(now=now)
     second = service.refresh_daily(now=now)
 
-    assert client.requests == [("/fixtures", {"team": "10", "last": 5})]
+    assert client.requests == [("/fixtures", {"team": "10", "last": 10})]
     assert first["status"] == second["status"] == "fresh"
     assert cache.find_one({"_id": "ucl2026:team_form_sync"})["supplemental_refresh_date"] == "2026-09-26"
     row = cache.find_one({"_id": "ucl2026:team_form:10"})
@@ -1077,7 +1082,7 @@ def test_bootstrap_valid_empty_fixture_response_records_unavailable_row():
     row = cache.find_one({"_id": "ucl2026:team_form:10"})
     assert row["status"] == "unavailable"
     assert row["matches"] == []
-    assert row["coverage"] == {"matches": 0, "limit": 5}
+    assert row["coverage"] == {"matches": 0, "limit": 10}
     assert "no completed" in row["error"].lower()
 
 
@@ -1295,7 +1300,7 @@ def test_ucl_match_route_adds_cached_form_without_provider_calls_or_cache_mutati
     assert "home_form" not in cache.find_one({"_id": "ucl2026:matches_cache"})["data"][0]
 
 
-def test_ucl_match_route_reads_all_team_forms_in_one_database_query():
+def test_ucl_match_route_reads_forms_and_player_history_in_bounded_bulk_queries():
     class CountingCollection(MemoryCollection):
         def __init__(self, documents):
             super().__init__(documents)
@@ -1342,8 +1347,337 @@ def test_ucl_match_route_reads_all_team_forms_in_one_database_query():
 
     assert [row["home_form"]["form"] for row in result] == [["W"]] * 4
     assert [row["away_form"]["form"] for row in result] == [["L"]] * 4
-    assert cache.bulk_reads == 1
+    # Team forms, their historical summaries, and current-match intelligence.
+    assert cache.bulk_reads == 3
     assert cache.form_reads == 0
+
+
+def test_team_form_keeps_ten_recent_matches():
+    service = TeamFormService(MemoryCollection(), client=None)
+    payload = {"response": [
+        {
+            "fixture": {"id": str(index), "date": f"2026-09-{index:02d}T18:00:00+00:00", "status": {"short": "FT"}},
+            "league": {"name": "League", "type": "League"},
+            "teams": {"home": {"id": "1", "name": "Arsenal"}, "away": {"id": "2", "name": "Opponent"}},
+            "goals": {"home": 2, "away": 1},
+        }
+        for index in range(1, 13)
+    ]}
+
+    matches = service.parse_fixtures("1", payload)
+
+    assert len(matches) == 10
+    assert matches[0]["fixture_id"] == "12"
+
+
+def test_bootstrap_refills_completed_api_football_team_when_only_five_matches_are_cached():
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_bootstrap", "season": 2026, "league": 2, "completed_team_ids": ["10"]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "provider": "api_football", "matches": [
+            {"fixture_id": str(index)} for index in range(5)
+        ]},
+    ])
+
+    class Client:
+        provider = "api_football"
+
+        def __init__(self):
+            self.calls = []
+
+        def request(self, path, params):
+            self.calls.append((path, params))
+            return {"response": [{"team": {"id": 10, "name": "Arsenal"}}]} if path == "/teams" else {"response": []}
+
+    client = Client()
+    TeamFormService(cache, client).bootstrap(min_interval_seconds=0)
+
+    assert ("/fixtures", {"team": "10", "last": 10}) in client.calls
+
+
+def test_cached_history_fixtures_are_deduplicated_and_skip_fotmob_ids():
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "teams": [
+            {"team_id": "1", "name": "Arsenal"}, {"team_id": "2", "name": "Chelsea"},
+        ]},
+        {"_id": "ucl2026:team_form:1", "matches": [
+            {"fixture_id": "espn-1", "played_at": "2026-09-20T18:00:00Z", "opponent_name": "Chelsea", "venue": "home", "provider": "espn"},
+            {"fixture_id": "fotmob:99", "played_at": "2026-09-19T18:00:00Z", "opponent_name": "Other", "venue": "away", "provider": "fotmob"},
+        ]},
+        {"_id": "ucl2026:team_form:2", "matches": [
+            {"fixture_id": "espn-1", "played_at": "2026-09-20T18:00:00Z", "opponent_name": "Arsenal", "venue": "away", "provider": "espn"},
+        ]},
+    ])
+    service = TeamFormService(cache, client=None)
+
+    fixtures = service.cached_history_fixtures()
+
+    assert fixtures == [{
+        "id": "espn-1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": "2026-09-20T18:00:00Z", "completed": True, "historical": True,
+    }]
+
+
+def test_cached_history_fixtures_accept_legacy_espn_rows_without_provider():
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "teams": [{"team_id": "1", "name": "Lens"}]},
+        {"_id": "ucl2026:team_form:1", "source": "espn", "matches": [
+            {"fixture_id": "401876453", "played_at": "2026-09-18T18:00:00Z", "opponent_name": "AS Monaco", "venue": "away"},
+            {"fixture_id": "12345", "played_at": "2026-09-17T18:00:00Z", "opponent_name": "Other", "venue": "home", "provider": "api_football"},
+        ]},
+    ])
+
+    assert TeamFormService(cache, client=None).cached_history_fixtures() == [{
+        "id": "401876453", "home_team": "AS Monaco", "away_team": "Lens",
+        "commence_time": "2026-09-18T18:00:00Z", "completed": True, "historical": True,
+    }]
+
+
+def test_history_depth_backfill_refreshes_at_most_six_teams_once_per_day():
+    teams = [{"team_id": str(index), "name": f"Team {index}"} for index in range(1, 8)]
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "provider": "espn", "teams": teams},
+        *[{
+            "_id": f"ucl2026:team_form:{index}", "team_id": str(index),
+            "matches": [{"fixture_id": f"old-{index}-{match}"} for match in range(5)],
+        } for index in range(1, 8)],
+    ])
+
+    class Client:
+        provider = "espn"
+
+        def __init__(self):
+            self.calls = []
+
+        def request(self, path, params):
+            self.calls.append((path, dict(params)))
+            return {"response": []}
+
+    client = Client()
+    service = TeamFormService(cache, client)
+    now = datetime(2026, 9, 28, 9, tzinfo=timezone.utc)
+
+    first = service.refresh_history_depth(now=now)
+    second = service.refresh_history_depth(now=now)
+
+    assert first["teams_attempted"] == 6
+    assert second["teams_attempted"] == 0
+    assert len(client.calls) == 6
+    assert all(params["last"] == 10 for _, params in client.calls)
+
+
+def test_history_depth_uses_dedicated_espn_client_and_stamps_match_source():
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "provider": "api_football", "teams": [{"team_id": "10", "name": "Team"}]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "matches": []},
+    ])
+
+    class Primary:
+        provider = "api_football"
+
+        def request(self, path, params):
+            raise AssertionError("historical depth must not use API-Football")
+
+    class History:
+        provider = "espn"
+
+        def request(self, path, params):
+            if path == "/teams":
+                return {"response": [{"team": {"id": "999", "name": "Team"}}]}
+            fixture = _fixture(99)
+            fixture["teams"]["home"]["id"] = "999"
+            return {"response": [fixture]}
+
+    service = TeamFormService(cache, Primary(), history_client=History())
+
+    service.refresh_history_depth(now=datetime(2026, 9, 28, 9, tzinfo=timezone.utc))
+
+    row = cache.find_one({"_id": "ucl2026:team_form:10"})
+    assert row["matches"][0]["provider"] == "espn"
+    assert row["provider"] == "espn"
+    assert cache.find_one({"_id": "ucl2026:team_form_sync"})["history_espn_team_ids"] == {"10": "999"}
+
+
+def test_merge_freezes_provider_on_legacy_rows_before_provider_switch():
+    cache = MemoryCollection([{
+        "_id": "ucl2026:team_form:10", "team_id": "10", "provider": "espn+fotmob",
+        "matches": [
+            {"fixture_id": "espn-1", "played_at": "2026-09-20T18:00:00Z"},
+            {"fixture_id": "fotmob:2", "played_at": "2026-09-19T18:00:00Z"},
+        ],
+    }])
+
+    class Client:
+        provider = "api_football"
+
+    TeamFormService(cache, Client()).merge_matches("10", [])
+
+    matches = cache.find_one({"_id": "ucl2026:team_form:10"})["matches"]
+    assert {row["fixture_id"]: row["provider"] for row in matches} == {
+        "espn-1": "unknown", "fotmob:2": "fotmob",
+    }
+
+
+def test_merge_replaces_same_match_from_another_provider_instead_of_counting_twice():
+    existing = {
+        "fixture_id": "api-77", "played_at": "2026-09-20T18:00:00+00:00",
+        "opponent_name": "Sporting CP", "venue": "home", "score": "2:1",
+        "provider": "api_football",
+    }
+    replacement = {
+        **existing, "fixture_id": "espn-99", "provider": "espn",
+    }
+    cache = MemoryCollection([{
+        "_id": "ucl2026:team_form:10", "team_id": "10", "provider": "api_football",
+        "matches": [existing],
+    }])
+
+    TeamFormService(cache, client=None).merge_matches(
+        "10", [replacement], provider="espn",
+    )
+
+    matches = cache.find_one({"_id": "ucl2026:team_form:10"})["matches"]
+    assert [row["fixture_id"] for row in matches] == ["espn-99"]
+
+
+def test_cached_forms_rank_players_from_three_archived_match_summaries():
+    form_matches = [
+        {
+            "fixture_id": fixture_id, "played_at": f"2026-09-{day:02d}T18:00:00Z",
+            "opponent_name": "Opponent", "venue": "home", "score": "2:1", "result": "W",
+        }
+        for fixture_id, day in (("f1", 20), ("f2", 15), ("f3", 10))
+    ]
+    summaries = []
+    for index, fixture_id in enumerate(("f1", "f2", "f3")):
+        summaries.append({
+            "_id": f"ucl2026:match_intelligence:{fixture_id}", "event_id": fixture_id,
+            "data": {"lineups": {"Arsenal": {
+                "starters": [
+                    {"id": "7", "name": "Bukayo Saka", "stats": {
+                        "totalGoals": (1, 0, 2)[index], "goalAssists": (0, 1, 0)[index],
+                    }},
+                    {"id": "8", "name": "Martin Odegaard", "stats": {
+                        "goals": 0, "goalAssists": 1,
+                    }},
+                    *([{"id": "9", "name": "Bench Forward", "stats": {
+                        "goals": 1, "goalAssists": 0,
+                    }}] if index == 0 else []),
+                ],
+                "substitutes": ([{"id": "9", "name": "Bench Forward", "stats": {
+                    "goals": 0, "goalAssists": 0,
+                }}] if index > 0 else []),
+            }}},
+        })
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "teams": [
+            {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
+        ]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": form_matches},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        *summaries,
+    ])
+
+    result = TeamFormService(cache, client=None).cached_forms_for_matches([
+        {"home_team": "Arsenal", "away_team": "Opponent"},
+    ])
+
+    player_form = result[0]["home_form"]["player_form"]
+    assert player_form["status"] == "fresh"
+    assert player_form["matches_sampled"] == 3
+    assert player_form["players"] == [
+        {"id": "7", "name": "Bukayo Saka", "appearances": 3, "starts": 3, "goals": 3, "assists": 1},
+        {"id": "9", "name": "Bench Forward", "appearances": 1, "starts": 1, "goals": 1, "assists": 0},
+        {"id": "8", "name": "Martin Odegaard", "appearances": 3, "starts": 3, "goals": 0, "assists": 3},
+    ]
+
+
+def test_cached_forms_do_not_claim_player_form_before_three_archived_matches():
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "teams": [
+            {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
+        ]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": [
+            {"fixture_id": "f1", "played_at": "2026-09-20T18:00:00Z", "result": "W"},
+            {"fixture_id": "f2", "played_at": "2026-09-15T18:00:00Z", "result": "D"},
+        ]},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        *[{
+            "_id": f"ucl2026:match_intelligence:{fixture_id}", "event_id": fixture_id,
+            "data": {"lineups": {"Arsenal": {
+                "starters": [{"id": "7", "name": "Bukayo Saka", "stats": {"goals": 1}}],
+                "substitutes": [],
+            }}},
+        } for fixture_id in ("f1", "f2")],
+    ])
+
+    result = TeamFormService(cache, client=None).cached_forms_for_matches([
+        {"home_team": "Arsenal", "away_team": "Opponent"},
+    ])
+
+    assert result[0]["home_form"]["player_form"] == {
+        "status": "unavailable", "reason": "insufficient_sample",
+        "matches_sampled": 2, "minimum_matches": 3, "players": [],
+    }
+
+
+def test_cached_forms_ignore_lineups_without_individual_player_stats():
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "teams": [
+            {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
+        ]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": [
+            {"fixture_id": fixture_id, "played_at": f"2026-09-{day:02d}T18:00:00Z", "result": "W"}
+            for fixture_id, day in (("f1", 20), ("f2", 15), ("f3", 10))
+        ]},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        *[{
+            "_id": f"ucl2026:match_intelligence:{fixture_id}", "event_id": fixture_id,
+            "data": {"lineups": {"Arsenal": {
+                "starters": [{"id": "7", "name": "Bukayo Saka", "stats": {
+                    "goals": None, "goalAssists": "not available",
+                }}],
+                "substitutes": [],
+            }}},
+        } for fixture_id in ("f1", "f2", "f3")],
+    ])
+
+    result = TeamFormService(cache, client=None).cached_forms_for_matches([
+        {"home_team": "Arsenal", "away_team": "Opponent"},
+    ])
+
+    assert result[0]["home_form"]["player_form"] == {
+        "status": "unavailable", "reason": "insufficient_sample",
+        "matches_sampled": 0, "minimum_matches": 3, "players": [],
+    }
+
+
+def test_cached_forms_do_not_present_missing_contribution_fields_as_zero():
+    cache = MemoryCollection([
+        {"_id": "ucl2026:team_form_teams", "teams": [
+            {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
+        ]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": [
+            {"fixture_id": fixture_id, "played_at": f"2026-09-{day:02d}T18:00:00Z", "result": "W"}
+            for fixture_id, day in (("f1", 20), ("f2", 15), ("f3", 10))
+        ]},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        *[{
+            "_id": f"ucl2026:match_intelligence:{fixture_id}", "event_id": fixture_id,
+            "data": {"lineups": {"Arsenal": {
+                "starters": [{"id": "7", "name": "Bukayo Saka", "stats": {"goals": goals}}],
+                "substitutes": [],
+            }}},
+        } for fixture_id, goals in (("f1", 1), ("f2", 0), ("f3", 0))],
+    ])
+
+    result = TeamFormService(cache, client=None).cached_forms_for_matches([
+        {"home_team": "Arsenal", "away_team": "Opponent"},
+    ])
+
+    assert result[0]["home_form"]["player_form"]["players"] == [{
+        "id": "7", "name": "Bukayo Saka", "appearances": 3, "starts": 3,
+        "goals": 1, "assists": None,
+    }]
 
 
 def test_wc_match_route_keeps_legacy_math_engine_form_unchanged():

@@ -4,6 +4,7 @@ import { flag, cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PointsBadge } from '../../components/shared/Badges'
+import { performanceEntryKind } from '../../lib/performance.mjs'
 import { HOUSE_BOTS, type CompletedMatch } from './usePerformanceData'
 
 type Filter = 'all' | 'hit' | 'miss' | 'notipped'
@@ -17,8 +18,9 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 const PAGE_SIZE = 12
 
-export function MatchHistory({ completed, hasReconstructed }: {
+export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
   completed: CompletedMatch[]
+  hasLegacy: boolean
   hasReconstructed: boolean
 }) {
   const [filter, setFilter] = useState<Filter>('all')
@@ -77,9 +79,9 @@ export function MatchHistory({ completed, hasReconstructed }: {
         </div>
       )}
 
-      {hasReconstructed && (
+      {(hasLegacy || hasReconstructed) && (
         <p className="border-t border-line px-5 py-3 text-[11px] italic text-fg-3">
-          <span className="text-amber-a">*</span> Algo-Tipp aus Elo-Ratings rekonstruiert — Näherung, nicht das volle Quoten-Modell.
+          Altbestand ist nicht vollständig als Vorab-Tipp belegbar. Rekonstruktionen sind Elo-Näherungen ohne historische Buchmacherquoten.
         </p>
       )}
     </GlassCard>
@@ -89,6 +91,8 @@ export function MatchHistory({ completed, hasReconstructed }: {
 function MatchCard({ cm }: { cm: CompletedMatch }) {
   const { entry, points } = cm
   const userTip = entry.prediction?.user_tip ?? null
+  const algoKind = performanceEntryKind(entry)
+  const algoLabel = algoKind === 'verified' ? 'Algo · Vorab' : algoKind === 'reconstructed' ? 'Algo · Rekonstr.' : 'Algo · Alt'
   const hasTip = userTip != null
   const resultClass = !hasTip
     ? 'border-l-line'
@@ -114,7 +118,7 @@ function MatchCard({ cm }: { cm: CompletedMatch }) {
 
       <div className="px-4 py-2">
         <TipRow
-          label={`Algo${entry.prediction?.algo_reconstructed ? '*' : ''}`}
+          label={algoLabel}
           color="var(--blue)"
           tip={entry.prediction?.top_tip}
           pts={entry.post_match_result.algo_points}

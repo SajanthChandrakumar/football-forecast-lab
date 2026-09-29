@@ -734,6 +734,8 @@ def freeze_prediction(
         "input_provenance": result.get("input_provenance"),
         "provenance": result.get("provenance"),
         "source_inputs": result.get("source_inputs"),
+        "probabilities": result.get("probabilities"),
+        "base_probabilities": result.get("base_probabilities"),
         "score_inputs": {
             "xg_home": result.get("xg_home"),
             "xg_away": result.get("xg_away"),

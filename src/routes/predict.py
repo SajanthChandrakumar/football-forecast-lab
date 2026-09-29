@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Request, HTTPException
+from src.services.input_validation import bounded_match_id
 
 from src.constants import TOTALS_CACHE_TTL
 from src.competitions import collection_for, find_competition_document, require_competition
@@ -143,6 +144,10 @@ def init_router(math_engine, odds_engine, cache_collection, limiter, archive_col
         match_id = payload.get("match_id")
         if not match_id:
             raise HTTPException(status_code=400, detail="match_id required")
+        try:
+            match_id = bounded_match_id(match_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
             return freeze_prediction(
                 cache_store,

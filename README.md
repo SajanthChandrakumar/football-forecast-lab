@@ -109,6 +109,7 @@ This project is developed **strictly for scientific, educational, and research p
 | `GET` | `/api/simulate_knockout` | Monte Carlo knockout simulation; `?runs=` controls sample size |
 | `GET` | `/api/elo_history` | Per-team Elo snapshots across the tournament (powers Team Form chart) |
 | `GET` | `/api/elo_ratings` | Current Elo table for all qualified teams |
+| `GET` | `/api/match-history/{event_id}` | Cached historical lineup and match statistics; never calls a provider |
 | `GET` | `/api/sync_elo` | Trigger an immediate Elo sync from completed match scores; warms all downstream caches |
 | `GET` | `/api/recalculate_points` | Recalculates all algorithm and bot points in the archive for completed matches |
 | `GET` | `/api/rebuild_honest_tips` | Rebuilds historical pre-match predictions from snapshots and regrades points |
@@ -138,6 +139,11 @@ maintenance runs.
 | ClubElo ratings older than 24 hours | 1 conditional ranking request, plus one team-page request only for each rating missing from the ranking response; stale ratings retry after one hour |
 | First maintenance run per Zurich day | 1 ESPN daily team-form scoreboard call; teams previously requiring supplementation add 1 ESPN schedule + 2 FotMob calls each. The current 36-team cache has two such teams, so this is 7 calls normally |
 | Team-form catch-up after downtime | At most 7 ESPN daily scoreboard calls plus the same supplemented-team refreshes; 13 calls with the current two supplemented teams |
+| Gradual last-10 history fill | At most 6 underfilled ESPN team schedules per Zurich day; one ESPN roster lookup is cached when API-Football and ESPN team IDs must first be mapped |
+| Lineups before kickoff | ESPN summary once around T-35 and, only while still unavailable, once around T-15 per match. A confirmed lineup is never fetched again; each run is capped at 12 summaries |
+| Final player/team statistics | 1 ESPN summary per completed match |
+| Historical lineups | Share the same 12-summary cap with current matches; current fixtures are processed first and cached history fills gradually |
+| ESPN lineup fallback | At most 1 API-Football `/fixtures` call per maintenance run and matchday; the response is shared by every due match |
 | Odds discovery or any due snapshot | 1 The Odds API bulk call for all events, never one call per match. With one region (`eu`) and two markets (`h2h,totals`), that call costs 2 credits |
 | No discovery and no due snapshot | 0 The Odds API calls |
 
@@ -157,13 +163,24 @@ API-Football attempt, 1 ESPN roster call, 36 ESPN schedule calls, and 4 FotMob
 calls for the two supplemented teams: 42 one-time outbound requests. Bootstrap
 progress is resumable, so completed teams are not fetched again.
 
-The UCL match response reads the team roster once and loads the required form
-documents in one indexed MongoDB query. The existing `_id` keys already provide
-the required index; no data migration or new collection is needed.
+The UCL match response reads the team roster once, loads the required form
+documents in one indexed MongoDB query, and loads their cached historical match
+summaries in one further indexed bulk query. The existing `_id` keys already
+provide the required index; no data migration or new collection is needed.
+
+Lineups and match statistics follow the same rule: only authenticated
+maintenance contacts a provider. ESPN is the primary source. If ESPN has not
+published a due lineup and an API-Football key is configured, one day-level
+request first caches API-Football's fixture IDs. The next due run requests up to
+20 cached IDs together, including their available lineups and statistics. A
+late T-15 discovery schedules exactly one enrichment retry. Every call passes
+through the same shared 100-per-day request gate as team form. Match-detail page
+loads only read the cached `match_intelligence:<event_id>` document and clearly
+show when a lineup or injury information is not available.
 
 ### Champions League team form
 
-The dashboard and match detail read each club's last five competitive matches
+The dashboard and match detail read each club's last ten competitive matches
 from MongoDB; public page loads never call a provider. Initialise or resume the
 cache with:
 
@@ -176,14 +193,25 @@ workers, spaced by at least seven seconds, capped at nine per minute and 100 per
 day, and progress is stored after every club so an interrupted run can resume.
 If that subscription rejects season 2026 or the `last` fixture parameter, the
 same bootstrap transparently switches to ESPN's current UCL roster and each
-club's all-competition schedule. If ESPN exposes fewer than five completed
+club's all-competition schedule. If ESPN exposes fewer than ten completed
 matches for a club, an exact-name FotMob lookup supplements only that club.
 Stored rows identify their source as `api_football`, `espn`, or
 `espn+fotmob`; no synthetic form or historical season is substituted.
+The detail view derives goals scored/conceded, per-match averages, clean sheets,
+and both-teams-to-score counts directly from those rows. A player is labelled
+in form only after at least three cached ESPN match summaries with explicit
+individual statistics and only from recorded goals, assists, and confirmed
+starts or goal-contributing substitute appearances; otherwise the UI reports
+the current sample size instead of guessing.
 
 The authenticated daily maintenance refreshes yesterday's fixtures and catches
-up at most seven missed days. Clubs that needed the FotMob supplement also get
-one team-specific refresh per Zurich day. Provider errors keep the last
+up at most seven missed days. It also deepens at most six incomplete team
+histories per Zurich day. Historical ESPN event IDs then enter the existing
+match-intelligence queue after current fixtures, sharing its cap of twelve
+summary calls per run. The UI can therefore reveal archived old lineups without
+ever contacting a provider during a page view; rows without a compatible event
+ID remain explicitly unavailable. Clubs that needed the FotMob supplement also
+get one team-specific refresh per Zurich day. Provider errors keep the last
 successful rows visible as `stale`; without a cached row the UI shows an
 explicit unavailable state. `USE_API_FOOTBALL` selects the optional odds engine
 only and does not disable this cache reader. ESPN and FotMob's public endpoints

@@ -22,6 +22,8 @@ from src.services.archive import (
 from src.services import espn_data
 from src.services.prediction import PredictionService, infer_stage
 from src.services.ucl_simulation import _normalised_matrix_dict
+from src.services.match_intelligence import attach_cached_match_intelligence, cached_match_intelligence
+from src.services.input_validation import bounded_match_id
 from src.math_engine import MathEngine
 
 logger = logging.getLogger(__name__)
@@ -279,6 +281,7 @@ def _present_cached_matches(
     presented_data = _propagate_team_logos(presented_data)
     if comp.id == "ucl2026":
         presented_data = _apply_cached_ucl_forms(presented_data, team_form_service)
+        presented_data = attach_cached_match_intelligence(presented_data, cache_store, comp)
     archive = load_archive_from_db(archive_store)
     return _sync_archive_tips(
         presented_data,
@@ -472,6 +475,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
         if cached is not None and cached_data == []:
             return []
         return _unavailable_matches()
+
         # ── Fast path: serve from MongoDB cache without any expensive work ──
         if not force:
             try:
@@ -848,5 +852,14 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
             r["bots"] = arc.get("prediction", {}).get("bots", {})
 
         return _sync_archive_tips(results, archive, archive_store)
+
+    @router.get("/match-history/{event_id:path}")
+    def get_match_history(event_id: str, competition: str | None = None):
+        comp = require_competition(competition)
+        try:
+            event_id = bounded_match_id(event_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return cached_match_intelligence(collection_for(cache_collection, comp), event_id, comp)
 
     return router
