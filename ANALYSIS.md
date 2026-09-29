@@ -1,4 +1,4 @@
-# WM 2026 Predictor – Post-Tournament Analysis
+# Football Forecast Lab – Rückblickende WM-Analyse
 
 ## 1. Einleitung & Zielsetzung
 Dieses Projekt wurde als quantitatives Vorhersage- und Analyse-Tool für das **SRF Tippspiel** zur Fußball-Weltmeisterschaft 2026 entwickelt. Das primäre Ziel war nicht nur die Vorhersage des wahrscheinlichsten Ergebnisses, sondern die systematische Maximierung der *Expected Points (xP)* anhand des spezifischen Regelwerks des Tippspiels (10 Punkte für das exakte Resultat, 8 Punkte für die korrekte Tordifferenz, 5-6 Punkte für die Tendenz). 

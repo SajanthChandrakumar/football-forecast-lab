@@ -1,6 +1,6 @@
 # Architecture & Prediction Pipeline
 
-This document explains how the **WM 2026 Predictor** works under the hood — from ingesting match odds and Elo ratings to calculating expected points (xP) and custom bot strategies.
+This document explains how **Football Forecast Lab** works under the hood — from ingesting match odds and Elo ratings to calculating expected points (xP) and custom bot strategies.
 
 ## Integration boundaries
 
