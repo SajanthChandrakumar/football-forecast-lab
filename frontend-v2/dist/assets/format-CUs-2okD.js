@@ -1,1 +1,0 @@
-var e=`Europe/Zurich`;function t(t){return t?new Date(t).toLocaleTimeString(`de-CH`,{hour:`2-digit`,minute:`2-digit`,timeZone:e}):`–`}function n(t){return t?new Date(t).toLocaleDateString(`de-CH`,{weekday:`short`,day:`2-digit`,month:`short`,timeZone:e}):`—`}export{n,t};
