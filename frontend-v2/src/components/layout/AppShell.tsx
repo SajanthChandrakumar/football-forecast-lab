@@ -96,8 +96,11 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
 function MobileTopBar() {
   const { competition, competitions } = useAppState()
   return (
-    <header className="flex min-h-14 items-center border-b border-[#c9ad78]/40 bg-[#193b2b] px-4 lg:hidden">
-      <span className="truncate font-display text-xl font-bold text-[#f8f7f2]">{competitionLabel(competition, competitions)} <span className="text-[#cbdccf]">Predictor</span></span>
+    <header className="min-h-14 border-b border-[#c9ad78]/40 bg-[#193b2b] px-4 py-2 lg:hidden">
+      <span className="block truncate font-display text-lg font-bold text-[#f8f7f2]">Football Forecast Lab</span>
+      <span className="block text-[10px] leading-4 text-[#cbdccf]">
+        {competitionLabel(competition, competitions)} · Statistische Fussballprognosen und transparente Modellanalyse.
+      </span>
     </header>
   )
 }
@@ -151,7 +154,7 @@ export function AppShell() {
   const toggleMore = () => setMoreOpen((open) => !open)
   const closeMore = () => setMoreOpen(false)
 
-  useEffect(() => { document.title = `${competitionLabel(competition, competitions)} Predictor` }, [competition, competitions])
+  useEffect(() => { document.title = `Football Forecast Lab | ${competitionLabel(competition, competitions)}` }, [competition, competitions])
 
   useEffect(() => {
     if (!moreOpen) return

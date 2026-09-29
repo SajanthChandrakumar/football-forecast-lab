@@ -56,7 +56,7 @@ from src.routes.maintenance import init_router as maintenance_router
 from src.routes.pool import init_router as pool_router
 from src.routes.elo_status import init_router as elo_status_router
 
-app = FastAPI(title="WM 2026 Predictor API")
+app = FastAPI(title="Football Forecast Lab API")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

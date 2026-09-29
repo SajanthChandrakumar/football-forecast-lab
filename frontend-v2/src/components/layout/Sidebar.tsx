@@ -80,9 +80,12 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 shrink-0 flex-col gap-5 border-r border-line bg-surface p-5 lg:flex">
       {/* Brand */}
-      <div className="flex items-center gap-2.5 rounded-2xl bg-[#193b2b] px-3 py-3">
-        <span className="truncate font-display text-lg font-bold text-[#f8f7f2]">
-          {competitionLabel(competition, competitions)} <span className="font-semibold text-[#cbdccf]">Predictor</span>
+      <div className="rounded-2xl bg-[#193b2b] px-3 py-3">
+        <span className="block truncate font-display text-lg font-bold text-[#f8f7f2]">
+          Football Forecast Lab
+        </span>
+        <span className="mt-1 block text-[10px] leading-4 text-[#cbdccf]">
+          {competitionLabel(competition, competitions)} · Statistische Fussballprognosen und transparente Modellanalyse.
         </span>
       </div>
 
