@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useMatches } from '../../hooks/queries'
-import { flag, cn } from '../../lib/util'
+import { cn } from '../../lib/util'
+import { TeamLogo } from '../../components/shared/Badges'
 import { shortDate } from '../../lib/format'
 import { PageTransition, PageHeader, staggerContainer, staggerItem } from '../../components/shared/PageTransition'
 import { CardGridSkeleton } from '../../components/shared/Skeleton'
@@ -98,7 +99,7 @@ export function EdgeView() {
     <PageTransition>
       <PageHeader
         title="Modellvergleich"
-        subtitle="Wo das Elo-Modell den Buchmachern am stärksten widerspricht — inkl. historischer Trefferbilanz"
+        subtitle="Wo das Elo-Modell und der Markt unterschiedliche Einschätzungen zeigen."
       />
 
       {/* Tabs */}
@@ -167,7 +168,7 @@ export function EdgeView() {
               )}
             </p>
           ) : (
-            <p>Noch keine beendeten Spiele für eine Trefferanalyse vorhanden.</p>
+            <p>Für abgeschlossene Spiele liegen noch keine auswertbaren Modell-Markt-Vergleiche vor.</p>
           )}
         </div>
       )}
@@ -198,10 +199,10 @@ export function EdgeView() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="font-semibold text-fg">
-                    {flag(m.home_team)} {m.home_team}{' '}
-                    <span className="text-fg-3">vs</span> {flag(m.away_team)}{' '}
-                    {m.away_team}
+                  <div className="flex flex-wrap items-center gap-1.5 font-semibold text-fg">
+                    <TeamLogo name={m.home_team} src={m.home_logo} />{m.home_team}
+                    <span className="text-fg-3">vs</span>
+                    <TeamLogo name={m.away_team} src={m.away_logo} />{m.away_team}
                   </div>
                   <div className="mt-0.5 text-xs text-fg-3">
                     {shortDate(String(m.raw_match?.commence_time))}

@@ -87,6 +87,7 @@ export const useKnockoutSimulation = () => {
   return useQuery({
     queryKey: ['knockoutSim', competition],
     queryFn: () => competition === 'ucl2026' ? api.simulateUcl(competition) : api.simulateKnockout(competition),
+    enabled: competition === 'ucl2026' || competition === 'wc2026',
     staleTime: 300_000,
   })
 }

@@ -48,6 +48,16 @@ test('validCompetition defaults invalid storage values to UCL', () => {
   assert.equal(validCompetition(null), 'ucl2026')
 })
 
+test('competition labels use new event metadata without presenting it as the World Cup', () => {
+  assert.equal(competitionLabel('copa2030', [{ id: 'copa2030', short_name: 'Copa 2030' }]), 'Copa 2030')
+  assert.equal(competitionLabel('copa2030'), 'copa2030')
+})
+
+test('a competition registered by the API can be selected', () => {
+  assert.equal(validCompetition('copa2030', ['wc2026', 'ucl2026', 'copa2030']), 'copa2030')
+  assert.equal(validCompetition('unregistered', ['wc2026', 'ucl2026', 'copa2030']), 'ucl2026')
+})
+
 test('botFormState reloads saved values or clean defaults', () => {
   assert.deepEqual(botFormState(undefined), {
     name: 'Mein Bot',

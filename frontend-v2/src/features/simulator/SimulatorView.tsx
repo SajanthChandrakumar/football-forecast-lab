@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
 import { useKnockoutSimulation } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
-import { flag, cn } from '../../lib/util'
+import { cn } from '../../lib/util'
+import { TeamLogo } from '../../components/shared/Badges'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PageTransition, PageHeader, staggerContainer, staggerItem } from '../../components/shared/PageTransition'
 import type { KnockoutSimulation, UclSimulation } from '../../lib/types'
@@ -21,6 +22,9 @@ export function SimulatorView() {
 
   if (competition === 'ucl2026') {
     return <UclSimulator data={data as UclSimulation | undefined} isLoading={isLoading} error={error as Error | null} />
+  }
+  if (competition !== 'wc2026') {
+    return <PageTransition><PageHeader title="Turnier-Simulator" subtitle="Mögliche Turnierverläufe." /><p className="text-sm text-fg-2">Für diesen Wettbewerb ist noch keine Simulation eingerichtet.</p></PageTransition>
   }
   const wcData = data as KnockoutSimulation | undefined
 
@@ -67,7 +71,7 @@ export function SimulatorView() {
                     <tr key={r.team} className={cn('border-t border-line', i === 0 && 'bg-gold-dim/30')}>
                       <td className="px-5 py-2.5 tabular-nums text-fg-3">{i + 1}</td>
                       <td className="px-2 py-2.5 font-semibold text-fg">
-                        {flag(r.team)} <span className="ml-1">{r.team}</span>
+                        <span className="inline-flex items-center gap-1.5"><TeamLogo name={r.team} />{r.team}</span>
                       </td>
                       <td className="display-num px-2 py-2.5 text-right text-fg">{Math.round(r.elo)}</td>
                       {COLUMNS.map((c) => (
@@ -97,9 +101,9 @@ export function SimulatorView() {
                   variants={staggerItem}
                   className="flex items-center justify-between rounded-lg border border-line bg-surface px-3 py-2 text-sm"
                 >
-                  <span className="font-semibold text-fg">{flag(m.home)} {m.home}</span>
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-fg"><TeamLogo name={m.home} />{m.home}</span>
                   <span className="text-fg-3">vs</span>
-                  <span className="font-semibold text-fg">{m.away} {flag(m.away)}</span>
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-fg">{m.away}<TeamLogo name={m.away} /></span>
                 </motion.div>
               ))}
             </motion.div>
@@ -114,18 +118,18 @@ function UclSimulator({ data, isLoading, error }: { data?: UclSimulation; isLoad
   const hasResults = hasUclSimulationResults(data)
   return (
     <PageTransition>
-      <PageHeader title="Turnier-Simulator" subtitle="Mögliche Turnierverläufe auf Basis des gespeicherten Spielmodells." />
-      {isLoading && <p className="text-fg-2">Simulating tournament paths…</p>}
-      {error && <p className="text-red-a">Error: {error.message}</p>}
-      {data?.status === 'unavailable' && <p className="text-amber-a">Simulation unavailable: {data.error || data.reason || data.warnings?.join(' ') || 'missing model inputs'}</p>}
+      <PageHeader title="Turnier-Simulator" subtitle="Eine experimentelle Orientierung auf Basis des gespeicherten Spielmodells." />
+      {isLoading && <p className="text-fg-2">Turnierverläufe werden berechnet…</p>}
+      {error && <p className="text-red-a">Simulation fehlgeschlagen: {error.message}</p>}
+      {data?.status === 'unavailable' && <p className="text-amber-a">Simulation derzeit nicht verfügbar: {data.error || data.reason || data.warnings?.join(' ') || 'Modelldaten fehlen'}</p>}
       {hasResults && data && <div className="space-y-4">
-        {data.warnings?.length ? <GlassCard><SectionTitle className="mb-2">Data status</SectionTitle><ul className="space-y-1 text-xs text-fg-2">{data.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></GlassCard> : null}
+        {data.warnings?.length ? <GlassCard><SectionTitle className="mb-2">Datenlage</SectionTitle><ul className="space-y-1 text-xs text-fg-2">{data.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></GlassCard> : null}
         <GlassCard className="!p-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4"><SectionTitle>Full UCL output</SectionTitle><span className="text-xs text-fg-3">{(data.n_runs ?? data.runs ?? 0).toLocaleString('de-CH')} runs · seed {data.seed ?? '—'}</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4"><SectionTitle>Simulationsergebnisse</SectionTitle><span className="text-xs text-fg-3">{(data.n_runs ?? data.runs ?? 0).toLocaleString('de-CH')} Durchläufe · Startwert {data.seed ?? '—'}</span></div>
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-[10px] font-bold uppercase tracking-wider text-fg-3">
             {['#', 'Team', 'Ø Pkt', 'Ø Rank', 'Top 8', 'Top 24', 'R16', 'QF', 'SF', 'Final', 'Champion'].map((label) => <th key={label} className="whitespace-nowrap px-3 py-2 text-right first:text-left">{label}</th>)}
           </tr></thead><tbody>{data.results.map((team, index) => <tr key={team.team} className={cn('border-t border-line', index === 0 && 'bg-gold-dim/30')}>
-            <td className="px-3 py-2 tabular-nums text-fg-3">{index + 1}</td><td className="px-3 py-2 text-left font-semibold text-fg">{flag(team.team)} {team.team}</td>
+            <td className="px-3 py-2 tabular-nums text-fg-3">{index + 1}</td><td className="px-3 py-2 text-left font-semibold text-fg"><span className="inline-flex items-center gap-1.5"><TeamLogo name={team.team} />{team.team}</span></td>
             <td className="px-3 py-2 text-right tabular-nums text-fg-2">{team.expected_points.toFixed(2)}</td><td className="px-3 py-2 text-right tabular-nums text-fg-2">{team.expected_rank.toFixed(2)}</td>
             {(['top8', 'top24', 'round_of_16', 'quarterfinal', 'semifinal', 'final', 'champion'] as const).map((key) => <td key={key} className="px-3 py-2 text-right tabular-nums text-fg-2">{team[key].toFixed(1)}%</td>)}
           </tr>)}</tbody></table></div>

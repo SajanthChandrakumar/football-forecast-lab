@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useSaveUserTip } from '../../hooks/queries'
-import { flag, cn } from '../../lib/util'
+import { cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
-import { PointsBadge } from '../../components/shared/Badges'
+import { PointsBadge, TeamLogo } from '../../components/shared/Badges'
 import { performanceEntryKind } from '../../lib/performance.mjs'
 import { HOUSE_BOTS, type CompletedMatch } from './usePerformanceData'
 
@@ -106,10 +106,10 @@ function MatchCard({ cm }: { cm: CompletedMatch }) {
     <div className={cn('overflow-hidden rounded-xl border border-line border-l-[3px] bg-surface', resultClass)}>
       <div className="flex items-center gap-3 border-b border-line px-4 py-2.5">
         <span className="shrink-0 text-[11px] font-semibold text-fg-3">{date}</span>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-          {flag(entry.metadata.home_team)} {entry.metadata.home_team}
+        <span className="min-w-0 flex flex-1 items-center gap-1 truncate text-sm font-semibold text-fg">
+          <TeamLogo name={entry.metadata.home_team} /><span className="truncate">{entry.metadata.home_team}</span>
           <span className="mx-1 font-normal text-fg-3">vs</span>
-          {flag(entry.metadata.away_team)} {entry.metadata.away_team}
+          <TeamLogo name={entry.metadata.away_team} /><span className="truncate">{entry.metadata.away_team}</span>
         </span>
         <span className="display-num shrink-0 rounded-lg border border-line-2 bg-surface-2 px-2.5 py-0.5 text-fg">
           {entry.post_match_result.actual_score}

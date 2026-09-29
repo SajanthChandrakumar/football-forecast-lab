@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useArchive, useStandings } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
-import { flag, cn } from '../../lib/util'
+import { cn } from '../../lib/util'
 import { GlassCard } from '../../components/shared/GlassCard'
 import { TeamLogo } from '../../components/shared/Badges'
 import type { StandingsRow } from '../../lib/types'
@@ -91,6 +91,10 @@ export function GroupsView() {
     return <UclStandings rows={rows ?? []} valid={Boolean(rows)} isLoading={standingsLoading} />
   }
 
+  if (competition !== 'wc2026') {
+    return <PageTransition><PageHeader title="Tabelle" subtitle="Tabellen für diesen Wettbewerb." /><p className="text-sm text-fg-2">Für diesen Wettbewerb ist noch keine Tabellenansicht eingerichtet.</p></PageTransition>
+  }
+
   return (
     <PageTransition>
       <PageHeader title="Gruppen" subtitle="Tabellen aus den bisherigen Resultaten — Top 2 qualifiziert, Platz 3 mit Playoff-Chance." />
@@ -129,7 +133,7 @@ export function GroupsView() {
                       )}
                     >
                       <td className="py-1.5 font-semibold text-fg">
-                        {flag(r.team)} <span className="ml-1">{r.team}</span>
+                        <span className="inline-flex items-center gap-1.5"><TeamLogo name={r.team} />{r.team}</span>
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-fg-2">{r.p}</td>
                       <td className="py-1.5 text-right tabular-nums text-fg-2">{r.w}</td>
@@ -154,10 +158,11 @@ function UclStandings({ rows, valid, isLoading }: { rows: StandingsRow[]; valid:
   const sorted = [...rows].sort((a, b) => (a.pos ?? 999) - (b.pos ?? 999))
   return (
     <PageTransition>
-      <PageHeader title="Ligatabelle" subtitle="Die Ligaphase mit 36 Teams, sobald offizielle Daten verfügbar sind." />
-      {isLoading && <p className="text-fg-2">Loading league table…</p>}
-      {!isLoading && !valid && <p className="text-fg-2">League table unavailable — expected exactly 36 unique ranked teams.</p>}
+      <PageHeader title="Ligatabelle" subtitle="Die aktuelle Ligaphase mit Spielen, Torverhältnis und Punkten aller 36 Teams." />
+      {isLoading && <p className="text-fg-2">Ligatabelle wird geladen…</p>}
+      {!isLoading && !valid && <p className="text-fg-2">Die offizielle Ligatabelle ist derzeit nicht vollständig verfügbar.</p>}
       {valid && <GlassCard className="!p-0 overflow-hidden">
+        <p className="border-b border-line px-5 py-3 text-xs text-fg-2">P Spiele · S Siege · U Unentschieden · N Niederlagen · TD Tordifferenz · Pkt Punkte</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-[10px] font-bold uppercase tracking-wider text-fg-3">

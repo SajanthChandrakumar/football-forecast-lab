@@ -1,5 +1,5 @@
 // Backend response shapes — mirrors src/api.py + routes/services.
-export type CompetitionId = 'wc2026' | 'ucl2026'
+export type CompetitionId = string
 
 export interface CompetitionInfo {
   id: CompetitionId

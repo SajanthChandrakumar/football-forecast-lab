@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { validCompetition } from '../lib/competition.mjs'
@@ -22,8 +22,12 @@ const STORAGE_KEY = 'competition'
 export function AppStateProvider({
   children, light, toggleTheme,
 }: { children: ReactNode; light: boolean; toggleTheme: () => void }) {
+  const storedCompetition = useRef<string | null>(null)
   const [competition, setCompetitionState] = useState<CompetitionId>(() => {
-    try { return validCompetition(localStorage.getItem(STORAGE_KEY)) }
+    try {
+      storedCompetition.current = localStorage.getItem(STORAGE_KEY)
+      return validCompetition(storedCompetition.current)
+    }
     catch { return 'ucl2026' }
   })
   const [selectedTeamsByCompetition, setSelectedTeamsByCompetition] = useState<Record<CompetitionId, string[]>>({ wc2026: [], ucl2026: [] })
@@ -33,11 +37,18 @@ export function AppStateProvider({
     staleTime: 86_400_000,
   })
 
+  useEffect(() => {
+    if (!competitions.length || !storedCompetition.current) return
+    setCompetitionState(validCompetition(storedCompetition.current, competitions.map((item) => item.id)))
+    storedCompetition.current = null
+  }, [competitions])
+
   useEffect(() => { localStorage.setItem(STORAGE_KEY, competition) }, [competition])
 
   const setCompetition = useCallback((value: CompetitionId) => {
-    setCompetitionState(validCompetition(value))
-  }, [])
+    storedCompetition.current = null
+    setCompetitionState(validCompetition(value, competitions.length ? competitions.map((item) => item.id) : undefined))
+  }, [competitions])
 
   // FIFO eviction when a 5th team is selected (legacy behavior).
   const toggleTeam = useCallback((team: string) => {
