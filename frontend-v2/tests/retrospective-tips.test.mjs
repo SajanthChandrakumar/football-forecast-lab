@@ -38,6 +38,34 @@ test('private import matches completed fixtures, scores tips, and overlays only 
   assert.equal(archive.match1.prediction.user_tip, null)
 })
 
+test('private import matches the team names used by the live archive', () => {
+  const storage = memoryStorage()
+  const liveNamesArchive = {
+    aek: {
+      metadata: { home_team: 'AEK Athens', away_team: 'LASK Linz', commence_time: '2026-09-08T16:45:00Z', is_ko_phase: false },
+      prediction: {},
+      post_match_result: { status: 'completed', actual_score: '1:0' },
+    },
+    madrid: {
+      metadata: { home_team: 'Real Madrid', away_team: 'Internazionale', commence_time: '2026-09-08T19:00:00Z', is_ko_phase: false },
+      prediction: {},
+      post_match_result: { status: 'completed', actual_score: '2:1' },
+    },
+    bayern: {
+      metadata: { home_team: 'Bayern Munich', away_team: 'Bodo/Glimt', commence_time: '2026-09-10T19:00:00Z', is_ko_phase: false },
+      prediction: {},
+      post_match_result: { status: 'completed', actual_score: '5:0' },
+    },
+  }
+  const imported = importRetrospectiveTips('ucl2026', [
+    { date: '2026-09-08', home_team: 'AEK Athen', away_team: 'Linzer ASK', tip: '2:1', actual_score: '1:0', points: 8 },
+    { date: '2026-09-08', home_team: 'Real Madrid', away_team: 'Inter Mailand', tip: '2:1', actual_score: '2:1', points: 10 },
+    { date: '2026-09-10', home_team: 'FC Bayern München', away_team: 'FK Bodø/Glimt', tip: '4:1', actual_score: '5:0', points: 5 },
+  ], liveNamesArchive, storage)
+
+  assert.deepEqual(imported, { imported: 3, points: 23, errors: [] })
+})
+
 test('private import rejects an incorrect actual score instead of attaching a tip to the wrong match', () => {
   const storage = memoryStorage()
   const imported = importRetrospectiveTips('ucl2026', [{

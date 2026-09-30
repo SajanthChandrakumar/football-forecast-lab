@@ -3,15 +3,18 @@ const STORAGE_PREFIX = 'football-forecast-lab:private-retrospective-tips:v1:'
 const TEAM_ALIASES = {
   'aek athen': 'aek athens',
   'linzer ask': 'lask',
+  'lask linz': 'lask',
   brugge: 'club brugge',
   'sporting lissabon': 'sporting cp',
   'paris st germain': 'paris saint germain',
   'inter mailand': 'inter milan',
+  internazionale: 'inter milan',
   'betis sevilla': 'real betis',
   'schachtar donezk': 'shakhtar donetsk',
   'slavia prag': 'slavia prague',
   'viking stavanger': 'viking fk',
   'bayern munchen': 'bayern munich',
+  'bod glimt': 'bodo glimt',
   fenerbahce: 'fenerbahce istanbul',
 }
 
