@@ -252,7 +252,7 @@ export interface ArchiveEntry {
     base_probabilities?: Probabilities | null
     frozen_at?: string | null
     user_tip?: string | null
-    local_user_tip?: boolean
+    user_tip_source?: string
     algo_reconstructed?: boolean
     bots?: Partial<Record<BotKey, BotTip>>
   }

@@ -10,7 +10,6 @@ import { MatchHistory } from './MatchHistory'
 export function PerformanceView() {
   const {
     completed, totals, botStats, extraBots, customBot, simulate, isLoading,
-    importPrivateTips, privateTipCount, privateTipPoints,
   } = usePerformanceData()
 
   if (isLoading) {
@@ -134,9 +133,6 @@ export function PerformanceView() {
             completed={completed}
             hasLegacy={totals.hasLegacy}
             hasReconstructed={totals.hasReconstructed}
-            privateTipCount={privateTipCount}
-            privateTipPoints={privateTipPoints}
-            onImportPrivateTips={importPrivateTips}
           />
         </div>
       </div>

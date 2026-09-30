@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+from contextlib import asynccontextmanager
 from functools import partial
 from datetime import datetime, timezone
 
@@ -38,7 +39,11 @@ from src.competitions import (
     list_competitions,
     require_competition,
 )
-from src.services.archive import load_archive_from_db, upsert_archive_entry
+from src.services.archive import (
+    load_archive_from_db,
+    seed_shared_historical_ucl_tips,
+    upsert_archive_entry,
+)
 from src.services.auth import require_cron_secret
 from src.services.input_validation import bounded_match_id, bounded_score
 from src.services.elo_sync import perform_elo_sync
@@ -59,7 +64,19 @@ from src.routes.maintenance import init_router as maintenance_router
 from src.routes.pool import init_router as pool_router
 from src.routes.elo_status import init_router as elo_status_router
 
-app = FastAPI(title="Football Forecast Lab API")
+@asynccontextmanager
+async def lifespan(_app):
+    try:
+        result = seed_shared_historical_ucl_tips(
+            archive_collections["ucl2026"], MathEngine.calculate_actual_points,
+        )
+        logger.info("Shared historical UCL tips: %s", result)
+    except Exception:
+        logger.exception("Shared historical UCL tip backfill failed")
+    yield
+
+
+app = FastAPI(title="Football Forecast Lab API", lifespan=lifespan)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
