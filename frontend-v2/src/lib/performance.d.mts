@@ -10,6 +10,9 @@ export declare function isOfficialPerformanceEntry(entry: ArchiveEntry): boolean
 export declare function performanceEntryKind(entry: ArchiveEntry): 'pending' | 'verified' | 'legacy' | 'reconstructed'
 
 export declare function officialPerformance(archive: Archive | undefined, botKeys: BotKey[]): {
+  algoAllTotal: number
+  algoAllCount: number
+  algoAllTendency: number
   algoTotal: number
   algoCount: number
   algoTendency: number

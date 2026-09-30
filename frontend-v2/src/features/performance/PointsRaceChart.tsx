@@ -3,7 +3,6 @@ import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
-import { isOfficialPerformanceEntry } from '../../lib/performance.mjs'
 import { cn } from '../../lib/util'
 import { HOUSE_BOTS, type CompletedMatch, type ScoreRow } from './usePerformanceData'
 
@@ -16,10 +15,10 @@ export function PointsRaceChart({ completed, extraBots }: {
 
   const { rows, series } = useMemo(() => {
     const chrono = completed
-      .filter(({ entry }) => isOfficialPerformanceEntry(entry))
       .sort((a, b) => a.sortDate.localeCompare(b.sortDate))
     const series = [
       { key: 'Du', color: '#d4af37', dash: '6 3' },
+      { key: 'Algo gesamt', color: '#60a5fa', dash: '3 3' },
       ...HOUSE_BOTS.map((b) => ({ key: b.label, color: b.color, dash: undefined as string | undefined })),
       ...extraBots.map((b) => ({ key: b.label, color: b.color, dash: undefined as string | undefined })),
     ]
@@ -28,6 +27,7 @@ export function PointsRaceChart({ completed, extraBots }: {
     const rows = chrono.map(({ id, entry, points }) => {
       const label = `${entry.metadata.home_team.slice(0, 3).toUpperCase()}–${entry.metadata.away_team.slice(0, 3).toUpperCase()}`
       running['Du'] += points
+      running['Algo gesamt'] += entry.post_match_result.algo_points ?? 0
       const bp = entry.post_match_result.bot_points ?? {}
       for (const b of HOUSE_BOTS) running[b.label] += bp[b.key] ?? 0
       for (const eb of extraBots) running[eb.label] += eb.pointsByMatch?.[id] ?? 0

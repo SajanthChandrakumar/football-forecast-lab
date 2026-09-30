@@ -8,7 +8,10 @@ import { BuildABot } from './BuildABot'
 import { MatchHistory } from './MatchHistory'
 
 export function PerformanceView() {
-  const { completed, totals, botStats, extraBots, customBot, simulate, isLoading } = usePerformanceData()
+  const {
+    completed, totals, botStats, extraBots, customBot, simulate, isLoading,
+    importPrivateTips, privateTipCount, privateTipPoints,
+  } = usePerformanceData()
 
   if (isLoading) {
     return (
@@ -29,8 +32,8 @@ export function PerformanceView() {
   }
 
   const hitRate = totals.userCount > 0 ? `${((totals.correctTendency / totals.userCount) * 100).toFixed(1)}%` : '—'
-  const algoHitRate = totals.algoCount > 0 ? ((totals.algoTendency / totals.algoCount) * 100).toFixed(1) : '0.0'
-  const maxPts = Math.max(totals.totalPoints, totals.algoTotal, 1)
+  const algoHitRate = totals.algoAllCount > 0 ? ((totals.algoAllTendency / totals.algoAllCount) * 100).toFixed(1) : '0.0'
+  const maxPts = Math.max(totals.totalPoints, totals.algoAllTotal, 1)
 
   const jumpTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
@@ -78,33 +81,33 @@ export function PerformanceView() {
             </div>
             <div className="text-sm font-extrabold text-fg-2">vs.</div>
             <div className="text-right">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-blue-a">Algo · {totals.algoCount} geprüfte Tipps</div>
-              <div className="display-num text-4xl text-blue-a">{totals.algoTotal}</div>
-              <div className="text-xs text-fg-3">{algoHitRate}% Tendenz</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-blue-a">Algo · {totals.algoAllCount} Tipps gesamt</div>
+              <div className="display-num text-4xl text-blue-a">{totals.algoAllTotal}</div>
+              <div className="text-xs text-fg-3">{algoHitRate}% Tendenz über alle eingerechneten Tipps</div>
             </div>
           </div>
           <div className="space-y-2">
             <ScoreBar label="Du" pts={totals.totalPoints} max={maxPts} color="var(--gold)" />
-            <ScoreBar label="Algo" pts={totals.algoTotal} max={maxPts} color="var(--blue)" />
+            <ScoreBar label="Algo" pts={totals.algoAllTotal} max={maxPts} color="var(--blue)" />
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <p className="rounded-xl border border-line bg-surface px-3 py-2 text-xs leading-relaxed text-fg-3">
               <span className="font-semibold text-fg-2">Prognosequalität:</span>{' '}
               {totals.brierScore == null ? 'Noch keine verifizierbare Stichprobe.' : `${totals.brierScore.toFixed(3)} Brier-Score`}
-              {totals.probabilityCount > 0 && ` · ${totals.probabilityCount} Spiele · kleiner ist besser`}
+              {totals.probabilityCount > 0 && ` · ${totals.probabilityCount} belegte Vorabspiele · kleiner ist besser`}
             </p>
             {totals.legacyCount > 0 && (
               <p className="rounded-xl border border-line bg-surface px-3 py-2 text-xs leading-relaxed text-fg-3">
-                <span className="font-semibold text-fg-2">Altbestand:</span>{' '}
-                {totals.legacyCount} nicht vollständig belegte Tipps ({totals.legacyPoints} Pts) – nicht in der offiziellen Bilanz.
+                <span className="font-semibold text-fg-2">Altbestand (eingerechnet):</span>{' '}
+                {totals.legacyCount} ältere Tipps ({totals.legacyPoints} Pts) sind in der Gesamtsumme enthalten, aber nicht als Vorab-Tipps belegbar.
               </p>
             )}
           </div>
           {totals.reconstructedCount > 0 && (
             <p className="mt-4 rounded-xl border border-line bg-surface px-3 py-2 text-xs leading-relaxed text-fg-3">
-              Zusätzlich: {totals.reconstructedCount} Elo-Rekonstruktionen
+              Davon: {totals.reconstructedCount} Elo-Rekonstruktionen
               {' '}({totals.reconstructedPoints} Pts · {totals.reconstructedTendency}/{totals.reconstructedCount} Tendenzen).
-              {' '}Rekonstruktionen sind Näherungen ohne historische Buchmacherquoten.
+              {' '}Diese Punkte sind in der Algo-Gesamtsumme enthalten; Rekonstruktionen sind Näherungen ohne historische Buchmacherquoten.
             </p>
           )}
         </GlassCard>
@@ -118,7 +121,7 @@ export function PerformanceView() {
             customBot={customBot}
             simulate={simulate}
             userPoints={totals.totalPoints}
-            algoPoints={totals.algoTotal}
+            algoPoints={totals.algoAllTotal}
           />
         </div>
 
@@ -127,7 +130,14 @@ export function PerformanceView() {
         </div>
 
         <div id="sec-history" className="scroll-mt-6">
-          <MatchHistory completed={completed} hasLegacy={totals.hasLegacy} hasReconstructed={totals.hasReconstructed} />
+          <MatchHistory
+            completed={completed}
+            hasLegacy={totals.hasLegacy}
+            hasReconstructed={totals.hasReconstructed}
+            privateTipCount={privateTipCount}
+            privateTipPoints={privateTipPoints}
+            onImportPrivateTips={importPrivateTips}
+          />
         </div>
       </div>
     </PageTransition>

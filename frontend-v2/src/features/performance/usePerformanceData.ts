@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useArchive, useCustomBot, useSimulateBot } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { api } from '../../lib/api'
 import { officialPerformance } from '../../lib/performance.mjs'
+import { applyRetrospectiveTips, importRetrospectiveTips as savePrivateTips, readRetrospectiveTips } from '../../lib/retrospective-tips.mjs'
 import type { Archive, ArchiveEntry, BotKey } from '../../lib/types'
 
 export const HOUSE_BOTS: { key: BotKey; label: string; color: string }[] = [
@@ -37,6 +38,9 @@ export interface PerformanceTotals {
   userCount: number
   totalPoints: number
   correctTendency: number
+  algoAllTotal: number
+  algoAllCount: number
+  algoAllTendency: number
   algoTotal: number
   algoTendency: number
   algoCount: number
@@ -60,6 +64,7 @@ export function aggregate(archive: Archive | undefined) {
   const completed: CompletedMatch[] = []
   const totals: PerformanceTotals = {
     completed: 0, userCount: 0, totalPoints: 0, correctTendency: 0,
+    algoAllTotal: 0, algoAllCount: 0, algoAllTendency: 0,
     algoTotal: 0, algoTendency: 0, algoCount: 0, legacyCount: 0,
     legacyPoints: 0, legacyTendency: 0, reconstructedCount: 0,
     reconstructedPoints: 0, reconstructedTendency: 0, probabilityCount: 0,
@@ -68,6 +73,9 @@ export function aggregate(archive: Archive | undefined) {
   }
   const official = officialPerformance(archive, HOUSE_BOTS.map(({ key }) => key))
   const botStats = official.botStats as Record<BotKey, { pts: number; tipped: number; tendency: number }>
+  totals.algoAllTotal = official.algoAllTotal
+  totals.algoAllCount = official.algoAllCount
+  totals.algoAllTendency = official.algoAllTendency
   totals.algoTotal = official.algoTotal
   totals.algoCount = official.algoCount
   totals.algoTendency = official.algoTendency
@@ -104,8 +112,28 @@ export function usePerformanceData() {
   const { data: archive, isLoading } = useArchive()
   const { data: customBot } = useCustomBot()
   const simulate = useSimulateBot()
+  const [localTipState, setLocalTipState] = useState(() => ({
+    competition,
+    tips: readRetrospectiveTips(competition),
+  }))
+  useEffect(() => {
+    setLocalTipState({ competition, tips: readRetrospectiveTips(competition) })
+  }, [competition])
+  const localTips = useMemo(
+    () => localTipState.competition === competition ? localTipState.tips : {},
+    [localTipState, competition],
+  )
+  const privateArchive = useMemo(() => applyRetrospectiveTips(archive, localTips), [archive, localTips])
 
-  const { completed, totals, botStats } = useMemo(() => aggregate(archive), [archive])
+  const { completed, totals, botStats } = useMemo(() => aggregate(privateArchive), [privateArchive])
+
+  const importPrivateTips = (rows: unknown) => {
+    const result = savePrivateTips(competition, rows, archive)
+    setLocalTipState({ competition, tips: readRetrospectiveTips(competition) })
+    return result
+  }
+  const privateTipCount = Object.keys(localTips).length
+  const privateTipPoints = Object.values(localTips).reduce((sum, tip) => sum + tip.points, 0)
 
   // Saved build-a-bot competes alongside the house bots — replayed via simulate.
   const { data: customSim } = useQuery({
@@ -132,5 +160,5 @@ export function usePerformanceData() {
     return out
   }, [customBot, customSim])
 
-  return { archive, completed, totals, botStats, extraBots, customBot, simulate, isLoading }
+  return { archive, completed, totals, botStats, extraBots, customBot, simulate, isLoading, importPrivateTips, privateTipCount, privateTipPoints }
 }

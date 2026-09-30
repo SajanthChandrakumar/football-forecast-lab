@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import { useSaveUserTip } from '../../hooks/queries'
 import { cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PointsBadge, TeamLogo } from '../../components/shared/Badges'
 import { performanceEntryKind } from '../../lib/performance.mjs'
+import type { RetrospectiveImportResult } from '../../lib/retrospective-tips.mjs'
 import { HOUSE_BOTS, type CompletedMatch } from './usePerformanceData'
 
 type Filter = 'all' | 'hit' | 'miss' | 'notipped'
@@ -18,10 +18,13 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 const PAGE_SIZE = 12
 
-export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
+export function MatchHistory({ completed, hasLegacy, hasReconstructed, privateTipCount, privateTipPoints, onImportPrivateTips }: {
   completed: CompletedMatch[]
   hasLegacy: boolean
   hasReconstructed: boolean
+  privateTipCount: number
+  privateTipPoints: number
+  onImportPrivateTips: (rows: unknown) => RetrospectiveImportResult
 }) {
   const [filter, setFilter] = useState<Filter>('all')
   const [limit, setLimit] = useState(PAGE_SIZE)
@@ -60,6 +63,12 @@ export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
           ))}
         </div>
       </div>
+
+      <PrivateTipImport
+        count={privateTipCount}
+        points={privateTipPoints}
+        onImport={onImportPrivateTips}
+      />
 
       <div className="grid gap-4 p-5 md:grid-cols-2">
         {visible.map((cm) => <MatchCard key={cm.id} cm={cm} />)}
@@ -152,60 +161,60 @@ function TipRow({ label, color, tip, pts }: {
 }
 
 function UserTipRow({ cm }: { cm: CompletedMatch }) {
-  const { entry, points, id } = cm
+  const { entry, points } = cm
   const userTip = entry.prediction?.user_tip ?? null
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(userTip ?? '')
-  const [invalid, setInvalid] = useState(false)
-  const saveTip = useSaveUserTip()
-
-  const submit = () => {
-    const tip = value.trim()
-    if (!/^\d+:\d+$/.test(tip)) {
-      setInvalid(true)
-      return
-    }
-    setInvalid(false)
-    saveTip.mutate({ matchId: id, tip }, { onSuccess: () => setEditing(false) })
-  }
+  const isPrivateTip = entry.prediction?.local_user_tip === true
 
   return (
     <div className="grid grid-cols-[72px_1fr_auto] items-center gap-2 border-b border-line py-1.5 last:border-b-0">
-      <span className="text-[10px] font-bold uppercase tracking-wide text-gold-a">Du</span>
-      {editing || !userTip ? (
-        <span className="flex items-center gap-1.5">
-          <input
-            value={value}
-            onChange={(e) => { setValue(e.target.value); setInvalid(false) }}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="2:1"
-            maxLength={5}
-            className={cn(
-              'w-14 rounded-md border bg-surface px-1.5 py-0.5 text-center text-sm font-bold text-fg outline-none',
-              invalid ? 'border-red-a' : 'border-line-2 focus:border-gold-a/60',
-            )}
-          />
-          <button
-            onClick={submit}
-            disabled={saveTip.isPending}
-            className="rounded-md border border-gold-a/40 bg-gold-dim px-2 py-0.5 text-[11px] font-bold text-gold-a disabled:opacity-50"
-          >
-            {saveTip.isPending ? '…' : 'OK'}
-          </button>
-        </span>
-      ) : (
-        <span className="flex items-center gap-1.5">
-          <span className="display-num text-sm text-fg">{userTip}</span>
-          <button
-            onClick={() => { setEditing(true); setValue(userTip) }}
-            title="Tipp bearbeiten"
-            className="rounded border border-line px-1.5 text-[11px] text-fg-3 hover:text-fg"
-          >
-            ✎
-          </button>
-        </span>
-      )}
+      <span className="text-[10px] font-bold uppercase tracking-wide text-gold-a">{isPrivateTip ? 'Du · lokal' : 'Du'}</span>
+      <span className="display-num text-sm text-fg" title={userTip ? undefined : 'Die Tippfrist ist nach Anpfiff geschlossen.'}>
+        {userTip ?? 'Tippfrist vorbei'}
+      </span>
       <PointsBadge points={userTip ? points : null} />
+    </div>
+  )
+}
+
+function PrivateTipImport({ count, points, onImport }: {
+  count: number
+  points: number
+  onImport: (rows: unknown) => RetrospectiveImportResult
+}) {
+  const [feedback, setFeedback] = useState('')
+
+  const readFile = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      const json: unknown = JSON.parse(await file.text())
+      const rows = Array.isArray(json) ? json : (json && typeof json === 'object' && 'entries' in json ? json.entries : json)
+      const result = onImport(rows)
+      const summary = `${result.imported} Tipps privat gespeichert · ${result.points} Punkte.`
+      setFeedback(result.errors.length ? `${summary} ${result.errors.slice(0, 3).join(' ')}` : summary)
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Importdatei konnte nicht gelesen werden.')
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface-2/50 px-5 py-3">
+      <div className="min-w-0 text-xs text-fg-2">
+        <p className="font-semibold">Vergangene Tipps bleiben privat auf diesem Gerät.</p>
+        <p className="mt-0.5 text-fg-3">{count > 0 ? `${count} private Tipps · ${points} Pkt` : 'Vergangene Tipps lassen sich nicht mehr an den Server senden.'}</p>
+        {feedback && <p role="status" className="mt-1 text-fg">{feedback}</p>}
+      </div>
+      <label className="cursor-pointer rounded-lg border border-gold-a/40 bg-gold-dim px-3 py-2 text-xs font-bold text-gold-a hover:brightness-105">
+        Private Tipps importieren
+        <input
+          type="file"
+          accept=".json,application/json"
+          className="sr-only"
+          onChange={(event) => {
+            void readFile(event.currentTarget.files?.[0])
+            event.currentTarget.value = ''
+          }}
+        />
+      </label>
     </div>
   )
 }

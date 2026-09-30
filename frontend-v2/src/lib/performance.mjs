@@ -39,6 +39,9 @@ export function officialPerformance(archive, botKeys) {
     botKeys.map((key) => [key, { pts: 0, tipped: 0, tendency: 0 }]),
   )
   const result = {
+    algoAllTotal: 0,
+    algoAllCount: 0,
+    algoAllTendency: 0,
     algoTotal: 0,
     algoCount: 0,
     algoTendency: 0,
@@ -60,6 +63,9 @@ export function officialPerformance(archive, botKeys) {
 
     const algoPoints = entry.post_match_result.algo_points
     if (algoPoints != null) {
+      result.algoAllTotal += algoPoints
+      result.algoAllCount++
+      if (algoPoints >= 5) result.algoAllTendency++
       if (kind === 'reconstructed') {
         result.reconstructedCount++
         result.reconstructedPoints += algoPoints

@@ -262,6 +262,9 @@ test('performance includes Elo reconstructions and reports their points separate
   }, ['broker', 'professor'])
 
   assert.deepEqual(result, {
+    algoAllTotal: 16,
+    algoAllCount: 2,
+    algoAllTendency: 2,
     algoTotal: 6,
     algoCount: 1,
     algoTendency: 1,
@@ -312,6 +315,52 @@ test('official algorithm totals and hit rate exclude Elo reconstructions', () =>
     reconstructedPoints: 10,
     reconstructedTendency: 1,
   })
+})
+
+test('overall algorithm points include verified, legacy, and reconstructed tips', () => {
+  const result = officialPerformance({
+    prematch: {
+      metadata: { commence_time: '2026-09-10T18:00:00Z' },
+      prediction: {
+        frozen_at: '2026-09-10T17:50:00Z',
+        probabilities: { home: 0.6, draw: 0.25, away: 0.15 },
+      },
+      post_match_result: { status: 'completed', actual_score: '2:1', algo_points: 6 },
+    },
+    legacy: {
+      prediction: { top_tip: '1:0' },
+      post_match_result: { status: 'completed', algo_points: 8 },
+    },
+    reconstructed: {
+      prediction: { algo_reconstructed: true, top_tip: '1:0' },
+      post_match_result: { status: 'completed', algo_points: 10 },
+    },
+  }, [])
+
+  assert.deepEqual({
+    algoAllTotal: result.algoAllTotal,
+    algoAllCount: result.algoAllCount,
+    algoAllTendency: result.algoAllTendency,
+    algoTotal: result.algoTotal,
+    algoCount: result.algoCount,
+  }, {
+    algoAllTotal: 24,
+    algoAllCount: 3,
+    algoAllTendency: 3,
+    algoTotal: 6,
+    algoCount: 1,
+  })
+})
+
+test('performance summary and points race use the complete saved algorithm total', () => {
+  const view = readFileSync(new URL('../src/features/performance/PerformanceView.tsx', import.meta.url), 'utf8')
+  const race = readFileSync(new URL('../src/features/performance/PointsRaceChart.tsx', import.meta.url), 'utf8')
+
+  assert.match(view, /Algo · \{totals\.algoAllCount\} Tipps gesamt/)
+  assert.match(view, /\{totals\.algoAllTotal\}/)
+  assert.match(view, /belegte Vorabspiele/)
+  assert.match(race, /running\['Algo gesamt'\] \+= entry\.post_match_result\.algo_points \?\? 0/)
+  assert.doesNotMatch(race, /filter\(\(\{ entry \}\) => isOfficialPerformanceEntry\(entry\)\)/)
 })
 
 test('performance separates unverifiable legacy tips from verified pre-match tips', () => {
