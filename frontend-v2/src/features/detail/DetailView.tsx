@@ -11,6 +11,7 @@ import { MatchHintCard } from '../../components/shared/MatchHintCard'
 import { PageTransition } from '../../components/shared/PageTransition'
 import { ChartSkeleton, CardGridSkeleton } from '../../components/shared/Skeleton'
 import { ScoreHeatmap } from './ScoreHeatmap'
+import { OddsHistory } from './OddsHistory'
 import { matchFormInsights, rankedTipInsights, matchLoadSummary, playerFormStatusMessage, playerFormSummary, teamHistoryAnalysis, teamHistoryMetrics } from '../../lib/tip-insights.mjs'
 import { lineupState } from '../../lib/match-intelligence.mjs'
 import { lineupRows } from '../../lib/lineup-layout.mjs'
@@ -175,6 +176,7 @@ export function DetailView() {
   const saveTip = useSaveUserTip()
   const [adoptStatus, setAdoptStatus] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
+  const [showOddsHistory, setShowOddsHistory] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -406,6 +408,11 @@ export function DetailView() {
         </div>
         </div>
       </section>
+
+      <details className="mb-4 rounded-2xl border border-line bg-surface px-5 py-4" onToggle={(event) => setShowOddsHistory(event.currentTarget.open)}>
+        <summary className="min-h-6 cursor-pointer text-sm font-bold text-fg">Wie haben sich die Quoten verändert?</summary>
+        <OddsHistory matchId={match.id} homeTeam={match.home_team} awayTeam={match.away_team} enabled={showOddsHistory} />
+      </details>
 
       <details className="mb-4 overflow-hidden rounded-2xl border border-line bg-surface">
         <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-5 py-3 text-sm font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a [&::-webkit-details-marker]:hidden">

@@ -744,6 +744,29 @@ def freeze_prediction(
         },
         "frozen_at": frozen_at,
     }
+    if current < kickoff and result.get("probabilities"):
+        baselines = {}
+
+        odds = _safe_odds(snapshot)
+        if odds is not None:
+            bookmaker_source = snapshot.get("source")
+            if not bookmaker_source and isinstance(snapshot.get("provenance"), Mapping):
+                bookmaker_source = snapshot["provenance"].get("source")
+            bookmaker = _evaluation_baseline(
+                service.math_engine.remove_margin(odds["home"], odds["draw"], odds["away"]),
+                bookmaker_source,
+                snapshot.get("observed_at") or snapshot.get("captured_at"),
+                current,
+                kickoff,
+            )
+            if bookmaker:
+                baselines["bookmaker"] = bookmaker
+
+        elo_baseline = _capture_elo_baseline(service, elo, entry.get("pre_match_snapshot"), current, kickoff)
+        if elo_baseline:
+            baselines["elo"] = elo_baseline
+        freeze_fields["evaluation_baselines"] = baselines
+
     update = {"$set": {f"prediction.{key}": value for key, value in freeze_fields.items()}}
     result_write = archive_collection.update_one(
         {"_id": match_id, "prediction.frozen_at": {"$exists": False}},
@@ -758,6 +781,70 @@ def freeze_prediction(
     if winner and (winner.get("prediction") or {}).get("frozen_at"):
         return winner
     raise ValueError("Prediction freeze was concurrently replaced")
+
+
+def _evaluation_baseline(probabilities, source, observed_at, frozen_at, kickoff) -> dict[str, Any] | None:
+    if not isinstance(probabilities, Mapping):
+        return None
+    try:
+        values = {key: float(probabilities[key]) for key in ("home", "draw", "away")}
+        observed = parse_time(observed_at)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if (
+        any(not math.isfinite(value) or value < 0 or value > 1 for value in values.values())
+        or abs(sum(values.values()) - 1.0) > 0.01
+        or observed > frozen_at
+        or observed >= kickoff
+        or not isinstance(source, str)
+        or not source.strip()
+        or source.strip().lower() in {"unknown", "none", "unavailable"}
+        or any(term in source.strip().lower() for term in ("reconstruct", "legacy"))
+    ):
+        return None
+    return {"probabilities": values, "observed_at": observed.isoformat(), "source": source.strip()}
+
+
+def _capture_elo_baseline(service, elo, pre_match_snapshot, frozen_at, kickoff) -> dict[str, Any] | None:
+    clean_elo = _safe_elo(elo)
+    if clean_elo is None:
+        return None
+    snapshot = pre_match_snapshot if isinstance(pre_match_snapshot, Mapping) else {}
+    raw_provenance = elo.get("provenance") if isinstance(elo, Mapping) else None
+    raw_provenance = raw_provenance if isinstance(raw_provenance, Mapping) else {}
+    snapshot_provenance = snapshot.get("input_provenance") or snapshot.get("provenance") or {}
+    snapshot_provenance = snapshot_provenance if isinstance(snapshot_provenance, Mapping) else {}
+    elo_provenance = snapshot_provenance.get("elo") or {}
+    elo_provenance = elo_provenance if isinstance(elo_provenance, Mapping) else {}
+
+    source = (
+        (elo.get("source") if isinstance(elo, Mapping) else None)
+        or raw_provenance.get("source")
+        or elo_provenance.get("source")
+    )
+    status = (
+        (elo.get("status") if isinstance(elo, Mapping) else None)
+        or raw_provenance.get("status")
+        or elo_provenance.get("status")
+    )
+    if str(status or "").lower() in {"failed", "unavailable"}:
+        return None
+
+    observed_at = (
+        (elo.get("observed_at") if isinstance(elo, Mapping) else None)
+        or raw_provenance.get("observed_at")
+    )
+    if observed_at is None:
+        # A known pre-match archive recording time is valid evidence that these
+        # exact ratings were captured before kickoff. Never invent an Elo time.
+        if str(status or "").lower() == "stale":
+            return None
+        observed_at = snapshot.get("timestamp_recorded")
+    result = service._probabilities(None, clean_elo)
+    if not result:
+        return None
+    probabilities, _details = result
+    return _evaluation_baseline(probabilities, source, observed_at, frozen_at, kickoff)
 
 
 def rebuild_prediction(

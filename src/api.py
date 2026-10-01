@@ -47,7 +47,7 @@ from src.services.archive import (
 from src.services.auth import require_cron_secret
 from src.services.input_validation import bounded_match_id, bounded_score
 from src.services.elo_sync import perform_elo_sync
-from src.services.prediction import PredictionService, infer_stage, rebuild_prediction, user_tip_is_open
+from src.services.prediction import PredictionService, infer_stage, rebuild_prediction
 from src.services.ucl_simulation import _fixture_score, _fixture_teams, build_ucl_table
 from src.services.team_form import (
     ApiFootballClient,
@@ -56,6 +56,7 @@ from src.services.team_form import (
     TeamFormService,
 )
 from src.services.match_intelligence import refresh_match_intelligence
+from src.services.user_tips import save_shared_tip
 from src.routes.matches import init_router as matches_router
 from src.routes.predict import init_router as predict_router
 from src.routes.custom_bot import init_router as custom_bot_router
@@ -63,6 +64,8 @@ from src.routes.simulate import init_router as simulate_router
 from src.routes.maintenance import init_router as maintenance_router
 from src.routes.pool import init_router as pool_router
 from src.routes.elo_status import init_router as elo_status_router
+from src.routes.odds_history import init_router as odds_history_router
+from src.routes.model_evaluation import init_router as model_evaluation_router
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -221,6 +224,8 @@ app.include_router(maintenance_router(
 ))
 app.include_router(pool_router(cache_collections, archive_collections))
 app.include_router(elo_status_router(cache_collections))
+app.include_router(odds_history_router(cache_collections, archive_collections))
+app.include_router(model_evaluation_router(archive_collections))
 
 # ── Small endpoints (not worth extracting) ───────────────────
 
@@ -270,27 +275,10 @@ def set_user_tip(request: Request, payload: dict, competition: str | None = None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    doc = archive_store.find_one({"_id": match_id})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Match not in archive")
-
-    commence_time = (doc.get("metadata") or {}).get("commence_time")
-    if not user_tip_is_open(commence_time, datetime.now(timezone.utc), competition=comp):
-        raise HTTPException(status_code=409, detail="User tips are closed at T-5")
-
-    entry = {k: v for k, v in doc.items() if k != "_id"}
-    entry["prediction"]["user_tip"] = user_tip
-
-    actual = entry["post_match_result"].get("actual_score")
-    if actual:
-        is_ko = entry["metadata"].get("is_ko_phase", False)
-        pts = MathEngine.calculate_actual_points(user_tip, actual, is_ko)
-        entry["post_match_result"]["points_earned"] = pts
-    else:
-        pts = None
-
-    upsert_archive_entry(archive_store, match_id, entry)
-    return {"ok": True, "points_earned": pts}
+    return save_shared_tip(
+        archive_store, collection_for(cache_collections, comp), match_id,
+        user_tip, comp, now=datetime.now(timezone.utc),
+    )
 
 @app.get("/api/archive")
 def get_archive(competition: str | None = None):
