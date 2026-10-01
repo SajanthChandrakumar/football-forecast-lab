@@ -17,6 +17,7 @@ from src.services.archive import (
 from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
+from src.services.model_evaluation import freeze_due_comparisons
 from src.services.snapshots import append_odds_snapshot, due_buckets, mark_bucket, parse_time
 
 
@@ -181,6 +182,7 @@ def run_maintenance(
         discovery_due = _discovery_due(cache_collection, comp, current)
         if not due_by_event and not discovery_due:
             predictions_updated = _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
+            forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
             return {
                 "status": "idle",
                 "provider_calls": 0,
@@ -190,6 +192,7 @@ def run_maintenance(
                     or reconstructed_results
                     or snapshot_predictions
                     or predictions_updated
+                    or forecasts_frozen
                 ),
                 "buckets": [],
                 "fixture_status": fixture_status,
@@ -199,6 +202,7 @@ def run_maintenance(
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
+                "forecasts_frozen": forecasts_frozen,
             }
 
         try:
@@ -213,6 +217,7 @@ def run_maintenance(
             predictions_updated = _persist_ucl_predictions(
                 cache_collection, comp, math_engine, clubelo_status
             )
+            forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
             return {
                 "status": "failed",
                 "source": "odds_api",
@@ -228,6 +233,7 @@ def run_maintenance(
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
+                "forecasts_frozen": forecasts_frozen,
             }
 
         lookup = _quote_lookup(quotes)
@@ -262,6 +268,7 @@ def run_maintenance(
                 if odds:
                     _store_fixture_odds(cache_collection, comp, event_id, odds, match, current)
         _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
+        forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
         return {
             "status": "success",
             "provider_calls": 1,
@@ -275,10 +282,20 @@ def run_maintenance(
             "archived_results": archived_results,
             "reconstructed_results": reconstructed_results,
             "snapshot_predictions": snapshot_predictions,
+            "forecasts_frozen": forecasts_frozen,
             "discovery": discovery_due,
         }
     finally:
         cache_collection.delete_one({"_id": lease_id, "lease_token": lease_token})
+
+
+def _freeze_due_forecasts(cache_collection, archive_collections, math_engine, competition, now) -> int:
+    if archive_collections is None or math_engine is None:
+        return 0
+    return freeze_due_comparisons(
+        PredictionService(math_engine), cache_collection,
+        collection_for(archive_collections, competition), competition, now,
+    )
 
 
 def _fixtures(cache_collection, competition) -> list[dict]:

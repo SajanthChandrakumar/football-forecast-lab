@@ -36,7 +36,7 @@ export const api = {
   eloRatings: (competition: CompetitionId) => request<EloRatings>(competitionPath('/elo_ratings', competition)),
   eloRatingsStatus: (competition: CompetitionId) => request<EloRatingsStatus>(competitionPath('/elo_ratings_status', competition)),
   saveUserTip: (competition: CompetitionId, matchId: string, userTip: string) =>
-    request<{ status: string }>(competitionPath('/archive/user_tip', competition), {
+    request<{ ok: boolean; points_earned: number | null }>(competitionPath('/archive/user_tip', competition), {
       method: 'POST',
       body: JSON.stringify({ match_id: matchId, user_tip: userTip, competition }),
     }),

@@ -6,6 +6,7 @@ import { BotScoreboard } from './BotScoreboard'
 import { PointsRaceChart } from './PointsRaceChart'
 import { BuildABot } from './BuildABot'
 import { MatchHistory } from './MatchHistory'
+import { ModelComparison } from './ModelComparison'
 
 export function PerformanceView() {
   const {
@@ -26,6 +27,7 @@ export function PerformanceView() {
       <PageTransition>
         <PageHeader title="Tipps & Auswertung" subtitle="So haben deine Tipps und das Modell abgeschnitten." />
         <p className="text-fg-2">Noch keine abgeschlossenen Spiele. Die geschützte Wartung synchronisiert Ergebnisse nach Spielende.</p>
+        <div className="mt-4"><ModelComparison /></div>
       </PageTransition>
     )
   }
@@ -45,6 +47,7 @@ export function PerformanceView() {
         {[
           ['sec-overview', 'Übersicht'],
           ['sec-bots', 'Bot-Vergleich'],
+          ['sec-models', 'Modellvergleich'],
           ['sec-bob', 'Eigener Bot'],
           ['sec-race', 'Punkteverlauf'],
           ['sec-history', 'Spielverlauf'],
@@ -113,6 +116,10 @@ export function PerformanceView() {
 
         <div id="sec-bots" className="scroll-mt-6">
           <BotScoreboard totals={totals} botStats={botStats} extraBots={extraBots} />
+        </div>
+
+        <div id="sec-models" className="scroll-mt-6">
+          <ModelComparison />
         </div>
 
         <div id="sec-bob" className="scroll-mt-6">

@@ -15,6 +15,9 @@ Fussballprognosen hängen von vielen Informationen ab, die sich nicht leicht dir
 - **Spiele und Datenlage:** kommende und gespielte Partien, Ergebnisse, Tabellen, Teamform und – soweit verfügbar – Quoten. Datenquellen und Aktualität werden kenntlich gemacht; fehlende Daten werden nicht als echte Anbieterquoten ausgegeben.
 - **Spielanalyse:** 1/X/2-Wahrscheinlichkeiten, erwartete Tore, wahrscheinliche Resultate, Score-Matrix und verständliche Teamvergleiche.
 - **Ergebnistipps:** Auswahl eines Tipps anhand der erwarteten Punkte nach dem SRF-Tippspiel-Regelwerk. Für Nutzer-Tipps können Punkte im Archiv gespeichert und nach bekannten Ergebnissen ausgewertet werden.
+- **Spieltag-Assistent:** Ergebnistipps einer Spielwoche bearbeiten, gemeinsam speichern oder als Tippkarte kopieren. Gespeicherte Tipps sind derzeit für alle Nutzer sichtbar; die Eingabe schliesst fünf Minuten vor Anpfiff.
+- **Quotenverlauf:** vorhandene Buchmacher-Snapshots vor Anpfiff mit bereinigten 1/X/2-Wahrscheinlichkeiten und deren Veränderung. Ohne gespeicherte Beobachtungen wird kein Verlauf erfunden.
+- **Modellvergleich:** Modell, Buchmacher und reines Elo anhand derselben belegbaren Vorabspiele vergleichen: Brier-Score, Log Loss und Kalibrierung. Altbestand und Rekonstruktionen zählen nicht zu dieser Stichprobe.
 - **Leistungsverlauf:** vergleicht gespeicherte, vor dem Anpfiff erfasste Prognosen mit Ergebnissen. Nachträglich aus Elo-Werten rekonstruierte Tipps werden separat ausgewiesen.
 - **Strategie- und Turnierexperimente:** Build-a-Bot kann Parameter gegen archivierte Spiele rücktesten. Für die WM gibt es eine Elo-basierte K.-o.-Simulation; für die Champions League eine Simulation der Ligaphase und der anschliessenden K.-o.-Runden auf Basis der gespeicherten Spieldaten.
 - **Datenpflege:** Provider-Abrufe erfolgen über einen authentifizierten Wartungsendpunkt. Öffentliche App-Aufrufe lesen gespeicherte Daten; sie rufen nicht direkt die Sportdatenanbieter ab.
@@ -86,6 +89,12 @@ uvicorn src.api:app --reload
 Die App ist anschliessend unter <http://127.0.0.1:8000> erreichbar. Für Frontend-Entwicklung mit Vite-Hot-Reload starte zusätzlich `npm --prefix frontend-v2 run dev`; der Vite-Server leitet `/api` an `http://localhost:8000` weiter.
 
 ## Tests und Auswertung
+
+Der authentifizierte Wartungslauf friert verfügbare Prognosen im Fenster zwischen T−15 und Anpfiff ein und speichert belegbare Markt- und Elo-Vergleichswerte. Ohne rechtzeitigen Wartungslauf oder geeignete gespeicherte Eingaben bleibt die Vergleichsstichprobe unvollständig. Der Vergleich bewertet 90-Minuten-Ausgänge; bei verlängerungsfähigen Spielen ist dafür ein separat erfasstes 90-Minuten-Resultat nötig.
+
+Weichen Archiv- und Provider-Spiel-ID voneinander ab, funktionieren Tippabgabe und Quotenverlauf über die gespeicherte Team-/Datumszuordnung. Das automatische Einfrieren überspringt solche ID-Aliase derzeit, statt doppelte Archivspiele anzulegen.
+
+Quotenverlauf und Modellvergleich lesen ausschliesslich gespeicherte Daten. Der Spieltag-Assistent nutzt den vorhandenen Tipp-Endpunkt: maximal 18 Speicheranfragen pro Schritt, höchstens drei gleichzeitig. Diese Nutzeraktionen lösen keine Sportanbieter-Abfragen aus.
 
 Die im Repository vorhandenen Backend- und Frontend-Prüfungen lassen sich so starten:
 

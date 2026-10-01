@@ -9,6 +9,7 @@ import { PageTransition, PageHeader } from '../../components/shared/PageTransiti
 import { FixtureListSkeleton } from '../../components/shared/Skeleton'
 import { FixtureRow } from './FixtureRow'
 import { MatchdayRadar } from './MatchdayRadar'
+import { MatchdayAssistant } from './MatchdayAssistant'
 import { fixtureStatus, preferredFixtureTab } from '../../lib/fixture-status.mjs'
 import { groupFixturesByRound } from '../../lib/fixture-rounds.mjs'
 
@@ -85,6 +86,7 @@ export function DashboardView() {
       <PageHeader title="Spiele" subtitle="Wähle eine Spielwoche und finde deinen Tipp." />
 
       {!isLoading && !error && <MatchdayRadar matches={upcoming} />}
+      {!isLoading && !error && <MatchdayAssistant key={competition} matches={fixtureMatches} now={now} />}
 
       {/* Tab switcher — keeps past results out of the way */}
       <div className="mb-6 flex flex-wrap gap-2">
