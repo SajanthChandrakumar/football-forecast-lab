@@ -61,6 +61,49 @@ def test_normalize_espn_summary_marks_unpublished_lineups_explicitly():
     assert result["lineups"] == {}
 
 
+def test_espn_formation_is_preserved_without_guessing():
+    payload = _summary()
+    payload['rosters'][0]['formation'] = '4-2-3-1'
+    result = normalize_espn_summary(payload, observed_at=NOW)
+    assert result['lineups']['Lens']['formation'] == '4-2-3-1'
+    assert 'formation' not in result['lineups']['Sporting CP']
+
+
+def test_pl_old_match_backfill_is_five_per_day_and_near_kickoff_has_priority():
+    collection = MemoryCollection()
+    fixtures = [{'id': f'old-{i}', 'completed': True,
+                 'commence_time': (NOW - timedelta(days=10+i)).isoformat()} for i in range(12)]
+    fixtures.append({'id': 'upcoming', 'completed': False,
+                     'commence_time': (NOW + timedelta(minutes=30)).isoformat()})
+    calls = []
+    def fetch(event):
+        calls.append(event)
+        return _summary()
+    first = refresh_match_intelligence(collection, fixtures, now=NOW, espn_fetcher=fetch, competition='epl2026')
+    assert calls[0] == 'upcoming'
+    assert first['espn_calls'] == 6
+    assert first['historical_calls_today'] == 5
+    repeated = refresh_match_intelligence(collection, fixtures, now=NOW, espn_fetcher=fetch, competition='epl2026')
+    assert repeated['espn_calls'] == 0
+    next_day = refresh_match_intelligence(collection, fixtures, now=NOW + timedelta(days=1), espn_fetcher=fetch, competition='epl2026')
+    assert next_day['historical_calls_today'] == 5
+    assert len(calls) == 11
+
+
+def test_pl_failed_backfill_is_charged_and_never_uses_unverified_paid_fallback():
+    collection = MemoryCollection()
+    class ForbiddenFallback:
+        def request(self, *args, **kwargs):
+            raise AssertionError('PL must use ESPN only until paid season coverage is verified')
+    fixture = {'id':'old', 'completed':True, 'commence_time':(NOW-timedelta(days=10)).isoformat()}
+    def fail(_):
+        raise RuntimeError('unavailable')
+    first = refresh_match_intelligence(collection, [fixture], now=NOW, competition='epl2026',
+                                      espn_fetcher=fail, api_football_client=ForbiddenFallback())
+    assert first['historical_calls_today'] == 1
+    assert first['api_football_calls'] == 0
+
+
 def test_fetch_espn_summary_uses_all_competitions_for_domestic_history():
     calls = []
 

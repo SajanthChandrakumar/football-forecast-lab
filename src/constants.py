@@ -36,6 +36,16 @@ TEAM_MAPPING = {
     "Paris Saint Germain": "Paris Saint-Germain",
     "ŠK Slovan Bratislava": "Slovan",
     "RC Lens": "Lens",
+    "AFC Bournemouth": "Bournemouth",
+    "Brighton & Hove Albion": "Brighton",
+    "Brighton and Hove Albion": "Brighton",
+    "Coventry City": "Coventry",
+    "Hull City": "Hull",
+    "Ipswich Town": "Ipswich",
+    "Leeds United": "Leeds",
+    "Newcastle United": "Newcastle",
+    "Nottingham Forest": "Forest",
+    "Tottenham Hotspur": "Tottenham",
 }
 
 DISPLAY_MAPPING = {

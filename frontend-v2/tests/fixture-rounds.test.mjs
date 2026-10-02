@@ -19,6 +19,17 @@ test('groups UCL fixtures into dated Spielwochen using the full schedule', () =>
   ])
 })
 
+test('keeps broad league round labels on the existing date-based Spielwochen', () => {
+  const rounds = groupFixturesByRound([
+    match('late', '2026-10-12T19:00:00Z', 'Regular Season'),
+    match('early', '2026-10-04T14:00:00Z', 'Regular Season'),
+  ])
+  assert.deepEqual(rounds.map((round) => [round.label, round.matches.map((item) => item.id)]), [
+    ['Spielwoche 1', ['early']],
+    ['Spielwoche 2', ['late']],
+  ])
+})
+
 test('keeps a named knockout round together and puts undated games in their own group', () => {
   const rounds = groupFixturesByRound([
     match('3', undefined),

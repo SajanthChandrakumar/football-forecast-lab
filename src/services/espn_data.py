@@ -10,7 +10,7 @@ skeleton; odds are layered on top from The Odds API where available.
 import os
 import time
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from src.competitions import get_competition
 
@@ -49,6 +49,13 @@ def _event_in_date_range(event: dict, start_date, end_date) -> bool:
     except (TypeError, ValueError):
         return False
     return start_date <= event_date <= end_date
+
+
+def _event_has_season_year(event: dict, year: int) -> bool:
+    try:
+        return int((event.get("season") or {}).get("year")) == year
+    except (TypeError, ValueError):
+        return False
 
 
 # Bracket slots whose teams aren't decided yet come back with placeholder names
@@ -104,12 +111,16 @@ def _fetch_scoreboard_dates(
     request_get=None,
     use_cache: bool = True,
 ) -> list[dict]:
+    comp = get_competition(competition)
     endpoint = _scoreboard_endpoint(competition)
-    key = f"{endpoint}|{dates}"
+    params = {"dates": dates}
+    if comp.id == "epl2026":
+        params["limit"] = 1000
+    key = f"{endpoint}|{tuple(sorted(params.items()))}"
     cached = _scoreboard_cache.get(key) if use_cache else None
     if cached and time.time() - cached[0] < _SCOREBOARD_TTL:
         return cached[1]
-    resp = (request_get or requests.get)(endpoint, params={"dates": dates}, timeout=10)
+    resp = (request_get or requests.get)(endpoint, params=params, timeout=10)
     resp.raise_for_status()
     events = resp.json().get("events", []) or []
     _scoreboard_cache[key] = (time.time(), events)
@@ -166,7 +177,12 @@ def get_scoreboard(
     to_dt = today + timedelta(days=days_forward)
     events_by_id = {}
     resolved_competition = get_competition(competition)
+    epl_start_year = None
     if resolved_competition.id == "ucl2026":
+        date_queries = [str(year) for year in range(from_dt.year, to_dt.year + 1)]
+    elif resolved_competition.id == "epl2026":
+        epl_start_year = int(resolved_competition.season.split("/", 1)[0])
+        from_dt, to_dt = date(epl_start_year, 8, 1), date(epl_start_year + 1, 6, 30)
         date_queries = [str(year) for year in range(from_dt.year, to_dt.year + 1)]
     else:
         # Keep the WC's existing single-range scoreboard request unchanged.
@@ -188,6 +204,11 @@ def get_scoreboard(
         for event in events:
             if resolved_competition.id == "ucl2026" and not _event_in_date_range(
                 event, from_dt, to_dt
+            ):
+                continue
+            if resolved_competition.id == "epl2026" and (
+                not _event_in_date_range(event, from_dt, to_dt)
+                or not _event_has_season_year(event, epl_start_year)
             ):
                 continue
             event_id = str(event.get("id", ""))
@@ -272,8 +293,10 @@ def get_completed_scores(days_from: int = 30, *, competition=None) -> list[dict]
 
 
 def get_standings_groups(*, competition=None) -> list[dict]:
-    """WC group tables, pre-shaped for the standings_cache doc / Groups view."""
-    resp = requests.get(_standings_endpoint(competition), params={"season": 2026}, timeout=10)
+    """Normalize ESPN tables for the competition's standings cache."""
+    comp = get_competition(competition)
+    season_year = int(comp.season.split("/", 1)[0])
+    resp = requests.get(_standings_endpoint(comp), params={"season": season_year}, timeout=10)
     resp.raise_for_status()
     children = resp.json().get("children", []) or []
 

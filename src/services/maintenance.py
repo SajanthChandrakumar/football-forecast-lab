@@ -18,6 +18,7 @@ from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
 from src.services.model_evaluation import freeze_due_comparisons
+from src.quota_store import ProviderBudgetExceeded
 from src.services.snapshots import append_odds_snapshot, due_buckets, mark_bucket, parse_time
 
 
@@ -40,6 +41,7 @@ def run_maintenance(
     math_engine=None,
     team_form_service=None,
     match_intelligence_refresher=None,
+    standings_fetcher=None,
 ) -> dict:
     """Capture due odds buckets with at most one bulk provider call.
 
@@ -50,7 +52,7 @@ def run_maintenance(
     comp = get_competition(competition)
     if force:
         result = {"status": "noop", "reason": "force_disabled", "provider_calls": 0, "mutated": False}
-        if comp.id == "ucl2026":
+        if comp.is_club_competition:
             result["team_form_status"] = {"status": "skipped", "reason": "force_disabled"}
         return result
     cache_collection = collection_for(cache_collections, comp)
@@ -76,7 +78,7 @@ def run_maintenance(
             expiry = current
         if expiry > current:
             result = {"status": "skipped", "reason": "lease_held", "provider_calls": 0, "mutated": False, "buckets": []}
-            if comp.id == "ucl2026":
+            if comp.is_club_competition:
                 result["team_form_status"] = {"status": "skipped", "reason": "lease_held"}
             return result
         result = cache_collection.update_one(
@@ -93,7 +95,7 @@ def run_maintenance(
             owns_lease = True
     if not owns_lease:
         result = {"status": "skipped", "reason": "lease_held", "provider_calls": 0, "mutated": False, "buckets": []}
-        if comp.id == "ucl2026":
+        if comp.is_club_competition:
             result["team_form_status"] = {"status": "skipped", "reason": "lease_held"}
         return result
 
@@ -111,15 +113,39 @@ def run_maintenance(
                         team_form_status["history_backfill"] = team_form_service.refresh_history_depth(now=current)
                 except Exception as exc:
                     team_form_status = {"status": "stale", "source": "api_football", "error": str(exc), "observed_at": current.isoformat()}
+        standings_status = None
+        if comp.id == "epl2026" and standings_fetcher is not None:
+            standings_status = _refresh_standings(cache_collection, comp, standings_fetcher, current)
         if fixture_fetcher is not None:
-            cached_fixture_status = _recent_ucl_fixtures(cache_collection, comp, current)
+            cached_fixture_status = _recent_club_fixtures(cache_collection, comp, current)
             fixture_status = cached_fixture_status or _refresh_fixtures(cache_collection, comp, fixture_fetcher, current)
-        if comp.id == "ucl2026" and clubelo_ingestor is not None:
-            cached_ratings = None if fixture_status.get("changed") else _recent_ucl_ratings(cache_collection, comp, current)
+        if comp.is_club_competition and clubelo_ingestor is not None:
+            cached_ratings = _recent_club_ratings(cache_collection, comp, current)
+            if comp.id == "ucl2026" and fixture_status.get("changed"):
+                cached_ratings = None
+            elif comp.id == "epl2026" and cached_ratings:
+                coverage = cached_ratings.get("coverage") or {}
+                if not coverage or coverage.get("missing") or coverage.get("required") != coverage.get("available"):
+                    cached_ratings = None
             clubelo_status = cached_ratings or clubelo_ingestor(
                 cache_collection, competition=comp, observed_at=current,
             )
         fixtures = _fixtures(cache_collection, comp)
+        if comp.id == "epl2026" and team_form_service is not None and fixture_status.get("status") == "fresh":
+            seeded = find_competition_document(cache_collection, comp, "league_form_seed") or {}
+            fixture_observed_at = fixture_status.get("observed_at")
+            if fixture_status.get("changed") or seeded.get("fixture_observed_at") != fixture_observed_at:
+                try:
+                    observed_at = parse_time(fixture_observed_at) if fixture_observed_at else current
+                    team_form_status = team_form_service.ingest_league_fixtures(fixtures, now=observed_at)
+                    if not isinstance(team_form_status, dict) or team_form_status.get("status") not in {"failed", "unavailable"}:
+                        cache_collection.update_one(
+                            {"_id": competition_document_id(comp, "league_form_seed")},
+                            {"$set": {"competition": comp.id, "fixture_observed_at": fixture_observed_at}},
+                            upsert=True,
+                        )
+                except Exception as exc:
+                    team_form_status = {"status": "failed", "source": "espn", "error": str(exc)}
         if comp.id == "ucl2026" and team_form_service is not None and hasattr(team_form_service, "cached_history_fixtures"):
             known_ids = {str(fixture.get("id") or fixture.get("event_id")) for fixture in fixtures}
             fixtures = [
@@ -129,7 +155,7 @@ def run_maintenance(
                     if str(fixture.get("id") or fixture.get("event_id")) not in known_ids
                 ],
             ]
-        if comp.id == "ucl2026" and match_intelligence_refresher is not None:
+        if comp.is_club_competition and match_intelligence_refresher is not None:
             try:
                 match_intelligence_status = match_intelligence_refresher(
                     cache_collection, fixtures, now=current, competition=comp,
@@ -176,68 +202,75 @@ def run_maintenance(
                 continue
             claimed = event_states.get(event_id) or {}
             due = due_buckets(kickoff, current, claimed.keys() if isinstance(claimed, dict) else claimed)
+            if comp.id == "epl2026":
+                due = [bucket for bucket in due if bucket in {"t75m", "t15m"}]
             if due:
                 due_by_event[event_id] = (fixture, due)
                 all_due.extend(due)
         discovery_due = _discovery_due(cache_collection, comp, current)
         if not due_by_event and not discovery_due:
-            predictions_updated = _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
+            predictions_updated = _persist_club_predictions(cache_collection, comp, math_engine, clubelo_status)
             forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
             return {
                 "status": "idle",
                 "provider_calls": 0,
                 "mutated": bool(
-                    (comp.id == "ucl2026" and fixture_status.get("changed"))
+                    (comp.is_club_competition and fixture_status.get("changed"))
                     or archived_results
                     or reconstructed_results
                     or snapshot_predictions
                     or predictions_updated
                     or forecasts_frozen
+                    or (standings_status is not None and standings_status.get("changed"))
                 ),
                 "buckets": [],
                 "fixture_status": fixture_status,
                 "clubelo_status": clubelo_status,
-                **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
-                **({"match_intelligence_status": match_intelligence_status} if comp.id == "ucl2026" else {}),
+                **({"match_intelligence_status": match_intelligence_status} if comp.is_club_competition else {}),
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
                 "forecasts_frozen": forecasts_frozen,
+                **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
+                **({"standings_status": standings_status} if standings_status is not None else {}),
             }
 
         try:
             quotes = _bulk_quotes(odds_provider, comp)
         except Exception as exc:
-            if comp.id == "ucl2026":
+            budget_blocked = isinstance(exc, ProviderBudgetExceeded)
+            if comp.is_club_competition:
                 _record_discovery(cache_collection, comp, current, "failed", error=str(exc))
             for event_id, (fixture, due) in due_by_event.items():
                 for bucket in due[:-1]:
                     mark_bucket(cache_collection, comp, event_id, bucket, status="unavailable", observed_at=current, error="missed")
                 mark_bucket(cache_collection, comp, event_id, due[-1], status="failed", observed_at=current, error=str(exc))
-            predictions_updated = _persist_ucl_predictions(
+            predictions_updated = _persist_club_predictions(
                 cache_collection, comp, math_engine, clubelo_status
             )
             forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
             return {
-                "status": "failed",
+                "status": "skipped" if budget_blocked else "failed",
+                **({"reason": "provider_budget_blocked"} if budget_blocked else {}),
                 "source": "odds_api",
                 "observed_at": current.isoformat(),
                 "error": str(exc),
-                "provider_calls": 1,
+                "provider_calls": 0 if budget_blocked else 1,
                 "mutated": True,
                 "buckets": sorted(set(all_due), key=lambda item: list(_bucket_order()).index(item)),
                 "fixture_status": fixture_status,
                 "clubelo_status": clubelo_status,
-                **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
-                **({"match_intelligence_status": match_intelligence_status} if comp.id == "ucl2026" else {}),
+                **({"match_intelligence_status": match_intelligence_status} if comp.is_club_competition else {}),
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
                 "forecasts_frozen": forecasts_frozen,
+                **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
+                **({"standings_status": standings_status} if standings_status is not None else {}),
             }
 
         lookup = _quote_lookup(quotes)
-        if comp.id == "ucl2026":
+        if comp.is_club_competition:
             _record_discovery(cache_collection, comp, current, "fresh", events=len(quotes))
         available_by_event = {}
         for fixture in fixtures:
@@ -267,7 +300,7 @@ def run_maintenance(
                 mark_bucket(cache_collection, comp, event_id, observed_bucket, status="fresh" if odds else "unavailable", observed_at=current)
                 if odds:
                     _store_fixture_odds(cache_collection, comp, event_id, odds, match, current)
-        _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
+        _persist_club_predictions(cache_collection, comp, math_engine, clubelo_status)
         forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
         return {
             "status": "success",
@@ -277,13 +310,14 @@ def run_maintenance(
             "events": len(due_by_event),
             "fixture_status": fixture_status,
             "clubelo_status": clubelo_status,
-            **({"team_form_status": team_form_status} if comp.id == "ucl2026" else {}),
-            **({"match_intelligence_status": match_intelligence_status} if comp.id == "ucl2026" else {}),
+            **({"match_intelligence_status": match_intelligence_status} if comp.is_club_competition else {}),
             "archived_results": archived_results,
             "reconstructed_results": reconstructed_results,
             "snapshot_predictions": snapshot_predictions,
             "forecasts_frozen": forecasts_frozen,
             "discovery": discovery_due,
+            **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
+            **({"standings_status": standings_status} if standings_status is not None else {}),
         }
     finally:
         cache_collection.delete_one({"_id": lease_id, "lease_token": lease_token})
@@ -303,8 +337,77 @@ def _fixtures(cache_collection, competition) -> list[dict]:
     return document.get("data") or []
 
 
-def _recent_ucl_fixtures(cache_collection, competition, current):
-    if competition.id != "ucl2026":
+def _refresh_standings(cache_collection, competition, fetcher, current):
+    """Refresh a cached ESPN table once per day without erasing a good table."""
+    comp = get_competition(competition)
+    document = find_competition_document(cache_collection, comp, "standings_cache") or {}
+    rows = document.get("data") or []
+    observed_at = document.get("observed_at")
+    try:
+        last_attempt = parse_time(document.get("last_attempt_at") or observed_at) if (document.get("last_attempt_at") or observed_at) else datetime.fromtimestamp(
+            float(document.get("timestamp", 0)), timezone.utc,
+        )
+    except (TypeError, ValueError, OverflowError):
+        last_attempt = None
+    if last_attempt and timedelta(0) <= current - last_attempt < DISCOVERY_INTERVAL:
+        return {
+            "status": document.get("last_attempt_status") or ("fresh" if rows else "failed"),
+            "source": "cache",
+            "observed_at": observed_at,
+            "error": document.get("last_attempt_error"),
+            "changed": False,
+        }
+    try:
+        data = fetcher(competition=comp) or []
+        if not data or not any(
+            isinstance(table, dict) and table.get("rows")
+            for table in data
+        ):
+            raise ValueError("ESPN returned no standings rows")
+        changed = data != rows
+        cache_collection.update_one(
+            {"_id": competition_document_id(comp, "standings_cache")},
+            {"$set": {
+                "competition": comp.id,
+                "source": "espn",
+                "status": "fresh",
+                "timestamp": current.timestamp(),
+                "observed_at": current.isoformat(),
+                "last_attempt_at": current.isoformat(),
+                "last_attempt_status": "fresh",
+                "last_attempt_error": None,
+                "data": data,
+            }},
+            upsert=True,
+        )
+        return {"status": "fresh", "source": "espn", "observed_at": current.isoformat(), "changed": changed}
+    except Exception as exc:
+        status = "stale" if rows else "failed"
+        try:
+            cache_collection.update_one(
+                {"_id": competition_document_id(comp, "standings_cache")},
+                {"$set": {
+                    "competition": comp.id,
+                    "status": status,
+                    "last_attempt_at": current.isoformat(),
+                    "last_attempt_status": status,
+                    "last_attempt_error": str(exc),
+                }},
+                upsert=True,
+            )
+        except Exception:
+            pass
+        return {
+            "status": status,
+            "source": document.get("source", "espn"),
+            "observed_at": observed_at,
+            "error": str(exc),
+            "changed": False,
+        }
+
+
+def _recent_club_fixtures(cache_collection, competition, current):
+    if not competition.is_club_competition:
         return None
     document = find_competition_document(cache_collection, competition, "matches_cache") or {}
     fixtures = document.get("data")
@@ -329,7 +432,7 @@ def _recent_ucl_fixtures(cache_collection, competition, current):
     }
 
 
-def _recent_ucl_ratings(cache_collection, competition, current):
+def _recent_club_ratings(cache_collection, competition, current):
     document = find_competition_document(cache_collection, competition, "clubelo_ratings") or {}
     if document.get("status") not in {"fresh", "stale"} or not document.get("rows"):
         return None
@@ -341,10 +444,10 @@ def _recent_ucl_ratings(cache_collection, competition, current):
     return document if timedelta(0) <= age < interval else None
 
 
-def _persist_ucl_predictions(cache_collection, competition, math_engine, clubelo_status) -> int:
-    """Persist open UCL fixture predictions for cache-only public reads and simulation."""
+def _persist_club_predictions(cache_collection, competition, math_engine, clubelo_status) -> int:
+    """Persist open club fixture predictions for cache-only public reads."""
     comp = get_competition(competition)
-    if comp.id != "ucl2026" or math_engine is None:
+    if not comp.is_club_competition or math_engine is None:
         return 0
     if not isinstance(clubelo_status, dict) or clubelo_status.get("status") not in {"fresh", "stale"}:
         return 0
@@ -426,7 +529,14 @@ def _invalidate_ucl_simulation_cache(cache_collection, competition) -> None:
 
 def _discovery_due(cache_collection, competition, current: datetime) -> bool:
     comp = get_competition(competition)
-    if comp.id != "ucl2026":
+    if not comp.is_club_competition:
+        return False
+    if comp.id == "epl2026" and not any(
+        not fixture.get("completed")
+        and current <= parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")) <= current + timedelta(days=7)
+        for fixture in _fixtures(cache_collection, comp)
+        if fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")
+    ):
         return False
     document = find_competition_document(cache_collection, comp, "odds_discovery_state") or {}
     try:
@@ -458,9 +568,9 @@ def _refresh_fixtures(cache_collection, competition, fetcher, current) -> dict:
     fetch_now = current
     days_back = 30
     days_forward = 75
-    if comp.id == "ucl2026":
+    if comp.id in {"ucl2026", "epl2026"}:
         start_year = int(comp.season.split("/", 1)[0])
-        season_start = current.replace(year=start_year, month=7, day=1)
+        season_start = current.replace(year=start_year, month=8 if comp.id == "epl2026" else 7, day=1)
         season_end = current.replace(year=start_year + 1, month=6, day=30)
         fetch_now = min(max(current, season_start), season_end)
         days_back = (fetch_now.date() - season_start.date()).days

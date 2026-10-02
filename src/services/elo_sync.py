@@ -182,12 +182,12 @@ def _reconstruct_completed_entries(
 def perform_elo_sync(math_engine, odds_engine, cache_collection, archive_collection, data_dir, scores_cache_path, MathEngine, force: bool = False, competition=None) -> dict:
     print("Elo sync triggered...")
     competition = get_competition(competition)
-    if competition.id == "ucl2026":
-        # UCL ratings are owned by the ClubElo-scoped cache. Never reuse the
-        # WC CSV/history/processed files or write them from this route.
+    if competition.is_club_competition:
+        # Club ratings are owned by the competition-scoped ClubElo cache.
+        # Never reuse the WC CSV/history/processed files for a club league.
         document = find_competition_document(cache_collection, competition, "clubelo_ratings") or {}
         rows = document.get("rows") or []
-        if rows:
+        if competition.id == "ucl2026" and rows:
             try:
                 import pandas as pd
                 math_engine.elo_df = pd.DataFrame(rows)
@@ -198,18 +198,20 @@ def perform_elo_sync(math_engine, odds_engine, cache_collection, archive_collect
         if status not in {"fresh", "stale", "unavailable", "failed"}:
             status = "unavailable"
         error = document.get("error") or ("ClubElo ratings cache is unavailable" if status == "unavailable" else None)
-        archive = load_archive_from_db(archive_collection, force=True)
-        changed_entries = {}
-        reconstructed, snapshot_predictions = _reconstruct_completed_entries(
-            PredictionService(math_engine),
-            archive,
-            changed_entries,
-            MathEngine,
-            competition,
-            cache_collection=cache_collection,
-        )
-        for mid, entry in changed_entries.items():
-            upsert_archive_entry(archive_collection, mid, entry)
+        reconstructed = snapshot_predictions = 0
+        if competition.id == "ucl2026":
+            archive = load_archive_from_db(archive_collection, force=True)
+            changed_entries = {}
+            reconstructed, snapshot_predictions = _reconstruct_completed_entries(
+                PredictionService(math_engine),
+                archive,
+                changed_entries,
+                MathEngine,
+                competition,
+                cache_collection=cache_collection,
+            )
+            for mid, entry in changed_entries.items():
+                upsert_archive_entry(archive_collection, mid, entry)
         return {
             "status": status,
             "source": document.get("source", "clubelo"),

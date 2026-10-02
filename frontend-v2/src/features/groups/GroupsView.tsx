@@ -6,7 +6,7 @@ import { cn } from '../../lib/util'
 import { GlassCard } from '../../components/shared/GlassCard'
 import { TeamLogo } from '../../components/shared/Badges'
 import type { StandingsRow } from '../../lib/types'
-import { validUclStandingsRows } from '../../lib/standings.mjs'
+import { validPremierLeagueStandingsRows, validUclStandingsRows } from '../../lib/standings.mjs'
 import { PageTransition, PageHeader, staggerContainer, staggerItem } from '../../components/shared/PageTransition'
 import { CardGridSkeleton } from '../../components/shared/Skeleton'
 
@@ -91,6 +91,12 @@ export function GroupsView() {
     return <UclStandings rows={rows ?? []} valid={Boolean(rows)} isLoading={standingsLoading} />
   }
 
+  if (competition === 'epl2026') {
+    const officialRows = standingsData?.flatMap((group) => group.rows ?? []) ?? []
+    const rows = validPremierLeagueStandingsRows(officialRows)
+    return <PremierLeagueStandings rows={rows ?? []} valid={Boolean(rows)} isLoading={standingsLoading} />
+  }
+
   if (competition !== 'wc2026') {
     return <PageTransition><PageHeader title="Tabelle" subtitle="Tabellen für diesen Wettbewerb." /><p className="text-sm text-fg-2">Für diesen Wettbewerb ist noch keine Tabellenansicht eingerichtet.</p></PageTransition>
   }
@@ -150,6 +156,37 @@ export function GroupsView() {
           </motion.div>
         ))}
       </motion.div>
+    </PageTransition>
+  )
+}
+
+function PremierLeagueStandings({ rows, valid, isLoading }: { rows: StandingsRow[]; valid: boolean; isLoading: boolean }) {
+  return (
+    <PageTransition>
+      <PageHeader title="Premier League 2026/27" subtitle="Ligatabelle · 20 Clubs." />
+      {isLoading && <p className="text-fg-2">Ligatabelle wird geladen…</p>}
+      {!isLoading && !valid && <p className="text-fg-2">Die vollständige Premier-League-Tabelle mit 20 Clubs ist derzeit nicht verfügbar.</p>}
+      {valid && <GlassCard className="!p-0 overflow-hidden">
+        <p className="border-b border-line px-5 py-3 text-xs text-fg-2">P Spiele · S Siege · U Unentschieden · N Niederlagen · TD Tordifferenz · Pkt Punkte</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-[10px] font-bold uppercase tracking-wider text-fg-3">
+              <th className="px-5 py-2">#</th><th className="px-2 py-2">Club</th><th className="px-2 py-2 text-right">P</th><th className="px-2 py-2 text-right">S</th><th className="px-2 py-2 text-right">U</th><th className="px-2 py-2 text-right">N</th><th className="px-2 py-2 text-right max-sm:hidden">Tore</th><th className="px-2 py-2 text-right">TD</th><th className="px-5 py-2 text-right">Pkt</th>
+            </tr></thead>
+            <tbody>{rows.map((row, index) => <tr key={row.team} className="border-t border-line">
+              <td className="px-5 py-2 tabular-nums text-fg-3">{row.pos ?? index + 1}</td>
+              <td className="px-2 py-2 font-semibold text-fg"><TeamLogo name={row.team} src={row.logo} /> <span className="ml-1">{row.team}</span></td>
+              <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.p ?? '–'}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.w ?? '–'}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.d ?? '–'}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.l ?? '–'}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-fg-2 max-sm:hidden">{row.gf != null && row.ga != null ? `${row.gf}:${row.ga}` : '–'}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.gd ?? '–'}</td>
+              <td className="display-num px-5 py-2 text-right text-fg">{row.pts ?? '–'}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </GlassCard>}
     </PageTransition>
   )
 }

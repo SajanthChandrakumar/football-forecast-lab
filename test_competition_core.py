@@ -45,8 +45,8 @@ class MinimalMathEngine:
         return None
 
 
-def test_competition_registry_contains_the_two_supported_competitions():
-    assert set(COMPETITIONS) == {"wc2026", "ucl2026"}
+def test_competition_registry_contains_the_supported_competitions():
+    assert set(COMPETITIONS) == {"wc2026", "ucl2026", "epl2026"}
     assert COMPETITIONS["wc2026"].display_name == "FIFA World Cup 2026"
     assert COMPETITIONS["wc2026"].espn_slug == "fifa.world"
     assert COMPETITIONS["wc2026"].odds_api_sport_key == "soccer_fifa_world_cup"
@@ -86,7 +86,7 @@ def test_wc_state_lookup_prefers_scoped_document_and_falls_back_to_legacy():
 
 def test_competition_list_is_safe_api_metadata():
     listed = list_competitions()
-    assert {item["id"] for item in listed} == {"wc2026", "ucl2026"}
+    assert {item["id"] for item in listed} == {"wc2026", "ucl2026", "epl2026"}
     assert all("archive_collection" in item for item in listed)
     assert all("cache_collection" in item for item in listed)
     assert all("custom_bot_collection" in item for item in listed)

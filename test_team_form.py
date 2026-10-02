@@ -49,6 +49,9 @@ class MemoryCollection:
 @pytest.fixture(autouse=True)
 def no_real_quota_writes(monkeypatch):
     monkeypatch.setattr(team_form, "write_quota", lambda *args, **kwargs: None)
+    # These legacy tests exercise the local client gate; the shared reservation
+    # is exercised with a persistent fake collection in test_provider_budget.py.
+    monkeypatch.setattr(team_form.quota_store, "reserve_request", lambda *args, **kwargs: 0)
 
 
 class FakeResponse:

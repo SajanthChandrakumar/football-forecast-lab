@@ -13,20 +13,20 @@ def init_router(cache_collections):
         comp = require_competition(competition)
         cache = collection_for(cache_collections, comp)
         doc = None
-        if comp.id == "ucl2026":
+        if comp.is_club_competition:
             doc = find_competition_document(cache, comp, "clubelo_ratings")
         doc = doc or find_competition_document(cache, comp, "elo_ratings")
         if not doc:
             return {
                 "status": "unavailable",
-                "source": "clubelo" if comp.id == "ucl2026" else "unknown",
+                "source": "clubelo" if comp.is_club_competition else "unknown",
                 "observed_at": None,
                 "error": "Elo ratings snapshot is unavailable",
                 "coverage": None,
             }
         return {
             "status": doc.get("status", "unavailable"),
-            "source": doc.get("source", "clubelo" if comp.id == "ucl2026" else "unknown"),
+            "source": doc.get("source", "clubelo" if comp.is_club_competition else "unknown"),
             "observed_at": doc.get("observed_at"),
             "error": doc.get("error"),
             "coverage": doc.get("coverage"),

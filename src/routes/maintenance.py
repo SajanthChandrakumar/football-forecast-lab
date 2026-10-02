@@ -20,7 +20,7 @@ def init_router(cache_collections, odds_provider, *, archive_collections=None, m
     @router.post("/maintenance")
     def maintenance(request: Request, competition: str | None = None, force: bool = False):
         require_cron_secret(request, configured_secret)
-        require_competition(competition)
+        comp = require_competition(competition)
         return run_maintenance(
             cache_collections,
             odds_provider,
@@ -31,7 +31,8 @@ def init_router(cache_collections, odds_provider, *, archive_collections=None, m
             fixture_fetcher=espn_data.get_scoreboard,
             clubelo_ingestor=ingest_clubelo,
             math_engine=math_engine,
-            team_form_service=team_form_service,
+            team_form_service=(team_form_service.get(comp.id) if isinstance(team_form_service, dict) else team_form_service),
+            standings_fetcher=(espn_data.get_standings_groups if comp.id == "epl2026" else None),
             match_intelligence_refresher=match_intelligence_refresher,
         )
 

@@ -64,7 +64,7 @@ def init_router(math_engine, archive_collection, custom_bot_collection, limiter)
             meta = match.get("metadata", {})
             is_ko = meta.get("is_ko_phase", False)
             elo_state = snap.get("elo_state") or {}
-            if comp.id == "ucl2026" and not all(key in elo_state for key in ("home_rating", "away_rating")):
+            if comp.is_club_competition and not all(key in elo_state for key in ("home_rating", "away_rating")):
                 continue
             elo_home = elo_state.get("home_rating", 1500.0)
             elo_away = elo_state.get("away_rating", 1500.0)

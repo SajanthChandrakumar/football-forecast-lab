@@ -1,5 +1,6 @@
 import os
 import requests
+from src import quota_store
 from dotenv import load_dotenv
 
 from src.competitions import get_competition
@@ -29,6 +30,19 @@ class OddsApiEngine:
         comp = get_competition(competition)
         return os.getenv(f"ODDS_API_{comp.id.upper()}_SPORT_KEY", comp.odds_api_sport_key)
 
+    def _request(self, url, params, cost):
+        quota_store.reserve_request("odds", cost)
+        try:
+            response = requests.get(url, params=params, timeout=10)
+        except requests.RequestException:
+            # The request URL contains the key. Do not persist it in a public
+            # maintenance error or server log via requests' exception message.
+            raise RuntimeError("Odds provider request failed") from None
+        self._update_quota(response.headers)
+        if response.status_code >= 400:
+            raise RuntimeError(f"Odds provider HTTP {response.status_code}")
+        return response.json()
+
     def get_competition_odds(self, competition=None, market: str = "h2h,totals") -> list[dict]:
         """Fetch one bounded bulk quote set for a competition."""
         sport = self.sport_for(competition)
@@ -39,10 +53,7 @@ class OddsApiEngine:
             "markets": market,
             "oddsFormat": "decimal"
         }
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        self._update_quota(response.headers)
-        return response.json()
+        return self._request(url, params, len(set(market.split(','))))
 
     get_odds = get_competition_odds
 
@@ -51,7 +62,7 @@ class OddsApiEngine:
         return self.get_competition_odds("wc2026", market=market)
 
     def get_event_odds(self, event_id: str, market: str = "totals", competition=None) -> dict:
-        """Fetch odds for a single event — costs 1 request regardless of markets count."""
+        """Fetch one event; reserve the requested markets for one EU region."""
         url = f"{self.BASE_URL}/{self.sport_for(competition)}/events/{event_id}/odds"
         params = {
             "apiKey": self.api_key,
@@ -59,10 +70,7 @@ class OddsApiEngine:
             "markets": market,
             "oddsFormat": "decimal"
         }
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        self._update_quota(response.headers)
-        return response.json()
+        return self._request(url, params, len(set(market.split(','))))
 
     def get_completed_scores(self, days_from: int = 3) -> list[dict]:
         """Fetch scores for completed WC matches."""
@@ -71,7 +79,4 @@ class OddsApiEngine:
             "apiKey": self.api_key,
             "daysFrom": days_from
         }
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        self._update_quota(response.headers)
-        return response.json()
+        return self._request(url, params, 2)

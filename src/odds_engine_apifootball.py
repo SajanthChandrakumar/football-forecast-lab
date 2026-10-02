@@ -11,6 +11,8 @@ different season schema, override WC_LEAGUE_ID before constructing the engine.
 import os
 import json
 import requests
+import time
+from src import quota_store
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
@@ -28,6 +30,7 @@ class OddsApiEngine:
     BASE_URL = "https://v3.football.api-sports.io"
     WC_LEAGUE_ID = 1
     UCL_LEAGUE_ID = int(os.getenv("ODDS_API_FOOTBALL_UCL_LEAGUE_ID", "2"))
+    EPL_LEAGUE_ID = 39
     SEASON = 2026
 
     def __init__(self):
@@ -42,9 +45,12 @@ class OddsApiEngine:
         self._lineup_mem_cache = {}
 
     def _request(self, path: str, params: dict | None = None) -> dict:
+        delay = quota_store.reserve_request("football")
+        if delay:
+            time.sleep(delay)
         response = requests.get(f"{self.BASE_URL}{path}", headers=self._headers, params=params or {}, timeout=10)
-        response.raise_for_status()
         self._update_quota(response.headers)
+        response.raise_for_status()
         return response.json()
 
     def _update_quota(self, headers) -> None:
@@ -62,16 +68,15 @@ class OddsApiEngine:
         comp = get_competition(competition)
         if comp.id == "wc2026":
             return self.get_world_cup_odds(market=market, sport_key=comp.odds_api_sport_key)
-        old_league, old_season = self.WC_LEAGUE_ID, self.SEASON
-        self.WC_LEAGUE_ID = self.UCL_LEAGUE_ID
-        try:
-            return self.get_world_cup_odds(market=market, sport_key=comp.odds_api_sport_key)
-        finally:
-            self.WC_LEAGUE_ID, self.SEASON = old_league, old_season
+        league = self.EPL_LEAGUE_ID if comp.id == "epl2026" else self.UCL_LEAGUE_ID
+        return self.get_world_cup_odds(
+            market=market, sport_key=comp.odds_api_sport_key,
+            league_id=league, season=int(comp.season.split("/", 1)[0]),
+        )
 
     get_odds = get_competition_odds
 
-    def get_world_cup_odds(self, market: str = "h2h", sport_key: str = "soccer_fifa_world_cup") -> list[dict]:
+    def get_world_cup_odds(self, market: str = "h2h", sport_key: str = "soccer_fifa_world_cup", *, league_id=None, season=None) -> list[dict]:
         """
         Two requests: /fixtures (for team names + kickoff time) and /odds (for
         bookmaker quotes). Merged + normalized into the legacy Odds-API shape:
@@ -83,14 +88,14 @@ class OddsApiEngine:
             }
         """
         fixtures_resp = self._request("/fixtures", {
-            "league": self.WC_LEAGUE_ID,
-            "season": self.SEASON,
+            "league": self.WC_LEAGUE_ID if league_id is None else league_id,
+            "season": self.SEASON if season is None else season,
         })
         fixtures_by_id = {f["fixture"]["id"]: f for f in fixtures_resp.get("response", [])}
 
         odds_resp = self._request("/odds", {
-            "league": self.WC_LEAGUE_ID,
-            "season": self.SEASON,
+            "league": self.WC_LEAGUE_ID if league_id is None else league_id,
+            "season": self.SEASON if season is None else season,
         })
 
         out = []

@@ -3,7 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
-import { competitionLabel } from '../../lib/competition.mjs'
+import { competitionLabel, FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
 import { Sidebar } from './Sidebar'
 
 const PRIMARY_NAV = [
@@ -28,10 +28,7 @@ function MobileMoreMenu({ open, onClose, menuRef }: {
   const refresh = useRefreshData()
   if (!open) return null
 
-  const options = competitions.length ? competitions : [
-    { id: 'wc2026' as const, short_name: 'WM 2026', display_name: 'World Cup 2026' },
-    { id: 'ucl2026' as const, short_name: 'UCL 2026/27', display_name: 'Champions League 2026/27' },
-  ]
+  const options = competitions.length ? competitions : FALLBACK_COMPETITIONS
 
   return (
     <div

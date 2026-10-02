@@ -56,8 +56,12 @@ export function useTeamFormData() {
   ]), [ratings, history])
   const ratingTeams = useMemo(() => Object.keys(ratings ?? {}), [ratings])
   const availableTeams = useMemo(
-    () => competition === 'ucl2026' ? ratingTeams : [...allTeams],
-    [competition, ratingTeams, allTeams],
+    () => competition === 'ucl2026'
+      ? ratingTeams
+      : competition === 'epl2026'
+        ? teamFormEntries(competition, [...allTeams], standingsRows).map(({ ratingKey }) => ratingKey)
+        : [...allTeams],
+    [competition, ratingTeams, allTeams, standingsRows],
   )
   const entries = useMemo(
     () => teamFormEntries(competition, availableTeams, standingsRows),
@@ -110,5 +114,7 @@ export function useTeamFormData() {
     return out.sort((a, b) => b.elo - a.elo)
   }, [ratings, history, entries, canonicalMatchInfo])
 
-  return { rows, history: chartHistory, matchInfo, coverage, isLoading: l1 || l2 || l3 || (competition === 'ucl2026' && (l4 || l5)) }
+  const standingsLoading = (competition === 'ucl2026' || competition === 'epl2026') && l4
+  const ratingStatusLoading = competition === 'ucl2026' && l5
+  return { rows, history: chartHistory, matchInfo, coverage, isLoading: l1 || l2 || l3 || standingsLoading || ratingStatusLoading }
 }

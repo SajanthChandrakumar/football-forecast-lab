@@ -13,6 +13,7 @@ import requests
 from src.competitions import competition_document_id, get_competition
 from src.constants import TEAM_MAPPING
 from src.quota_store import write_quota
+from src import quota_store
 
 
 class ApiFootballClient:
@@ -45,6 +46,9 @@ class ApiFootballClient:
             return self._send(path, params)
 
     def _send(self, path, params):
+        delay = quota_store.reserve_request("football", now=self.wall_time_fn())
+        if delay:
+            self.sleep_fn(delay)
         response = self.request_fn(
             f"{self.BASE_URL}/{path.lstrip('/')}",
             headers={"x-apisports-key": self.api_key},
@@ -623,6 +627,71 @@ class TeamFormService:
         )
         return self.get_sync_state()
 
+    def ingest_league_fixtures(self, fixtures, *, now=None):
+        """Reuse stored domestic results for form; never call a provider."""
+        current = now or self.now_fn()
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        teams, matches = {}, {}
+        for fixture in fixtures:
+            if not isinstance(fixture, dict):
+                continue
+            names = [str(fixture.get(f"{side}_team") or "") for side in ("home", "away")]
+            if not all(names):
+                continue
+            ids = [TEAM_MAPPING.get(name, name) for name in names]
+            for side, name, team_id in zip(("home", "away"), names, ids):
+                teams[team_id] = {"team_id": team_id, "name": name, "logo": fixture.get(f"{side}_logo")}
+                matches.setdefault(team_id, [])
+            if not fixture.get("completed"):
+                continue
+            event_id = str(fixture.get("id") or "")
+            played_at = str(fixture.get("commence_time") or "")
+            score = str(fixture.get("actual_score") or "")
+            if not event_id or not re.fullmatch(r"\d+:\d+", score):
+                continue
+            try:
+                kickoff = datetime.fromisoformat(played_at.replace("Z", "+00:00"))
+                if kickoff.tzinfo is None:
+                    kickoff = kickoff.replace(tzinfo=timezone.utc)
+                if kickoff > current:
+                    continue
+            except ValueError:
+                continue
+            goals = [int(value) for value in score.split(":")]
+            for index, team_id in enumerate(ids):
+                scored, conceded = goals[index], goals[1 - index]
+                matches[team_id].append({
+                    "fixture_id": event_id, "played_at": played_at,
+                    "competition_name": self.competition.display_name,
+                    "opponent_id": ids[1 - index], "opponent_name": names[1 - index],
+                    "venue": "home" if index == 0 else "away",
+                    "goals_for": scored, "goals_against": conceded,
+                    "score": f"{scored}:{conceded}",
+                    "result": "W" if scored > conceded else "D" if scored == conceded else "L",
+                    "provider": "espn",
+                })
+        if not teams:
+            return {"status": "unavailable", "source": "espn", "provider_calls": 0, "teams": 0}
+        observed = current.isoformat()
+        self.cache_collection.update_one(
+            {"_id": self._id("team_form_teams")},
+            {"$set": {"competition": self.competition.id, "teams": list(teams.values()),
+                      "source": "espn", "provider": "espn", "status": "fresh", "observed_at": observed}},
+            upsert=True,
+        )
+        for team_id, results in matches.items():
+            latest = self._latest(results)
+            self.cache_collection.update_one(
+                {"_id": self._id(f"team_form:{team_id}")},
+                {"$set": {"competition": self.competition.id, "team_id": team_id,
+                          "matches": latest, "source": "espn", "provider": "espn", "scope": "league",
+                          "observed_at": observed, "status": "fresh" if latest else "unavailable",
+                          "error": None if latest else "No completed league matches available"}},
+                upsert=True,
+            )
+        return {"status": "fresh", "source": "espn", "provider_calls": 0, "teams": len(teams)}
+
     def cached_form_for_match(self, team_name, fallback_team_id=None) -> dict:
         """Return display-only form data from MongoDB without provider access."""
         roster = self.cache_collection.find_one({"_id": self._id("team_form_teams")}) or {}
@@ -889,6 +958,7 @@ class TeamFormService:
         if not matches:
             return {
                 "status": "unavailable",
+                **({"scope": document["scope"]} if document.get("scope") else {}),
                 "source": document.get("source") or roster.get("source") or "api_football",
                 "observed_at": document.get("observed_at"),
                 "error": document.get("error") or "Form data is not available for this team",
@@ -902,6 +972,7 @@ class TeamFormService:
         newest = [match.get("result") for match in matches[:3]]
         return {
             "status": document.get("status") if document.get("status") in {"fresh", "stale"} else "stale",
+            **({"scope": document["scope"]} if document.get("scope") else {}),
             "source": document.get("source") or document.get("provider") or "api_football",
             "observed_at": document.get("observed_at"),
             "error": document.get("error"),

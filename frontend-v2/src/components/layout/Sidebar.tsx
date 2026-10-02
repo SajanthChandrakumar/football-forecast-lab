@@ -3,7 +3,7 @@ import { useQuota, useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { Switch } from '../ui/Switch'
 import { cn } from '../../lib/util'
-import { competitionLabel } from '../../lib/competition.mjs'
+import { competitionLabel, FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
 
 const NAV = [
   { to: '/', icon: '▦', label: 'Spiele' },
@@ -141,10 +141,7 @@ export function Sidebar() {
             onChange={(e) => setCompetition(e.target.value)}
             className="max-w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs font-semibold text-fg outline-none focus:border-emerald-a/50"
           >
-            {(competitions.length ? competitions : [
-              { id: 'wc2026', short_name: 'WC 2026', display_name: 'World Cup 2026' },
-              { id: 'ucl2026', short_name: 'UCL 2026/27', display_name: 'Champions League 2026/27' },
-            ]).map((item) => <option key={item.id} value={item.id}>{item.short_name}</option>)}
+            {(competitions.length ? competitions : FALLBACK_COMPETITIONS).map((item) => <option key={item.id} value={item.id}>{item.short_name}</option>)}
           </select>
         </label>
       </div>

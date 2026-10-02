@@ -30,7 +30,7 @@ export function AppStateProvider({
     }
     catch { return 'ucl2026' }
   })
-  const [selectedTeamsByCompetition, setSelectedTeamsByCompetition] = useState<Record<CompetitionId, string[]>>({ wc2026: [], ucl2026: [] })
+  const [selectedTeamsByCompetition, setSelectedTeamsByCompetition] = useState<Record<CompetitionId, string[]>>({ wc2026: [], ucl2026: [], epl2026: [] })
   const { data: competitions = [], isLoading: competitionsLoading } = useQuery({
     queryKey: ['competitions'],
     queryFn: api.competitions,

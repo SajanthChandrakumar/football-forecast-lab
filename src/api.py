@@ -202,11 +202,16 @@ team_form_service = TeamFormService(
     ),
     competition="ucl2026",
 )
+team_form_services = {
+    "ucl2026": team_form_service,
+    # EPL form is derived from the cached season results, not paid team calls.
+    "epl2026": TeamFormService(cache_collections["epl2026"], None, competition="epl2026"),
+}
 
 # ── Wire routers ─────────────────────────────────────────────
 app.include_router(matches_router(
     math_engine, global_odds_engine, cache_collections, archive_collections,
-    team_form_service=team_form_service,
+    team_form_service=team_form_services,
 ))
 app.include_router(predict_router(math_engine, global_odds_engine, cache_collections, limiter, archive_collections))
 app.include_router(custom_bot_router(math_engine, archive_collections, custom_bot_collections, limiter))
@@ -216,7 +221,7 @@ app.include_router(maintenance_router(
     global_odds_engine,
     archive_collections=archive_collections,
     math_engine=math_engine,
-    team_form_service=team_form_service,
+    team_form_service=team_form_services,
     match_intelligence_refresher=partial(
         refresh_match_intelligence,
         api_football_client=_form_primary,

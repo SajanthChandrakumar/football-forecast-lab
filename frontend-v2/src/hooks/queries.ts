@@ -77,7 +77,7 @@ export const useEloRatingsStatus = () => {
   return useQuery({
     queryKey: ['eloRatingsStatus', competition],
     queryFn: () => api.eloRatingsStatus(competition),
-    enabled: competition === 'ucl2026',
+    enabled: competition === 'ucl2026' || competition === 'epl2026',
     staleTime: 300_000,
   })
 }

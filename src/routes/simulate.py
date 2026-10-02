@@ -28,6 +28,8 @@ def init_router(math_engine, cache_collection):
         if comp.id == "ucl2026":
             runs = max(DEFAULT_UCL_RUNS, min(runs if runs is not None else DEFAULT_UCL_RUNS, 100_000))
             return get_ucl_simulation(runs=runs, competition=comp.id)
+        if comp.id != "wc2026":
+            raise HTTPException(status_code=400, detail=f"Knockout simulation is unavailable for {comp.short_name}")
         runs = max(1_000, min(runs if runs is not None else 20_000, 100_000))
         cache_store = collection_for(cache_collection, comp)
         cache_id = competition_document_id(comp, _CACHE_ID)

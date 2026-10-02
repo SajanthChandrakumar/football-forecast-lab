@@ -1,4 +1,4 @@
-import { validUclStandingsRows } from './standings.mjs'
+import { validPremierLeagueStandingsRows, validUclStandingsRows } from './standings.mjs'
 
 // Keep this in sync with the club aliases in src/constants.py TEAM_MAPPING.
 // Resolve only to keys that the Elo API actually returned.
@@ -31,6 +31,16 @@ const CLUB_TEAM_ALIASES = {
   'Paris Saint Germain': 'Paris Saint-Germain',
   'ŠK Slovan Bratislava': 'Slovan',
   'RC Lens': 'Lens',
+  'AFC Bournemouth': 'Bournemouth',
+  'Brighton & Hove Albion': 'Brighton',
+  'Brighton and Hove Albion': 'Brighton',
+  'Coventry City': 'Coventry',
+  'Hull City': 'Hull',
+  'Ipswich Town': 'Ipswich',
+  'Leeds United': 'Leeds',
+  'Newcastle United': 'Newcastle',
+  'Nottingham Forest': 'Forest',
+  'Tottenham Hotspur': 'Tottenham',
 }
 
 export function teamFormCanonicalName(team) {
@@ -43,6 +53,13 @@ function ratingKeyFor(team, available) {
 }
 
 export function teamFormCoverage(competition, teams, standingsRows = []) {
+  if (competition === 'epl2026') {
+    const rows = validPremierLeagueStandingsRows(standingsRows)
+    if (!rows) return { complete: false, standingsValid: false, required: 20, available: 0, missing: [] }
+    const available = new Set(teams)
+    const missing = rows.filter(({ team }) => !ratingKeyFor(team, available)).map(({ team }) => team)
+    return { complete: missing.length === 0, standingsValid: true, required: 20, available: 20 - missing.length, missing }
+  }
   if (competition !== 'ucl2026') {
     return { complete: true, standingsValid: true, required: teams.length, available: teams.length, missing: [] }
   }
@@ -78,6 +95,15 @@ export function teamFormSnapshotState(ratingCoverage, snapshotStatus) {
 }
 
 export function teamFormEntries(competition, teams, standingsRows = []) {
+  if (competition === 'epl2026') {
+    const rows = validPremierLeagueStandingsRows(standingsRows)
+    if (!rows) return []
+    const available = new Set(teams)
+    return rows.flatMap(({ team }) => {
+      const ratingKey = ratingKeyFor(team, available)
+      return ratingKey ? [{ team, ratingKey }] : []
+    })
+  }
   if (competition !== 'ucl2026') return teams.map((team) => ({ team, ratingKey: team }))
   const rows = validUclStandingsRows(standingsRows)
   if (!rows) return []

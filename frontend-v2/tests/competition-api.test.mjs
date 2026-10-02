@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { competitionPath, validCompetition } from '../src/lib/competition.mjs'
+import { COMPETITIONS, FALLBACK_COMPETITIONS, competitionPath, validCompetition } from '../src/lib/competition.mjs'
 import { botFormState } from '../src/lib/customBot.mjs'
-import { validUclStandingsRows } from '../src/lib/standings.mjs'
+import { validPremierLeagueStandingsRows, validUclStandingsRows } from '../src/lib/standings.mjs'
 import { hasScoreMatrix } from '../src/lib/prediction.mjs'
 import { hasUclSimulationResults } from '../src/lib/simulation.mjs'
 import * as simulation from '../src/lib/simulation.mjs'
@@ -16,6 +16,7 @@ let teamFormTeamNames
 let teamFormEntries
 let teamFormCoverage
 let teamFormSnapshotState
+let teamFormCanonicalName
 let teamsWithoutHistory
 try {
   ({ officialPerformance, performanceEntryKind } = await import('../src/lib/performance.mjs'))
@@ -33,7 +34,7 @@ try {
   // The assertion below reports the missing implementation as a failed behavior test.
 }
 try {
-  ({ teamFormTeamNames, teamFormEntries, teamFormCoverage, teamFormSnapshotState, teamsWithoutHistory } = await import('../src/lib/team-form.mjs'))
+  ({ teamFormTeamNames, teamFormEntries, teamFormCoverage, teamFormSnapshotState, teamFormCanonicalName, teamsWithoutHistory } = await import('../src/lib/team-form.mjs'))
 } catch {
   // The assertion below reports the missing implementation as a failed behavior test.
 }
@@ -44,8 +45,19 @@ test('competitionPath URL-encodes the active competition', () => {
 
 test('validCompetition defaults invalid storage values to UCL', () => {
   assert.equal(validCompetition('wc2026'), 'wc2026')
+  assert.equal(validCompetition('epl2026'), 'epl2026')
   assert.equal(validCompetition('invalid'), 'ucl2026')
   assert.equal(validCompetition(null), 'ucl2026')
+})
+
+test('fallback competition registry includes Premier League in both selectors', () => {
+  assert.deepEqual(COMPETITIONS, ['wc2026', 'ucl2026', 'epl2026'])
+  assert.deepEqual(FALLBACK_COMPETITIONS.find(({ id }) => id === 'epl2026'), {
+    id: 'epl2026', short_name: 'PL 2026/27', display_name: 'Premier League 2026/27',
+  })
+  for (const path of ['../src/components/layout/Sidebar.tsx', '../src/components/layout/AppShell.tsx']) {
+    assert.match(readFileSync(new URL(path, import.meta.url), 'utf8'), /FALLBACK_COMPETITIONS/)
+  }
 })
 
 test('competition labels use new event metadata without presenting it as the World Cup', () => {
@@ -76,6 +88,25 @@ test('validUclStandingsRows rejects partial, duplicate, or unranked tables', () 
   assert.equal(validUclStandingsRows(rows.map((row, index) => index === 35 ? { ...row, team: 'Team 0' } : row)), null)
   assert.equal(validUclStandingsRows(rows.map((row, index) => index === 35 ? { ...row, team: ' Team 0 ' } : row)), null)
   assert.equal(validUclStandingsRows(rows.map(({ team }) => ({ team }))), null)
+})
+
+test('Premier League standings require the complete, uniquely ranked 20-club table', () => {
+  assert.equal(typeof validPremierLeagueStandingsRows, 'function')
+  const rows = Array.from({ length: 20 }, (_, index) => ({ team: `Club ${index + 1}`, pos: index + 1 }))
+  assert.equal(validPremierLeagueStandingsRows(rows)?.length, 20)
+  assert.equal(validPremierLeagueStandingsRows(rows.slice(0, 19)), null)
+  assert.equal(validPremierLeagueStandingsRows(rows.map((row, index) => index === 19 ? { ...row, team: 'Club 1' } : row)), null)
+  assert.equal(validPremierLeagueStandingsRows(rows.map((row, index) => index === 19 ? { ...row, pos: 19 } : row)), null)
+
+  const view = readFileSync(new URL('../src/features/groups/GroupsView.tsx', import.meta.url), 'utf8')
+  assert.match(view, /competition === 'epl2026'/)
+  assert.match(view, /PremierLeagueStandings/)
+  const tableStart = view.indexOf('function PremierLeagueStandings')
+  const tableEnd = view.indexOf('function UclStandings', tableStart)
+  assert.notEqual(tableStart, -1)
+  assert.notEqual(tableEnd, -1)
+  const table = view.slice(tableStart, tableEnd)
+  assert.doesNotMatch(table, /Top 8|qualifiz|pos <= 8|pos > 24/)
 })
 
 test('hasScoreMatrix rejects empty matrices', () => {
@@ -186,6 +217,48 @@ test('UCL team form resolves every standings display name to an existing canonic
   })
 })
 
+test('Premier League Team Form is limited to its 20 clubs and reports missing ClubElo ratings', () => {
+  assert.equal(typeof teamFormCanonicalName, 'function')
+  assert.deepEqual([
+    'Coventry City', 'Hull City', 'Ipswich Town', 'Leeds United', 'Newcastle United',
+    'Nottingham Forest', 'Tottenham Hotspur',
+  ].map(teamFormCanonicalName), ['Coventry', 'Hull', 'Ipswich', 'Leeds', 'Newcastle', 'Forest', 'Tottenham'])
+  const clubs = [
+    'Manchester City', 'AFC Bournemouth', 'Brighton & Hove Albion',
+    ...Array.from({ length: 17 }, (_, index) => `Club ${index + 4}`),
+  ]
+  const standings = clubs.map((team, index) => ({ team, pos: index + 1 }))
+  const ratingKeys = ['Man City', 'Bournemouth', 'Brighton', 'USA']
+  const entries = teamFormEntries('epl2026', ratingKeys, standings)
+
+  assert.deepEqual(entries, [
+    { team: 'Manchester City', ratingKey: 'Man City' },
+    { team: 'AFC Bournemouth', ratingKey: 'Bournemouth' },
+    { team: 'Brighton & Hove Albion', ratingKey: 'Brighton' },
+  ])
+  assert.deepEqual(teamFormCoverage('epl2026', ratingKeys, standings), {
+    complete: false,
+    standingsValid: true,
+    required: 20,
+    available: 3,
+    missing: clubs.slice(3),
+  })
+  assert.deepEqual(teamFormEntries('epl2026', ratingKeys, standings.slice(0, 19)), [])
+
+  const hook = readFileSync(new URL('../src/features/team-form/useTeamFormData.ts', import.meta.url), 'utf8')
+  const view = readFileSync(new URL('../src/features/team-form/TeamFormView.tsx', import.meta.url), 'utf8')
+  assert.match(hook, /competition === 'epl2026'\s*\?\s*teamFormEntries/)
+  assert.match(view, /coverage\.required\} Premier-League-Teams/)
+})
+
+test('Premier League does not call the World Cup or UCL tournament simulations', () => {
+  const view = readFileSync(new URL('../src/features/simulator/SimulatorView.tsx', import.meta.url), 'utf8')
+  const queries = readFileSync(new URL('../src/hooks/queries.ts', import.meta.url), 'utf8')
+  assert.match(view, /competition === 'epl2026'/)
+  assert.match(view, /K\.-o\.-Simulator bildet keine Ligatabelle oder Saison ab/)
+  assert.match(queries, /enabled: competition === 'ucl2026' \|\| competition === 'wc2026'/)
+})
+
 test('Team Form reports incomplete UCL ratings and only shows World Cup host bonus for WC', () => {
   const view = readFileSync(new URL('../src/features/team-form/TeamFormView.tsx', import.meta.url), 'utf8')
   const hook = readFileSync(new URL('../src/features/team-form/useTeamFormData.ts', import.meta.url), 'utf8')
@@ -193,7 +266,17 @@ test('Team Form reports incomplete UCL ratings and only shows World Cup host bon
   assert.match(view, /coverage\.available} von \{coverage\.required\}/)
   assert.match(view, /Fehlende Teams: \{coverage\.missing\.join\(', '\)\}/)
   assert.match(view, /competition === 'wc2026' && <p/)
-  assert.match(hook, /competition === 'ucl2026' \? ratingTeams : \[\.\.\.allTeams\]/)
+  assert.match(hook, /competition === 'ucl2026'/)
+  assert.match(hook, /competition === 'epl2026'/)
+  assert.match(hook, /teamFormEntries\(competition, \[\.\.\.allTeams\], standingsRows\)/)
+})
+
+test('Premier League loads scoped ClubElo provenance and exposes stale ratings', () => {
+  const queries = readFileSync(new URL('../src/hooks/queries.ts', import.meta.url), 'utf8')
+  const view = readFileSync(new URL('../src/features/team-form/TeamFormView.tsx', import.meta.url), 'utf8')
+  assert.match(queries, /enabled: competition === 'ucl2026' \|\| competition === 'epl2026'/)
+  assert.match(view, /staleEplRatings/)
+  assert.match(view, /ClubElo-Datenstand für die Premier League ist möglicherweise veraltet/)
 })
 
 test('Team Form surfaces stale partial ClubElo refresh while keeping complete last-known ratings usable', () => {

@@ -23,6 +23,9 @@ export function SimulatorView() {
   if (competition === 'ucl2026') {
     return <UclSimulator data={data as UclSimulation | undefined} isLoading={isLoading} error={error as Error | null} />
   }
+  if (competition === 'epl2026') {
+    return <PageTransition><PageHeader title="K.-o.-Simulator" subtitle="Für die Premier League nicht anwendbar." /><p className="text-sm text-fg-2">Der K.-o.-Simulator bildet keine Ligatabelle oder Saison ab.</p></PageTransition>
+  }
   if (competition !== 'wc2026') {
     return <PageTransition><PageHeader title="Turnier-Simulator" subtitle="Mögliche Turnierverläufe." /><p className="text-sm text-fg-2">Für diesen Wettbewerb ist noch keine Simulation eingerichtet.</p></PageTransition>
   }

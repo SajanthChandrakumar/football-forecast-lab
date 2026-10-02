@@ -20,9 +20,15 @@ from src.services.ucl_providers import (
     parse_clubelo_html,
 )
 from src.odds_engine import OddsApiEngine
+from src import quota_store
 from src.odds_engine_apifootball import OddsApiEngine as ApiFootballOddsEngine
 from src.routes.matches import build_elo_snapshot
 from src.routes.elo_status import init_router as elo_status_router
+
+
+@pytest.fixture(autouse=True)
+def no_live_budget_store(monkeypatch):
+    monkeypatch.setattr(quota_store, "reserve_request", lambda *args, **kwargs: 0)
 
 
 class DuplicateKeyError(Exception):
@@ -443,6 +449,7 @@ def test_odds_provider_uses_configurable_competition_identifier(monkeypatch):
 
     class Response:
         headers = {}
+        status_code = 200
 
         def raise_for_status(self):
             return None

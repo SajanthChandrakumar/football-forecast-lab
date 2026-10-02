@@ -23,7 +23,10 @@ from src.services.snapshots import normalize_status
 CLUBELO_URL = os.getenv("CLUBELO_URL", "https://clubelo.com/Ranking")
 CLUBELO_TEAM_SLUGS = {
     "AEK": "AEK",
+    "Coventry": "Coventry",
     "Feyenoord": "Feyenoord",
+    "Hull": "Hull",
+    "Ipswich": "Ipswich",
     "LASK": "lask",
     "Sabah FK": "",
     "Shakhtar": "Shakhtar",
@@ -152,7 +155,7 @@ def _parse_team_page(html: str, team: str) -> dict | None:
     return {"rank": None, "team": team, "team_name": team, "elo": elo, "elo_rating": elo}
 
 
-def _required_ucl_clubs(cache_collection, competition) -> set[str]:
+def _required_club_teams(cache_collection, competition) -> set[str]:
     fixtures = find_competition_document(cache_collection, competition, "matches_cache") or {}
     return {
         TEAM_MAPPING.get(str(match.get(field) or ""), str(match.get(field) or ""))
@@ -207,15 +210,16 @@ def ingest_clubelo(
     previous = find_competition_document(cache_collection, comp, key) or find_competition_document(
         cache_collection, comp, "elo_ratings"
     ) or {}
-    required = _required_ucl_clubs(cache_collection, comp) if comp.id == "ucl2026" else set()
+    required = _required_club_teams(cache_collection, comp) if comp.is_club_competition else set()
     previous_rows = [dict(row) for row in previous.get("rows", []) if isinstance(row, dict)]
     previous_complete = bool(required) and required.issubset(_rating_teams(previous_rows))
     observed = (observed_at or datetime.now(timezone.utc)).isoformat()
     source_url = url or CLUBELO_URL
     getter = request_get or requests.get
     try:
-        if comp.id == "ucl2026" and not required:
-            raise ValueError("UCL fixture coverage is unavailable; ClubElo ratings cannot be validated")
+        if comp.is_club_competition and not required:
+            label = "UCL" if comp.id == "ucl2026" else "Premier League"
+            raise ValueError(f"{label} fixture coverage is unavailable; ClubElo ratings cannot be validated")
         response = getter(source_url, timeout=10, headers=_conditional_headers(previous))
         response.raise_for_status()
         not_modified = getattr(response, "status_code", None) == 304 and previous.get("rows")

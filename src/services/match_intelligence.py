@@ -1,8 +1,8 @@
-"""Quota-safe, cached lineups and match statistics for UCL fixtures."""
+"""Quota-safe, cached lineups and match statistics for club fixtures."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -13,6 +13,7 @@ from src.services.archive import _canon_team
 
 ESPN_SUMMARY_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary"
 MAX_ESPN_CALLS_PER_RUN = 12
+MAX_PL_BACKFILL_PER_DAY = 5
 
 
 def fetch_espn_summary(event_id: str, *, request_get=None) -> dict:
@@ -59,6 +60,9 @@ def normalize_espn_summary(payload: dict, *, observed_at=None) -> dict:
             (starters if entry.get("starter") else substitutes).append(player)
         if starters or substitutes:
             lineups[team] = {"starters": starters, "substitutes": substitutes}
+            formation = roster.get("formation")
+            if isinstance(formation, str) and formation:
+                lineups[team]["formation"] = formation
 
     team_stats = {}
     for row in (payload.get("boxscore") or {}).get("teams", []) or []:
@@ -171,6 +175,19 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
     api_calls = 0
     updated = 0
     fallback_due = []
+    backfill_id = competition_document_id(comp, "match_intelligence_backfill")
+    backfill_state = (cache_collection.find_one({"_id": backfill_id}) or {}) if comp.id == "epl2026" else {}
+    day = current.date().isoformat()
+    backfill_count = int(backfill_state.get("calls", 0)) if backfill_state.get("date") == day else 0
+    if comp.id == "epl2026":
+        # Current-season paid availability is not assumed. Start with ESPN,
+        # prioritize kickoff windows, and trickle old results into the archive.
+        api_football_client = None
+        fixtures = [fixture for fixture in fixtures if fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")]
+        fixtures = sorted(fixtures, key=lambda fixture: (
+            bool(fixture.get("completed")),
+            -parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")).timestamp(),
+        ))
     event_ids = {
         str(fixture.get("id") or fixture.get("event_id"))
         for fixture in fixtures if fixture.get("id") or fixture.get("event_id")
@@ -190,6 +207,12 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
         bucket = _due_bucket(fixture, current, document)
         if bucket is None:
             continue
+        historical = bool(fixture.get("historical"))
+        if comp.id == "epl2026" and fixture.get("completed"):
+            kickoff = parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time"))
+            historical = historical or kickoff < current - timedelta(days=7)
+            if historical and backfill_count >= MAX_PL_BACKFILL_PER_DAY:
+                continue
         if bucket == "fallback_retry":
             cache_collection.update_one(
                 {"_id": document_id},
@@ -201,6 +224,13 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
             continue
         if calls >= MAX_ESPN_CALLS_PER_RUN:
             break
+        if comp.id == "epl2026" and historical:
+            backfill_count += 1
+            cache_collection.update_one(
+                {"_id": backfill_id},
+                {"$set": {"competition": comp.id, "date": day, "calls": backfill_count}},
+                upsert=True,
+            )
         calls += 1
         try:
             data = normalize_espn_summary(fetcher(event_id), observed_at=current)
@@ -336,6 +366,7 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
         "espn_calls": calls,
         "api_football_calls": api_calls,
         "updated": updated,
+        **({"historical_calls_today": backfill_count, "historical_daily_limit": MAX_PL_BACKFILL_PER_DAY} if comp.id == "epl2026" else {}),
     }
 
 

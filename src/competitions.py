@@ -51,6 +51,10 @@ class Competition:
         """Alias matching ESPN's competition terminology."""
         return self.espn_slug
 
+    @property
+    def is_club_competition(self) -> bool:
+        return self.id in {"ucl2026", "epl2026"}
+
     def __getitem__(self, key: str) -> Any:
         """Allow registry consumers to use either attributes or dict syntax."""
         return getattr(self, key)
@@ -99,6 +103,18 @@ COMPETITIONS: dict[str, Competition] = {
         archive_collection="archive_ucl2026",
         cache_collection="cache_ucl2026",
         custom_bot_collection="custom_bot_ucl2026",
+    ),
+    "epl2026": Competition(
+        id="epl2026",
+        display_name="English Premier League 2026/27",
+        short_name="EPL 2026/27",
+        espn_slug="eng.1",
+        odds_api_sport_key="soccer_epl",
+        season="2026/27",
+        ruleset="srf_tippspiel",
+        archive_collection="archive_epl2026",
+        cache_collection="cache_epl2026",
+        custom_bot_collection="custom_bot_epl2026",
     ),
 }
 

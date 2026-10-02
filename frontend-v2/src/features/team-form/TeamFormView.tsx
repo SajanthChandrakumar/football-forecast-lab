@@ -19,6 +19,9 @@ export function TeamFormView() {
   const { competition, selectedTeams: storedSelectedTeams, toggleTeam } = useAppState()
   const incompleteUclRatings = competition === 'ucl2026' && !coverage.complete
   const staleUclRatings = competition === 'ucl2026' && coverage.complete && coverage.showAlert
+  const incompleteEplStandings = competition === 'epl2026' && !coverage.standingsValid
+  const partialEplRatings = competition === 'epl2026' && coverage.standingsValid && !coverage.complete
+  const staleEplRatings = competition === 'epl2026' && coverage.complete && coverage.showAlert
   const selectedTeams = storedSelectedTeams.filter((team) => rows.some((row) => row.team === team))
   const [search, setSearch] = useState('')
 
@@ -49,11 +52,21 @@ export function TeamFormView() {
               </>
             )}
           </div>
+        ) : incompleteEplStandings ? (
+          <div role="alert" className="rounded-xl border border-amber-a/30 bg-amber-a/5 px-4 py-3 text-center text-sm text-fg-2">
+            Teamvergleich für die Premier League nicht verfügbar: Die vollständige Tabelle mit 20 Clubs fehlt.
+          </div>
+        ) : partialEplRatings ? (
+          <div role="alert" className="rounded-xl border border-amber-a/30 bg-amber-a/5 px-4 py-3 text-center text-sm text-fg-2">
+            <p>ClubElo-Ratings sind für {coverage.available} von {coverage.required} Premier-League-Teams verfügbar.</p>
+            {coverage.missing.length > 0 && <p className="mt-1 text-xs text-fg-3">Fehlende Teams: {coverage.missing.join(', ')}</p>}
+          </div>
         ) : rows.length === 0 && (
           <p className="text-center text-sm text-fg-3">
             Keine Teamratings verfügbar.
           </p>
         )}
+        {staleEplRatings && <p role="alert" className="rounded-xl border border-amber-a/30 bg-amber-a/5 px-4 py-3 text-sm text-fg-2">Der ClubElo-Datenstand für die Premier League ist möglicherweise veraltet. Wir zeigen die letzten gespeicherten Ratings.</p>}
         {staleUclRatings && (
           <div role="alert" className="rounded-xl border border-amber-a/30 bg-amber-a/5 px-4 py-3 text-center text-sm text-fg-2">
             <p>
@@ -65,7 +78,7 @@ export function TeamFormView() {
             )}
           </div>
         )}
-        {!incompleteUclRatings && <>
+        {!incompleteUclRatings && !incompleteEplStandings && <>
         {/* Chart + picker */}
         <GlassCard>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

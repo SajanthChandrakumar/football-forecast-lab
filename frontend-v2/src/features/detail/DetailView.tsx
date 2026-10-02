@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useAppState } from '../../state/AppState'
 import { useMatches, useMatchHistory, usePredict, useSaveUserTip } from '../../hooks/queries'
 import { computeImpliedProbs, pct, cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
@@ -31,6 +32,7 @@ function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamFor
   const analysis = teamHistoryAnalysis(form)
   const metrics = teamHistoryMetrics(form)
   const playerForm = form?.player_form
+  const leagueScoped = form?.scope === 'league'
   const sourceLabel = form?.source === 'espn+fotmob'
     ? 'ESPN + FotMob'
     : form?.source === 'espn'
@@ -44,8 +46,9 @@ function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamFor
         <div>
           <h3 className="text-base font-bold text-fg">{team}</h3>
           <p className="mt-1 text-xs text-fg-2">
-            Letzte Pflichtspiele · alle Wettbewerbe{sourceLabel ? ` · Quelle: ${sourceLabel}` : ''}
+            {leagueScoped ? 'Letzte erfasste Premier-League-Spiele' : 'Letzte Pflichtspiele · alle Wettbewerbe'}{sourceLabel ? ` · Quelle: ${sourceLabel}` : ''}
           </p>
+          {leagueScoped && <p className="mt-1 text-xs text-fg-3">Die Form umfasst nur zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe.</p>}
         </div>
         {form?.status === 'stale' && <span className="text-xs font-semibold text-amber-a">Stand möglicherweise veraltet</span>}
       </div>
@@ -75,7 +78,7 @@ function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamFor
             ))}
           </ol>
         ) : (
-          <p className="mt-2 text-xs leading-relaxed text-fg-2">{playerFormStatusMessage(playerForm)}</p>
+          <p className="mt-2 text-xs leading-relaxed text-fg-2">{playerFormStatusMessage(playerForm)}{leagueScoped && ' Die letzten Ligaspiele werden schrittweise archiviert; fehlende Werte werden nicht geschätzt.'}</p>
         )}
       </div>
       {items.length ? (
@@ -125,6 +128,7 @@ function TeamLineup({ team, lineup }: { team: string; lineup: MatchLineup }) {
   return (
     <div>
       <h3 className="font-display text-xl font-bold text-fg">{team}</h3>
+      <p className="mt-1 text-xs text-fg-2">{lineup.formation ? `Formation: ${lineup.formation}` : 'Formation nicht übermittelt'} · Spieler nach Positionsgruppen</p>
       <div className="relative mt-3 min-h-[30rem] overflow-hidden rounded-2xl border-2 border-white/70 bg-emerald-700 px-2 py-5 shadow-inner">
         <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-1/2 border-t-2 border-white/55" />
         <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/55" />
@@ -170,6 +174,8 @@ function PitchPlayer({ player }: { player: MatchPlayer }) {
 
 export function DetailView() {
   const { id } = useParams()
+  const { competition } = useAppState()
+  const isPremierLeague = competition === 'epl2026'
   const navigate = useNavigate()
   const { data: matches } = useMatches()
   const predict = usePredict()
@@ -282,7 +288,7 @@ export function DetailView() {
 
       <header className="relative mb-5 overflow-hidden rounded-[1.75rem] bg-[#193b2b] px-5 py-6 text-[#f8f7f2] shadow-[0_18px_35px_-25px_rgba(22,48,33,0.8)] sm:px-8 sm:py-8">
         <div className="absolute inset-x-0 top-0 h-1 bg-[#c9ad78]" aria-hidden="true" />
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#cbdccf]">{match.is_ko_phase ? 'K.-o.-Phase · doppelte Punkte' : match.stage === 'League stage' ? 'Ligaphase' : (match.stage ?? 'Ligaphase')}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#cbdccf]">{isPremierLeague ? 'Premier League' : match.is_ko_phase ? 'K.-o.-Phase · doppelte Punkte' : match.stage === 'League stage' ? 'Ligaphase' : (match.stage ?? 'Ligaphase')}</p>
         <h1 className="mt-6 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 font-display text-3xl font-bold leading-none text-[#f8f7f2] sm:gap-6 sm:text-5xl">
           <span className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center"><TeamLogo name={match.home_team} src={match.home_logo} className="h-7 w-7" /><span className="min-w-0 break-words">{match.home_team}</span></span>
           <span className="font-sans text-sm font-medium text-[#b7cabd]">vs</span>
@@ -329,7 +335,7 @@ export function DetailView() {
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-fg-3">Der Ergebnistipp ist auf Tippspielpunkte berechnet. Die Form beschreibt separat die letzten erfassten Pflichtspiele aller Wettbewerbe.{match.home_form?.status === 'stale' || match.away_form?.status === 'stale' ? ' Datenstand möglicherweise veraltet.' : ''}</p>
+            <p className="mt-3 text-xs text-fg-3">Der Ergebnistipp ist auf Tippspielpunkte berechnet. {match.home_form?.scope === 'league' || match.away_form?.scope === 'league' ? 'Die Form beschreibt separat zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe.' : 'Die Form beschreibt separat die letzten erfassten Pflichtspiele aller Wettbewerbe.'}{match.home_form?.status === 'stale' || match.away_form?.status === 'stale' ? ' Datenstand möglicherweise veraltet.' : ''}</p>
           </div>
         )}
       </section>
@@ -357,7 +363,7 @@ export function DetailView() {
         ) : (
           <div className="mt-4 rounded-xl bg-surface-2 px-4 py-4">
             <p className="font-semibold text-fg">{lineup.message}</p>
-            <p className="mt-1 text-sm leading-relaxed text-fg-2">Wir prüfen automatisch etwa 35 und 15 Minuten vor dem Anpfiff. Bis dahin entstehen keine zusätzlichen API-Abfragen beim Öffnen dieser Seite.</p>
+            <p className="mt-1 text-sm leading-relaxed text-fg-2">{isPremierLeague ? 'Der Wartungslauf prüft ESPN etwa 35 und 15 Minuten vor dem Anpfiff, sofern Aufstellungen verfügbar sind. Diese Seite liest nur gespeicherte Daten.' : 'Wir prüfen automatisch etwa 35 und 15 Minuten vor dem Anpfiff. Bis dahin entstehen keine zusätzlichen API-Abfragen beim Öffnen dieser Seite.'}</p>
           </div>
         )}
         {match.match_intelligence?.injuries?.status === 'unavailable' && (

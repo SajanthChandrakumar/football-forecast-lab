@@ -2,7 +2,7 @@
 
 **Statistische Fussballprognosen und transparente Modellanalyse.**
 
-Persönliches Analyse- und Portfolio-Projekt: Das Dashboard verbindet Spieldaten, Quoten und Elo-Ratings zu nachvollziehbaren Wahrscheinlichkeiten und Ergebnistipps. Es unterstützt derzeit die **FIFA-Weltmeisterschaft 2026** und die **UEFA Champions League 2026/27**.
+Persönliches Analyse- und Portfolio-Projekt: Das Dashboard verbindet Spieldaten, Quoten und Elo-Ratings zu nachvollziehbaren Wahrscheinlichkeiten und Ergebnistipps. Es unterstützt die **FIFA-Weltmeisterschaft 2026**, die **UEFA Champions League 2026/27** und die **Premier League 2026/27** als getrennte Wettbewerbe.
 
 [Live-Demo](https://wc2026-predictor-8skd.onrender.com/) · [GitHub-Repository](https://github.com/SajanthChandrakumar/football-forecast-lab)
 
@@ -26,13 +26,27 @@ Fussballprognosen hängen von vielen Informationen ab, die sich nicht leicht dir
 
 | Daten | Quellen im Projekt |
 |---|---|
-| Spielplan, Resultate und Tabellen | ESPN; Tabellen werden aus gespeicherten Ergebnissen berechnet |
+| Spielplan, Resultate und Tabellen | ESPN; WM-/CL-Tabellen zusätzlich aus gespeicherten Ergebnissen, PL-Tabelle aus gespeichertem ESPN-Tabellenabruf |
 | 1/X/2- und Torlinienquoten | The Odds API; optional API-Football als konfigurierbare Quotenquelle |
-| Club-Ratings | ClubElo für die Champions-League-Teams; Elo-Ratings und Verlauf für die WM-Teams |
+| Club-Ratings | ClubElo für CL- und Premier-League-Teams; Elo-Ratings und Verlauf für die WM-Teams |
 | Teamform, Aufstellungen und Spieldetails | gespeicherte ESPN-Daten; API-Football und FotMob ergänzen einzelne Datenpfade, sofern konfiguriert bzw. verfügbar |
 | Archiv und Cache | MongoDB |
 
 Die Abdeckung hängt von Wettbewerb, Anbieter, Tarif und Wartungslauf ab. ESPN- und FotMob-Fallbacks verwenden teilweise nicht offiziell dokumentierte öffentliche Endpunkte. Verfügbarkeit, Vollständigkeit und Aktualität sind daher nicht garantiert.
+
+### Premier-League-Modus
+
+Der Wettbewerbsumschalter bietet `epl2026` neben `ucl2026` und `wc2026`. Cache, Archiv und Tipps werden in eigenen MongoDB-Collections gespeichert (`cache_epl2026`, `archive_epl2026`, `custom_bot_epl2026`). Der Modus verwendet ESPN `eng.1`, The Odds API `soccer_epl` und echte ClubElo-Ratings. Die optionale API-Football-Quotenquelle verwendet Liga 39; die Saisonverfügbarkeit hängt vom Tarif ab.
+
+Der Saisonplan umfasst gespeicherte gespielte und kommende Partien. Die Teamform nutzt zunächst ausschliesslich erfasste Premier-League-Ergebnisse (bis zu zehn Spiele), nicht zusätzlich Pokal-/Europapokalspiele. ESPN-Spielzusammenfassungen ergänzen Aufstellungen, übermittelte Formationen und Spielerbeiträge, soweit vorhanden. Alte Spiele werden schrittweise mit höchstens fünf ESPN-Abrufen pro UTC-Tag archiviert (einschliesslich Fehlversuchen); aktuelle Anpfifffenster haben Vorrang. Historische Detailseiten lesen ausschliesslich dieses Archiv. Spielerform braucht mindestens drei Spiele mit echten Spielerstatistiken; fehlende Daten bleiben ausdrücklich unverfügbar. Verletzungsdaten und eine Ligatitel-Simulation sind nicht implementiert. Spielwochen sind Datumsgruppen, keine zugesicherten offiziellen Spieltagsnummern.
+
+Schon gespielte Partien werden als Ergebnisse importiert, ohne nachträglich eine damalige Vorabprognose zu erfinden. Neue Prognosen und Quotenverläufe entstehen erst mit rechtzeitigen Wartungsläufen. Die Punkteoptimierung verwendet das vorhandene SRF-Schema als Modellvergleich; sie ist kein offizielles Premier-League-Tippspiel-Regelwerk.
+
+Für den neuen Modus muss der bestehende externe Scheduler zusätzlich `POST /api/internal/maintenance?competition=epl2026` mit `Authorization: Bearer <CRON_SECRET>` aufrufen, beispielsweise alle 15 Minuten. PL-Quotenfenster sind T−75 und T−15; tägliche Discovery-Abrufe finden nur statt, wenn ein Spiel in den kommenden sieben Tagen ansteht. Ein Lauf bündelt diese Aufgaben zu höchstens einem The-Odds-API-Bulkabruf (`h2h,totals`, Region `eu`: maximal zwei Credits). Bei geeigneten Wartungsläufen prüft ESPN Aufstellungen etwa T−35 und T−15 und archiviert nach Spielende Statistiken; bestätigte Aufstellungen werden vor Anpfiff nicht erneut abgerufen. Der PL-Modus verwendet hierfür bewusst keinen API-Football-Fallback, solange die aktuelle Saisonabdeckung des Tarifs nicht bestätigt ist. ESPN ist eine inoffizielle, nicht garantiert verfügbare Schnittstelle.
+
+Alle bezahlten Anbieterpfade teilen einen MongoDB-Reservierungszähler, unabhängig vom Wettbewerb und Prozess: höchstens 400 reservierte Odds-Credits in rollierenden 31 Tagen sowie 80 API-Football-Abfragen in rollierenden 24 Stunden. API-Football wird zusätzlich global auf mindestens sieben Sekunden Abstand und höchstens neun reservierte Anfragen pro Minute begrenzt. Reservierung erfolgt atomar vor HTTP; auch Fehler und leere Antworten zählen konservativ. Bekannte aktuelle Anbieter-Restkontingente schützen zusätzlich eine Reserve von 100 Odds-Credits bzw. 20 API-Football-Abfragen. Ist die Reservierungsdatenbank nicht verfügbar, werden bezahlte Abrufe blockiert, nicht ungeschützt fortgesetzt. Das ist bewusst strenger als ein Kalendertag/-monat und kann nach einem Tarif-Reset weiter begrenzen. Andere Anwendungen mit denselben Keys können Kontingente ebenfalls verbrauchen; der Schutz ist keine Garantie für deren Nutzung.
+
+ESPN-Saisonplan, ClubElo und die PL-Tabelle werden gecacht; Nutzeraufrufe und Teamform aus Ergebnissen verursachen keine zusätzlichen Anbieterabrufe. Ein externer Zeitplan wird durch das Einbauen des Modus nicht automatisch aktiviert. Bei fehlendem Budget bleibt der vorhandene Cache nutzbar; Quellen und Datenstände werden nicht als frisch erfunden.
 
 ## Prognoseansatz
 

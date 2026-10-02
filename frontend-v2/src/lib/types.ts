@@ -60,6 +60,7 @@ export interface PlayerForm {
 export interface TeamForm {
   form: ('W' | 'D' | 'L')[]
   on_fire: boolean
+  scope?: 'league'
   status?: TeamFormStatus
   source?: string
   observed_at?: string | null
@@ -77,6 +78,7 @@ export interface MatchPlayer {
 }
 
 export interface MatchLineup {
+  formation?: string
   starters: MatchPlayer[]
   substitutes: MatchPlayer[]
 }

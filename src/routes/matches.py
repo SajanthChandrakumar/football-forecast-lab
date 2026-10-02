@@ -1,6 +1,7 @@
 import time
 import logging
 import math
+from collections.abc import Mapping
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -87,9 +88,14 @@ def _match_odds_api(lookup: dict, home: str, away: str, date: str):
 def build_elo_snapshot(math_engine, home_team: str, away_team: str, competition=None, elo_document: dict | None = None) -> dict | None:
     """Return known ratings, retaining WC's legacy default only for WC."""
     comp = get_competition(competition)
+    if comp.is_club_competition and elo_document and elo_document.get("status") in {"failed", "unavailable"}:
+        return None
     if elo_document and elo_document.get("rows"):
         ratings = {
-            str(row.get("team_name") or row.get("team")): row.get("elo_rating", row.get("elo"))
+            TEAM_MAPPING.get(
+                str(row.get("team_name") or row.get("team")),
+                str(row.get("team_name") or row.get("team")),
+            ): row.get("elo_rating", row.get("elo"))
             for row in elo_document["rows"]
             if isinstance(row, dict)
         }
@@ -220,7 +226,7 @@ def _propagate_team_logos(matches):
     return presented
 
 
-def _apply_cached_ucl_forms(matches, team_form_service):
+def _apply_cached_club_forms(matches, team_form_service):
     if team_form_service is None:
         return matches
     if hasattr(team_form_service, "cached_forms_for_matches"):
@@ -241,6 +247,10 @@ def _apply_cached_ucl_forms(matches, team_form_service):
     return presented
 
 
+def _team_form_service_for(team_form_service, competition):
+    return team_form_service.get(competition.id) if isinstance(team_form_service, Mapping) else team_form_service
+
+
 def _present_cached_matches(
     cached_data, math_engine, odds_engine, competition, archive_store, cache_store,
     team_form_service=None,
@@ -249,7 +259,7 @@ def _present_cached_matches(
     if not isinstance(cached_data, list) or not cached_data:
         return cached_data if isinstance(cached_data, list) else _unavailable_matches()
     comp = get_competition(competition)
-    if comp.id == "ucl2026":
+    if comp.is_club_competition:
         # Predictions and matrices are persisted by maintenance. Enrich only
         # legacy or incomplete open fixtures; reads do not persist that work.
         needs_enrichment = [
@@ -265,7 +275,7 @@ def _present_cached_matches(
         if hasattr(math_engine, "reload_elo_data"):
             math_engine.reload_elo_data()
         enriched = _enrich_edge(needs_enrichment, math_engine, odds_engine, comp, cache_store)
-        if comp.id == "ucl2026":
+        if comp.is_club_competition:
             by_id = {
                 str(match.get("id") or match.get("event_id")): match
                 for match in enriched
@@ -279,8 +289,8 @@ def _present_cached_matches(
         else:
             presented_data = enriched
     presented_data = _propagate_team_logos(presented_data)
-    if comp.id == "ucl2026":
-        presented_data = _apply_cached_ucl_forms(presented_data, team_form_service)
+    if comp.is_club_competition:
+        presented_data = _apply_cached_club_forms(presented_data, team_form_service)
         presented_data = attach_cached_match_intelligence(presented_data, cache_store, comp)
     archive = load_archive_from_db(archive_store)
     return _sync_archive_tips(
@@ -335,13 +345,13 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
     prediction_service = PredictionService(math_engine)
     elo_document = (
         find_competition_document(pool_context_collection, comp, "elo_ratings")
-        if comp.id == "ucl2026" and pool_context_collection is not None
+        if comp.is_club_competition and pool_context_collection is not None
         else None
     )
     for m in matches:
         raw_match = m.get("raw_match") or {}
         round_name = raw_match.get("round", m.get("round", "")) if isinstance(raw_match, dict) else m.get("round", "")
-        if comp.id == "ucl2026":
+        if comp.is_club_competition:
             # Cached legacy edge values are not trusted until this pass proves
             # that both explicit ratings are available.
             m["edge_home"] = None
@@ -428,9 +438,9 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
             true_probs = MathEngine.remove_margin(odds["home"], odds["draw"], odds["away"])
             pool = true_probs["home"] + true_probs["away"]
             market_home_share = (true_probs["home"] / pool) if pool > 0 else 0.5
-            # UCL has no synthetic 1500 fallback.  Without a known rating the
+            # Club competitions have no synthetic 1500 fallback. Without a known rating the
             # edge is unavailable; odds-only predictions remain valid.
-            if comp.id == "ucl2026" and elo_state is None:
+            if comp.is_club_competition and elo_state is None:
                 continue
             elo_home_share = m.get("elo_home_share")
             if elo_home_share is None:
@@ -450,6 +460,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
     @router.get("/matches")
     def get_matches(force: bool = False, competition: str | None = None):
         comp = require_competition(competition)
+        comp_team_form_service = _team_form_service_for(team_form_service, comp)
         cache_store = collection_for(cache_collection, comp)
         archive_store = collection_for(archive_collection, comp)
         cache_id = competition_document_id(comp, "matches_cache")
@@ -464,13 +475,13 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
             if isinstance(cached_data, list):
                 return _present_cached_matches(
                     cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
-                    team_form_service,
+                    comp_team_form_service,
                 ) if cached_data else ([] if cached is not None else _unavailable_matches())
             return _unavailable_matches()
         if isinstance(cached_data, list) and cached_data:
             return _present_cached_matches(
                 cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
-                team_form_service,
+                comp_team_form_service,
             )
         if cached is not None and cached_data == []:
             return []
