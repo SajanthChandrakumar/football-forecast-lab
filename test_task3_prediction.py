@@ -252,6 +252,52 @@ def test_freeze_uses_latest_eligible_t15_snapshot_and_is_idempotent():
     assert archive.replacements == writes
 
 
+def test_freeze_records_forecast_without_replacing_the_visible_tip():
+    kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
+    cache = MemoryCollection([{
+        "_id": "ucl2026:odds_snapshot:m1:t15m:1", "event_id": "m1",
+        "bucket": "t15m", "status": "fresh",
+        "observed_at": (kickoff - timedelta(minutes=15)).isoformat(),
+        "odds": {"home": 1.8, "draw": 3.4, "away": 4.6},
+    }])
+    original = {
+        "top_tip": "3:2", "model_tip": "3:2", "user_tip": "1:1",
+        "status": "existing", "probabilities": {"home": 0.4, "draw": 0.3, "away": 0.3},
+    }
+    archive = MemoryCollection([{
+        "_id": "m1", "metadata": {"commence_time": kickoff.isoformat()},
+        "prediction": original,
+    }])
+
+    frozen = freeze_prediction(
+        cache, archive, PredictionService(_engine()), "m1",
+        competition="ucl2026", now=kickoff - timedelta(minutes=10),
+        visible_tip="2:1",
+    )["prediction"]
+
+    for key, value in original.items():
+        assert frozen[key] == value
+    capture = frozen["evaluation_forecast"]
+    assert capture["visible_tip"] == "2:1"
+    assert capture["visible_tip_source"] == "matches_cache"
+    assert capture["model_tip"]
+    assert capture["source_inputs"]["odds"]["home"] == 1.8
+    assert capture["provenance"]["snapshot_bucket"] == "t15m"
+    assert capture["frozen_at"] == frozen["frozen_at"]
+
+
+def test_freeze_refuses_to_record_after_tip_deadline():
+    kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
+    archive = MemoryCollection([{"_id": "m1", "metadata": {"commence_time": kickoff.isoformat()}, "prediction": {}}])
+
+    with pytest.raises(ValueError, match="tip deadline"):
+        freeze_prediction(
+            MemoryCollection(), archive, PredictionService(_engine()), "m1",
+            competition="ucl2026", now=kickoff - timedelta(minutes=4),
+        )
+    assert not archive.find_one({"_id": "m1"})["prediction"].get("frozen_at")
+
+
 def test_freeze_uses_stored_archive_context_and_persists_it():
     kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
     cache = MemoryCollection([{

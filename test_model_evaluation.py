@@ -81,6 +81,28 @@ def test_comparison_has_an_explicit_empty_paired_sample():
     assert all(row["brier"] is None and row["log_loss"] is None for row in result["models"])
 
 
+def test_comparison_uses_frozen_forecast_not_later_visible_probabilities():
+    observed = "2026-09-30T09:45:00+00:00"
+    baselines = {
+        "bookmaker": _baseline({"home": 0.5, "draw": 0.3, "away": 0.2}, observed, "odds_api"),
+        "elo": _baseline({"home": 0.4, "draw": 0.35, "away": 0.25}, observed, "clubelo"),
+    }
+    entry = _entry(
+        baselines=baselines,
+        probabilities={"home": 0.1, "draw": 0.1, "away": 0.8},
+        evaluation_forecast={
+            "frozen_at": "2026-09-30T10:00:00+00:00",
+            "probabilities": {"home": 0.6, "draw": 0.3, "away": 0.1},
+            "evaluation_baselines": baselines,
+        },
+    )
+
+    result = compare_models({"match": entry}, "ucl2026")
+
+    assert result["counts"]["paired"] == 1
+    assert result["models"][0]["brier"] == 0.26
+
+
 def test_extra_time_match_is_scored_against_confirmed_90_minute_draw():
     observed_at = "2026-09-30T09:45:00+00:00"
     probabilities = {"home": 0.2, "draw": 0.6, "away": 0.2}
@@ -338,10 +360,11 @@ def _auto_capture_fixtures(*, kickoff="2026-10-01T12:00:00+00:00", snapshot=True
 
 def test_due_freeze_runs_once_from_cached_snapshot_and_preserves_user_tip():
     cache = _auto_capture_fixtures()
+    cache.documents["ucl2026:matches_cache"]["data"][0]["top_tip"] = "2:1"
     archive = MemoryCollection([{
         "_id": "game-auto",
         "metadata": {"commence_time": "2026-10-01T12:00:00+00:00"},
-        "prediction": {"user_tip": "1:1"},
+        "prediction": {"user_tip": "1:1", "top_tip": "3:2"},
         "post_match_result": {"status": "pending", "actual_score": None},
     }])
     service = FreezeService()
@@ -354,6 +377,8 @@ def test_due_freeze_runs_once_from_cached_snapshot_and_preserves_user_tip():
     assert first == 1
     assert second == 0
     assert frozen["prediction"]["user_tip"] == "1:1"
+    assert frozen["prediction"]["top_tip"] == "3:2"
+    assert frozen["prediction"]["evaluation_forecast"]["visible_tip"] == "2:1"
     assert frozen["post_match_result"] == {"status": "pending", "actual_score": None}
     assert frozen["prediction"]["evaluation_baselines"]["elo"]["source"] == "clubelo"
 
@@ -375,6 +400,13 @@ def test_due_freeze_initializes_missing_archive_and_skips_past_or_unquoted_fixtu
         FreezeService(), past_cache, past_archive, "ucl2026", now,
     ) == 0
     assert past_archive.documents == {}
+
+    after_tip_deadline = MemoryCollection()
+    assert freeze_due_comparisons(
+        FreezeService(), _auto_capture_fixtures(), after_tip_deadline, "ucl2026",
+        datetime.fromisoformat("2026-10-01T11:56:00+00:00"),
+    ) == 0
+    assert after_tip_deadline.documents == {}
 
     no_quote_cache = _auto_capture_fixtures(snapshot=False)
     no_quote_archive = MemoryCollection()

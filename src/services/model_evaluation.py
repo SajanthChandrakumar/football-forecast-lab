@@ -87,9 +87,11 @@ def _verified_model(entry: Mapping[str, Any]) -> tuple[dict[str, float], str, An
     tip_source = str(prediction.get("tip_source") or "").lower()
     if any(term in tip_source for term in ("reconstruct", "historical", "legacy")):
         return None
-    frozen_at = _time(prediction.get("frozen_at"))
+    capture = prediction.get("evaluation_forecast")
+    forecast = capture if isinstance(capture, Mapping) else prediction
+    frozen_at = _time(forecast.get("frozen_at"))
     kickoff = _time(metadata.get("commence_time"))
-    probabilities = _probabilities(prediction.get("probabilities"))
+    probabilities = _probabilities(forecast.get("probabilities"))
     outcome = _evaluation_outcome(result, metadata)
     if frozen_at is None or kickoff is None or frozen_at >= kickoff or probabilities is None or outcome is None:
         return None
@@ -177,7 +179,9 @@ def compare_models(archive: Mapping[str, Any] | None, competition=None) -> dict[
         verified += 1
         model_probs, actual, (frozen_at, kickoff) = model_sample
         prediction = entry["prediction"]
-        baselines = prediction.get("evaluation_baselines")
+        capture = prediction.get("evaluation_forecast")
+        forecast = capture if isinstance(capture, Mapping) else prediction
+        baselines = forecast.get("evaluation_baselines")
         baselines = baselines if isinstance(baselines, Mapping) else {}
         bookmaker = _valid_baseline(baselines.get("bookmaker"), frozen_at, kickoff)
         elo = _valid_baseline(baselines.get("elo"), frozen_at, kickoff)
@@ -263,7 +267,7 @@ def _safe_elo_values(value: Mapping[str, Any]) -> tuple[float, float] | None:
 
 
 def freeze_due_comparisons(service, cache_collection, archive_collection, competition=None, now=None) -> int:
-    """Freeze eligible cached fixtures once during the T-15-to-kickoff window.
+    """Freeze eligible cached fixtures once between T-15 and the T-5 tip deadline.
 
     This maintenance-only path does not call sports providers. It uses the
     persisted fixture, ratings, and eligible odds snapshot and skips aliases
@@ -332,7 +336,7 @@ def freeze_due_comparisons(service, cache_collection, archive_collection, compet
             match_id = str(fixture.get("id") or fixture.get("event_id") or "").strip()
             kickoff_value = fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")
             kickoff = _time(kickoff_value)
-            if not match_id or kickoff is None or not kickoff - timedelta(minutes=15) <= current < kickoff:
+            if not match_id or kickoff is None or not kickoff - timedelta(minutes=15) <= current < kickoff - timedelta(minutes=5):
                 continue
             if str(fixture.get("status") or "").lower() in {"complete", "completed", "final", "in progress", "live"}:
                 continue
@@ -435,6 +439,7 @@ def freeze_due_comparisons(service, cache_collection, archive_collection, compet
                 match_id,
                 competition=comp,
                 now=current,
+                visible_tip=fixture.get("top_tip"),
             )
             if not was_frozen and (frozen.get("prediction") or {}).get("frozen_at") == current.isoformat():
                 frozen_count += 1

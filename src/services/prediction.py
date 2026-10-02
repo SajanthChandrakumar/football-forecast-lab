@@ -669,6 +669,7 @@ def freeze_prediction(
     user_points: int = 0,
     leader_points: int = 0,
     remaining_srf_max_points: int = 1,
+    visible_tip: str | None = None,
 ) -> dict[str, Any]:
     """Freeze model/pool inputs from the latest eligible T-15 snapshot once."""
     comp = get_competition(competition)
@@ -697,6 +698,8 @@ def freeze_prediction(
     current = parse_time(now or datetime.now(timezone.utc))
     if current < kickoff - timedelta(minutes=15):
         raise ValueError("Prediction freeze is available at T-15")
+    if current >= kickoff - timedelta(minutes=5):
+        raise ValueError("Prediction freeze must happen before the tip deadline")
     snapshot = select_t15_snapshot(_all_snapshots(cache_collection, match_id, comp), kickoff)
     if not snapshot:
         raise ValueError("No eligible T-15 snapshot")
@@ -767,6 +770,18 @@ def freeze_prediction(
             baselines["elo"] = elo_baseline
         freeze_fields["evaluation_baselines"] = baselines
 
+    capture = {
+        **freeze_fields,
+        "visible_tip": visible_tip or prediction.get("top_tip") or prediction.get("model_tip") or result.get("top_tip"),
+        "visible_tip_source": "matches_cache" if visible_tip else ("archive" if prediction.get("top_tip") or prediction.get("model_tip") else "frozen_forecast"),
+    }
+    if prediction.get("top_tip") or prediction.get("model_tip"):
+        # A forecast observation must not replace the tip already shown to users.
+        freeze_fields = {
+            "frozen_at": frozen_at,
+            **({"evaluation_baselines": freeze_fields["evaluation_baselines"]} if "evaluation_baselines" in freeze_fields else {}),
+        }
+    freeze_fields["evaluation_forecast"] = capture
     update = {"$set": {f"prediction.{key}": value for key, value in freeze_fields.items()}}
     result_write = archive_collection.update_one(
         {"_id": match_id, "prediction.frozen_at": {"$exists": False}},
