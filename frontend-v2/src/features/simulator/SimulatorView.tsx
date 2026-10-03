@@ -1,160 +1,144 @@
-import { motion } from 'framer-motion'
 import { useKnockoutSimulation } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
 import { TeamLogo } from '../../components/shared/Badges'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
-import { PageTransition, PageHeader, staggerContainer, staggerItem } from '../../components/shared/PageTransition'
-import type { KnockoutSimulation, UclSimulation } from '../../lib/types'
+import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
+import { QueryState } from '../../components/shared/QueryState'
+import type { KnockoutSimulation, UclSimulation, UclSimulationTeam } from '../../lib/types'
 import { hasUclSimulationResults } from '../../lib/simulation.mjs'
 import { ChartSkeleton } from '../../components/shared/Skeleton'
 
-const COLUMNS: { key: 'reached_qf' | 'reached_sf' | 'reached_final' | 'champion'; label: string; color: string }[] = [
-  { key: 'reached_qf', label: 'Viertelfinale', color: 'var(--blue)' },
-  { key: 'reached_sf', label: 'Halbfinale', color: 'var(--purple)' },
-  { key: 'reached_final', label: 'Finale', color: 'var(--amber)' },
-  { key: 'champion', label: 'Champion', color: 'var(--gold)' },
-]
+const WC_COLUMNS = [
+  { key: 'reached_qf', label: 'Viertelfinale' },
+  { key: 'reached_sf', label: 'Halbfinale' },
+  { key: 'reached_final', label: 'Finale' },
+  { key: 'champion', label: 'Titel' },
+] as const
+
+const UCL_COLUMNS = [
+  { key: 'top8', label: 'Top 8' },
+  { key: 'top24', label: 'Top 24' },
+  { key: 'round_of_16', label: 'Achtelfinale' },
+  { key: 'quarterfinal', label: 'Viertelfinale' },
+  { key: 'semifinal', label: 'Halbfinale' },
+  { key: 'final', label: 'Finale' },
+  { key: 'champion', label: 'Titel' },
+] as const
 
 export function SimulatorView() {
-  const { data, isLoading, error } = useKnockoutSimulation()
+  const query = useKnockoutSimulation()
   const { competition } = useAppState()
 
   if (competition === 'ucl2026') {
-    return <UclSimulator data={data as UclSimulation | undefined} isLoading={isLoading} error={error as Error | null} />
+    return <UclSimulator data={query.data as UclSimulation | undefined} isLoading={query.isLoading} error={query.error as Error | null} onRetry={() => void query.refetch()} />
   }
   if (competition !== 'wc2026') {
     return <PageTransition><PageHeader title="Turnier-Simulator" subtitle="Mögliche Turnierverläufe." /><p className="text-sm text-fg-2">Für diesen Wettbewerb ist noch keine Simulation eingerichtet.</p></PageTransition>
   }
-  const wcData = data as KnockoutSimulation | undefined
 
+  const wcData = query.data as KnockoutSimulation | undefined
   return (
     <PageTransition>
-      <PageHeader
-        title="K.O. Simulator"
-        subtitle="Monte-Carlo-Simulation ab dem Achtelfinale — reine Elo-Wahrscheinlichkeiten, keine Marktdaten (noch keine Quoten für hypothetische Spätrunden)"
-      />
+      <PageHeader title="K.-o.-Simulation" subtitle="Die Simulation startet bei den Achtelfinal-Paarungen. Die vorherigen Runden stehen bereits fest." />
+      {query.isLoading && <div className="space-y-3"><p className="text-sm text-fg-2">Turnierverläufe werden berechnet…</p><ChartSkeleton /></div>}
+      {query.error && <QueryState title="Simulation fehlgeschlagen" message="Die Turnierchancen konnten nicht geladen werden." onRetry={() => void query.refetch()} />}
+      {!query.isLoading && !query.error && !wcData && <QueryState title="Keine Simulation verfügbar" message="Es liegen keine berechneten Turnierchancen vor." onRetry={() => void query.refetch()} />}
 
-      {isLoading && (
-        <div className="space-y-4">
-          <p className="text-fg-2">Simuliere Turnierverläufe…</p>
-          <ChartSkeleton />
-        </div>
-      )}
-      {error && <p className="text-red-a">Fehler: {(error as Error).message}</p>}
-
-      {wcData && (
-        <div className="space-y-4">
-          <GlassCard className="!p-0">
-            <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <SectionTitle>Titelchancen</SectionTitle>
-              <span className="text-xs text-fg-3">{wcData.n_runs.toLocaleString('de-CH')} simulierte Turniere</span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[10px] font-bold uppercase tracking-wider text-fg-3">
-                    <th className="px-5 py-2 text-left">#</th>
-                    <th className="px-2 py-2 text-left">Team</th>
-                    <th className="px-2 py-2 text-right">Elo</th>
-                    {COLUMNS.map((c) => (
-                      <th key={c.key} className="px-4 py-2 text-left max-sm:hidden" style={{ minWidth: 140 }}>
-                        {c.label}
-                      </th>
-                    ))}
-                    <th className="px-5 py-2 text-right sm:hidden">Champ.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {wcData.results.map((r, i) => (
-                    <tr key={r.team} className={cn('border-t border-line', i === 0 && 'bg-gold-dim/30')}>
-                      <td className="px-5 py-2.5 tabular-nums text-fg-3">{i + 1}</td>
-                      <td className="px-2 py-2.5 font-semibold text-fg">
-                        <span className="inline-flex items-center gap-1.5"><TeamLogo name={r.team} />{r.team}</span>
-                      </td>
-                      <td className="display-num px-2 py-2.5 text-right text-fg">{Math.round(r.elo)}</td>
-                      {COLUMNS.map((c) => (
-                        <td key={c.key} className="px-4 py-2.5 max-sm:hidden">
-                          <PctCell value={r[c.key]} color={c.color} />
-                        </td>
-                      ))}
-                      <td className="px-5 py-2.5 text-right sm:hidden">
-                        <span className="display-num text-gold-a">{r.champion.toFixed(1)}%</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </GlassCard>
-
-          <GlassCard>
-            <SectionTitle className="mb-3">Bracket — Achtelfinale</SectionTitle>
-            <p className="mb-4 text-xs text-fg-3">
-              Ausgangspunkt der Simulation. Der weitere Baum (Viertelfinale, Halbfinale, Finale) ergibt sich aus den Siegern.
-            </p>
-            <motion.div variants={staggerContainer} initial="initial" animate="animate" className="grid gap-2 sm:grid-cols-2">
-              {wcData.bracket.map((m, i) => (
-                <motion.div
-                  key={i}
-                  variants={staggerItem}
-                  className="flex items-center justify-between rounded-lg border border-line bg-surface px-3 py-2 text-sm"
-                >
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-fg"><TeamLogo name={m.home} />{m.home}</span>
-                  <span className="text-fg-3">vs</span>
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-fg">{m.away}<TeamLogo name={m.away} /></span>
-                </motion.div>
-              ))}
-            </motion.div>
-          </GlassCard>
-        </div>
-      )}
-    </PageTransition>
-  )
-}
-
-function UclSimulator({ data, isLoading, error }: { data?: UclSimulation; isLoading: boolean; error: Error | null }) {
-  const hasResults = hasUclSimulationResults(data)
-  return (
-    <PageTransition>
-      <PageHeader title="Turnier-Simulator" subtitle="Eine experimentelle Orientierung auf Basis des gespeicherten Spielmodells." />
-      {isLoading && <p className="text-fg-2">Turnierverläufe werden berechnet…</p>}
-      {error && <p className="text-red-a">Simulation fehlgeschlagen: {error.message}</p>}
-      {data?.status === 'unavailable' && <p className="text-amber-a">Simulation derzeit nicht verfügbar: {data.error || data.reason || data.warnings?.join(' ') || 'Modelldaten fehlen'}</p>}
-      {hasResults && data && <div className="space-y-4">
-        {data.warnings?.length ? <GlassCard><SectionTitle className="mb-2">Datenlage</SectionTitle><ul className="space-y-1 text-xs text-fg-2">{data.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></GlassCard> : null}
-        <GlassCard className="!p-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4"><SectionTitle>Simulationsergebnisse</SectionTitle><span className="text-xs text-fg-3">{(data.n_runs ?? data.runs ?? 0).toLocaleString('de-CH')} Durchläufe · Startwert {data.seed ?? '—'}</span></div>
-          <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-[10px] font-bold uppercase tracking-wider text-fg-3">
-            {['#', 'Team', 'Ø Pkt', 'Ø Rank', 'Top 8', 'Top 24', 'R16', 'QF', 'SF', 'Final', 'Champion'].map((label) => <th key={label} className="whitespace-nowrap px-3 py-2 text-right first:text-left">{label}</th>)}
-          </tr></thead><tbody>{data.results.map((team, index) => <tr key={team.team} className={cn('border-t border-line', index === 0 && 'bg-gold-dim/30')}>
-            <td className="px-3 py-2 tabular-nums text-fg-3">{index + 1}</td><td className="px-3 py-2 text-left font-semibold text-fg"><span className="inline-flex items-center gap-1.5"><TeamLogo name={team.team} />{team.team}</span></td>
-            <td className="px-3 py-2 text-right tabular-nums text-fg-2">{team.expected_points.toFixed(2)}</td><td className="px-3 py-2 text-right tabular-nums text-fg-2">{team.expected_rank.toFixed(2)}</td>
-            {(['top8', 'top24', 'round_of_16', 'quarterfinal', 'semifinal', 'final', 'champion'] as const).map((key) => <td key={key} className="px-3 py-2 text-right tabular-nums text-fg-2">{team[key].toFixed(1)}%</td>)}
-          </tr>)}</tbody></table></div>
+      {wcData && !query.error && <div className="space-y-4">
+        <GlassCard>
+          <SectionTitle className="mb-2">Was die Zahlen zeigen</SectionTitle>
+          <p className="text-sm leading-relaxed text-fg-2">
+            Grundlage sind die aktuellen Elo-Werte mit Gastgeberbonus. Für hypothetische spätere Paarungen liegen keine Quoten vor. Die Prozentwerte stammen aus {wcData.n_runs.toLocaleString('de-CH')} Durchläufen.
+          </p>
         </GlassCard>
-        {data.bracket && <GlassCard><SectionTitle className="mb-3">Bracket and provenance</SectionTitle><p className="mb-3 text-xs text-fg-3">Ranking source: {data.ranking_source ?? 'local'} · table {data.table_version ?? '—'} · coefficients {data.coefficient_version ?? '—'}</p><BracketValue value={data.bracket} /></GlassCard>}
+
+        <GlassCard className="!p-0">
+          <div className="border-b border-line px-5 py-4"><SectionTitle>Titelchancen je Team</SectionTitle></div>
+          <div className="overflow-x-auto" role="region" aria-label="Titel- und Rundenchancen" tabIndex={0}>
+            <table className="w-full min-w-[680px] text-sm">
+              <thead><tr className="text-left text-xs font-medium text-fg-2">
+                <th scope="col" className="px-5 py-3">Team</th><th scope="col" className="px-3 py-3 text-right">Elo</th>
+                {WC_COLUMNS.map(({ key, label }) => <th scope="col" key={key} className="px-3 py-3 text-right">Erreicht {label}</th>)}
+              </tr></thead>
+              <tbody>{wcData.results.map((row) => <tr key={row.team} className="border-t border-line">
+                <th scope="row" className="px-5 py-3 text-left font-semibold text-fg"><span className="inline-flex items-center gap-2"><TeamLogo name={row.team} />{row.team}</span></th>
+                <td className="px-3 py-3 text-right tabular-nums text-fg-2">{Math.round(row.elo)}</td>
+                {WC_COLUMNS.map(({ key }) => <td key={key} className={cn('px-3 py-3 text-right tabular-nums', key === 'champion' ? 'font-semibold text-fg' : 'text-fg-2')}>{row[key].toFixed(1)}%</td>)}
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </GlassCard>
+
+        <GlassCard>
+          <SectionTitle className="mb-1">Startpaarungen</SectionTitle>
+          <p className="mb-4 text-sm text-fg-2">Aus diesen Achtelfinal-Spielen entwickelt sich der weitere Turnierbaum.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {wcData.bracket.map((match) => <div key={`${match.home}-${match.away}`} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2.5 text-sm">
+              <span className="inline-flex min-w-0 items-center gap-2 font-medium text-fg"><TeamLogo name={match.home} /><span className="truncate">{match.home}</span></span>
+              <span aria-hidden="true" className="text-fg-3">–</span>
+              <span className="inline-flex min-w-0 items-center gap-2 font-medium text-fg"><span className="truncate">{match.away}</span><TeamLogo name={match.away} /></span>
+            </div>)}
+          </div>
+        </GlassCard>
       </div>}
     </PageTransition>
   )
 }
 
-function BracketValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
-  if (value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return <span className="text-xs text-fg-2">{String(value ?? '—')}</span>
-  if (Array.isArray(value)) return <div className="space-y-2 pl-3">{value.map((item, index) => <div key={index} className="rounded-lg border border-line bg-surface p-2"><BracketValue value={item} depth={depth + 1} /></div>)}</div>
-  return <div className="space-y-2">{Object.entries(value as Record<string, unknown>).map(([key, item]) => <div key={key} className="text-xs"><span className="font-bold text-fg">{key.replaceAll('_', ' ')}:</span> <BracketValue value={item} depth={depth + 1} /></div>)}</div>
+function UclSimulator({ data, isLoading, error, onRetry }: { data?: UclSimulation; isLoading: boolean; error: Error | null; onRetry: () => void }) {
+  const hasResults = hasUclSimulationResults(data)
+  const runs = data?.n_runs ?? data?.runs ?? 0
+  const results = [...(data?.results ?? [])].sort((a, b) => a.team.localeCompare(b.team, 'de'))
+  return (
+    <PageTransition>
+      <PageHeader title="Turnier-Simulation" subtitle="Modellrechnung für den weiteren Verlauf der UCL-Ligaphase und K.-o.-Runden." />
+      {isLoading && <p className="text-sm text-fg-2">Turnierverläufe werden berechnet…</p>}
+      {error && <QueryState title="Simulation fehlgeschlagen" message="Die Turnierchancen konnten nicht geladen werden." onRetry={onRetry} />}
+      {!isLoading && !error && data?.status === 'unavailable' && <QueryState title="Simulation derzeit nicht verfügbar" message="Für die Berechnung fehlen aktuell notwendige Modelldaten." />}
+      {!isLoading && !error && hasResults && data && data.results.length === 0 && <QueryState title="Keine Ergebnisse verfügbar" message="Die Simulation hat keine Teamresultate geliefert." onRetry={onRetry} />}
+
+      {hasResults && data && data.results.length > 0 && !error && <div className="space-y-4">
+        <GlassCard>
+          <SectionTitle className="mb-2">Einordnung</SectionTitle>
+          <p className="text-sm leading-relaxed text-fg-2">
+            Grundlage sind {runs.toLocaleString('de-CH')} simulierte Turnierverläufe. {runs <= 1_000 ? 'Das ist eine kleine Stichprobe: Die Werte sind grobe Orientierung, und kleine Abstände oder die Reihenfolge sind nicht stabil.' : 'Die Werte sind Modellschätzungen, keine Vorhersage sicherer Ergebnisse.'}
+            {' '}Prozentwerte sind auf ganze Prozentpunkte gerundet.
+          </p>
+          {data.warnings?.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-fg-2">{[...new Set(data.warnings)].map((warning) => <li key={warning}>{translateWarning(warning)}</li>)}</ul> : null}
+        </GlassCard>
+
+        <GlassCard className="!p-0">
+          <div className="border-b border-line px-5 py-4"><SectionTitle>Ergebnisse je Team</SectionTitle></div>
+          <div className="overflow-x-auto" role="region" aria-label="UCL-Simulationsergebnisse je Team" tabIndex={0}>
+            <table className="w-full min-w-[920px] text-sm">
+              <thead><tr className="text-left text-xs font-medium text-fg-2">
+                <th scope="col" className="px-5 py-3">Team</th><th scope="col" className="px-3 py-3 text-right">Punkte im Schnitt</th><th scope="col" className="px-3 py-3 text-right">Rang im Schnitt</th>
+                {UCL_COLUMNS.map(({ key, label }) => <th scope="col" key={key} className="px-3 py-3 text-right">{label}</th>)}
+              </tr></thead>
+              <tbody>{results.map((team: UclSimulationTeam) => <tr key={team.team} className="border-t border-line">
+                <th scope="row" className="px-5 py-3 text-left font-semibold text-fg"><span className="inline-flex items-center gap-2"><TeamLogo name={team.team} />{team.team}</span></th>
+                <td className="px-3 py-3 text-right tabular-nums text-fg-2">{team.expected_points.toFixed(1)}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{team.expected_rank.toFixed(1)}</td>
+                {UCL_COLUMNS.map(({ key }) => <td key={key} className="px-3 py-3 text-right tabular-nums text-fg-2">{Math.round(team[key])}%</td>)}
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </GlassCard>
+
+        <details className="rounded-xl border border-line bg-surface px-5 py-4">
+          <summary className="cursor-pointer text-sm font-medium text-fg">Datenquellen und Rechenstand</summary>
+          <p className="mt-3 text-sm leading-relaxed text-fg-2">
+            Tabellenstand: {data.table_version ?? 'nicht angegeben'} · Koeffizienten: {data.coefficient_version ?? 'nicht angegeben'} · Ranglistenquelle: {data.ranking_source === 'local' ? 'lokale Berechnung' : data.ranking_source ?? 'nicht angegeben'}.
+          </p>
+        </details>
+      </div>}
+    </PageTransition>
+  )
 }
 
-function PctCell({ value, color }: { value: number; color: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-2">
-        <div className="h-full rounded-full transition-all" style={{ width: `${value}%`, background: color }} />
-      </div>
-      <span className="w-12 shrink-0 text-right text-xs font-semibold tabular-nums" style={{ color }}>
-        {value.toFixed(1)}%
-      </span>
-    </div>
-  )
+function translateWarning(warning: string) {
+  if (warning.includes('UEFA coefficient input unavailable')) return 'UEFA-Koeffizienten fehlen. Bei sonst gleich bewerteten Teams entscheidet als letzter Ersatz die alphabetische Reihenfolge.'
+  if (warning.includes('UEFA coefficient coverage incomplete')) return 'UEFA-Koeffizienten liegen nicht für alle Teams vor. Bei sonst gleich bewerteten Teams bleibt die alphabetische Reihenfolge als letzter Ersatz.'
+  if (warning.includes('ESPN official order unavailable')) return 'Die offizielle Reihenfolge ist nicht verfügbar; die Simulation nutzt eine lokale Sortierung.'
+  return 'Ein Teil der Modelldaten fehlt; die Simulation verwendet verfügbare Ersatzwerte.'
 }

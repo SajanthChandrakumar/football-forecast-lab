@@ -8,7 +8,7 @@ export function ScoreHeatmap({ calc, homeDisp, awayDisp }: {
 }) {
   const { light } = useAppState()
   const matrix = calc.matrix
-  if (!matrix || !hasScoreMatrix(matrix)) return <p className="text-sm text-fg-3">Score data unavailable.</p>
+  if (!matrix || !hasScoreMatrix(matrix)) return <p className="text-sm text-fg-3">Keine Ergebnistabelle verfügbar.</p>
   const maxP = calc.max_prob
     ?? Math.max(...Object.values(matrix).flatMap((row) => Object.values(row)), 0.0001)
   const goals = [0, 1, 2, 3, 4, 5]
@@ -16,14 +16,14 @@ export function ScoreHeatmap({ calc, homeDisp, awayDisp }: {
   return (
     <div>
       <div className="mb-1 text-center text-[10px] font-bold uppercase tracking-widest text-fg-3">
-        {awayDisp} Goals →
+        Tore von {awayDisp} →
       </div>
       <div className="flex items-center">
         <div
           className="pr-2 text-[10px] font-bold uppercase tracking-widest text-fg-3"
           style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
         >
-          {homeDisp} Goals
+          Tore von {homeDisp}
         </div>
         <div className="grid flex-1 grid-cols-[24px_repeat(6,1fr)] gap-1">
           <div />
@@ -52,7 +52,7 @@ function FragmentRow({ h, matrix, maxP, light, homeDisp, awayDisp }: {
         return (
           <div
             key={a}
-            title={`${homeDisp} ${h}:${a} ${awayDisp} — ${(prob * 100).toFixed(1)}%`}
+            title={`${homeDisp} ${h}:${a} ${awayDisp} · ${(prob * 100).toFixed(1)} % Wahrscheinlichkeit`}
             className="flex aspect-[2/1] items-center justify-center rounded text-[11px] font-semibold tabular-nums"
             style={{ background: bg, color: textColor }}
           >

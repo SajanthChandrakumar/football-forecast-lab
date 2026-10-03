@@ -41,6 +41,11 @@ export const useArchive = () => {
   return useQuery({ queryKey: ['archive', competition], queryFn: () => api.archive(competition), staleTime: 60_000 })
 }
 
+export const useModelEvaluation = () => {
+  const { competition } = useAppState()
+  return useQuery({ queryKey: ['modelEvaluation', competition], queryFn: () => api.modelEvaluation(competition), staleTime: 60_000 })
+}
+
 export const useStandings = () => {
   const { competition } = useAppState()
   return useQuery({ queryKey: ['standings', competition], queryFn: () => api.standings(competition), staleTime: 60_000 })
@@ -107,8 +112,13 @@ export const useSaveUserTip = () => {
   const { competition } = useAppState()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ matchId, tip }: { matchId: string; tip: string }) => api.saveUserTip(competition, matchId, tip),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['archive', competition] }),
+    mutationFn: ({ matchId, tip, targetCompetition }: { matchId: string; tip: string; targetCompetition?: typeof competition }) =>
+      api.saveUserTip(targetCompetition ?? competition, matchId, tip),
+    onSuccess: (_, { targetCompetition }) => {
+      const savedCompetition = targetCompetition ?? competition
+      qc.invalidateQueries({ queryKey: ['archive', savedCompetition] })
+      qc.invalidateQueries({ queryKey: ['matches', savedCompetition] })
+    },
   })
 }
 
@@ -152,6 +162,7 @@ export const useRefreshData = () => {
       qc.setQueryData(['matches', competition], data)
       qc.invalidateQueries({ queryKey: ['archive', competition] })
       qc.invalidateQueries({ queryKey: ['quota', competition] })
+      qc.invalidateQueries({ queryKey: ['modelEvaluation', competition] })
     },
   })
 }

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useArchive, useEloHistory, useEloRatings, useEloRatingsStatus, useStandings } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { normTeam } from '../../lib/util'
-import { teamFormCanonicalName, teamFormCoverage, teamFormEntries, teamFormSnapshotState } from '../../lib/team-form.mjs'
+import { chronologicalRecentMatches, teamFormCanonicalName, teamFormCoverage, teamFormEntries, teamFormSnapshotState } from '../../lib/team-form.mjs'
 import type { Archive } from '../../lib/types'
 
 export interface TeamRow {
@@ -11,12 +11,14 @@ export interface TeamRow {
   delta: number | null
   w: number; d: number; l: number
   last5: ('W' | 'D' | 'L')[]
+  recentGames: MatchInfo[]
 }
 
 export interface MatchInfo {
   opponent: string
   score: string
   result: 'W' | 'D' | 'L'
+  playedAt: string | null
 }
 
 /** Per-team match log keyed by match_id — feeds the Elo chart tooltip. */
@@ -32,10 +34,12 @@ function buildMatchInfo(archive: Archive | undefined): Record<string, Record<str
     ;(out[home] ??= {})[matchId] = {
       opponent: away, score: `${hs}:${as}`,
       result: hs > as ? 'W' : hs < as ? 'L' : 'D',
+      playedAt: m.metadata.commence_time ?? null,
     }
     ;(out[away] ??= {})[matchId] = {
       opponent: home, score: `${as}:${hs}`,
       result: as > hs ? 'W' : as < hs ? 'L' : 'D',
+      playedAt: m.metadata.commence_time ?? null,
     }
   }
   return out
@@ -43,11 +47,16 @@ function buildMatchInfo(archive: Archive | undefined): Record<string, Record<str
 
 export function useTeamFormData() {
   const { competition } = useAppState()
-  const { data: history, isLoading: l1 } = useEloHistory()
-  const { data: ratings, isLoading: l2 } = useEloRatings()
-  const { data: eloStatus, isLoading: l5, error: eloStatusError } = useEloRatingsStatus()
-  const { data: archive, isLoading: l3 } = useArchive()
-  const { data: standingsData, isLoading: l4 } = useStandings()
+  const historyQuery = useEloHistory()
+  const ratingsQuery = useEloRatings()
+  const eloStatusQuery = useEloRatingsStatus()
+  const archiveQuery = useArchive()
+  const standingsQuery = useStandings()
+  const { data: history, isLoading: l1 } = historyQuery
+  const { data: ratings, isLoading: l2 } = ratingsQuery
+  const { data: eloStatus, isLoading: l5, error: eloStatusError } = eloStatusQuery
+  const { data: archive, isLoading: l3 } = archiveQuery
+  const { data: standingsData, isLoading: l4 } = standingsQuery
 
   const standingsRows = useMemo(() => standingsData?.flatMap((group) => group.rows ?? []) ?? [], [standingsData])
   const allTeams = useMemo(() => new Set<string>([
@@ -95,7 +104,7 @@ export function useTeamFormData() {
       const baseline = hist[0]?.elo
       const current = ratings?.[ratingKey]?.elo ?? hist[hist.length - 1]?.elo
       if (current == null) continue
-      const log = Object.values(canonicalMatchInfo[ratingKey] ?? {})
+      const log = chronologicalRecentMatches(Object.values(canonicalMatchInfo[ratingKey] ?? {}))
       const w = log.filter((x) => x.result === 'W').length
       const d = log.filter((x) => x.result === 'D').length
       const l = log.filter((x) => x.result === 'L').length
@@ -105,10 +114,24 @@ export function useTeamFormData() {
         delta: baseline != null ? current - baseline : null,
         w, d, l,
         last5: log.slice(-5).map((x) => x.result),
+        recentGames: log.slice(-5),
       })
     }
     return out.sort((a, b) => b.elo - a.elo)
   }, [ratings, history, entries, canonicalMatchInfo])
 
-  return { rows, history: chartHistory, matchInfo, coverage, isLoading: l1 || l2 || l3 || (competition === 'ucl2026' && (l4 || l5)) }
+  const error = historyQuery.error ?? ratingsQuery.error ?? archiveQuery.error ?? (competition === 'ucl2026' ? standingsQuery.error : null)
+  const retry = () => Promise.all([
+    historyQuery.refetch(), ratingsQuery.refetch(), archiveQuery.refetch(),
+    ...(competition === 'ucl2026' ? [standingsQuery.refetch(), eloStatusQuery.refetch()] : []),
+  ])
+  return {
+    rows,
+    history: chartHistory,
+    matchInfo,
+    coverage,
+    error,
+    retry,
+    isLoading: l1 || l2 || l3 || (competition === 'ucl2026' && (l4 || l5)),
+  }
 }

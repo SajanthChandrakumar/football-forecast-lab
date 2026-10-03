@@ -11,6 +11,8 @@ export interface MatchHint {
   confidenceLabel: 'Hoch' | 'Mittel' | 'Niedrig' | 'Nicht verfügbar'
   source: MatchHintSource
   sourceLabel: 'Buchmacherquote' | 'Elo-Modellquote · nicht wettbar' | 'Nicht verfügbar'
+  probabilities: Probabilities | null
+  observedAt: string | null
   reasons: string[]
 }
 
@@ -23,6 +25,8 @@ const UNAVAILABLE_HINT: MatchHint = {
   confidenceLabel: 'Nicht verfügbar',
   source: 'unavailable',
   sourceLabel: 'Nicht verfügbar',
+  probabilities: null,
+  observedAt: null,
   reasons: [],
 }
 
@@ -50,6 +54,7 @@ function selectedProbabilities(match: Match): {
   probabilities: Probabilities
   source: MatchHintSource
   sourceLabel: MatchHint['sourceLabel']
+  observedAt: string | null
 } | null {
   const odds = match.odds
   if (odds && [odds.home, odds.draw, odds.away].every((value) => isFiniteNumber(value) && value > 1)) {
@@ -57,6 +62,7 @@ function selectedProbabilities(match: Match): {
       probabilities: computeImpliedProbs(odds),
       source: 'bookmaker',
       sourceLabel: 'Buchmacherquote',
+      observedAt: match.odds_observed_at ?? null,
     }
   }
 
@@ -66,6 +72,7 @@ function selectedProbabilities(match: Match): {
     probabilities,
     source: 'elo',
     sourceLabel: 'Elo-Modellquote · nicht wettbar',
+    observedAt: match.observed_at ?? null,
   }
 }
 
@@ -144,24 +151,20 @@ export function buildMatchHint(match: Match): MatchHint {
 
   const homeName = displayName(match.home_team, match.home_disp)
   const awayName = displayName(match.away_team, match.away_disp)
-  const teamFavorite = favorite !== 'draw'
   const lead = favorite === 'draw'
-    ? 'Ein Unentschieden ist der wahrscheinlichste einzelne Ausgang.'
-    : confidence === 'low'
-      ? 'Das Spiel ist sehr ausgeglichen.'
-      : `${favorite === 'home' ? homeName : awayName} ist ${confidence === 'high' ? 'klarer' : 'leichter'} Favorit.`
+    ? 'Die höchste Einzelwahrscheinlichkeit liegt beim Unentschieden.'
+    : `Die höchste Einzelwahrscheinlichkeit entfällt auf ${favorite === 'home' ? homeName : awayName}.`
   const reasons = reasonCandidates(match, favorite, homeName, awayName).slice(0, 2)
-  const summary = teamFavorite && confidence !== 'low' && reasons[0]
-    ? `${lead} ${reasons[0]}`
-    : lead
 
   return {
     available: true,
-    summary,
+    summary: lead,
     confidence,
     confidenceLabel,
     source: selected.source,
     sourceLabel: selected.sourceLabel,
+    probabilities: selected.probabilities,
+    observedAt: selected.observedAt,
     reasons,
   }
 }

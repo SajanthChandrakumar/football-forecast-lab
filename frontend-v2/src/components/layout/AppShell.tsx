@@ -1,187 +1,94 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
-import { useRefreshData } from '../../hooks/queries'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom'
 import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
 import { competitionLabel } from '../../lib/competition.mjs'
-import { Sidebar } from './Sidebar'
+import { Brand, CompetitionSelect, MORE_NAV, NavIcon, PRIMARY_NAV, Settings, Sidebar } from './Sidebar'
 
-const PRIMARY_NAV = [
-  { to: '/', label: 'Spiele', icon: '▦' },
-  { to: '/performance', label: 'Meine Tipps', icon: '◈' },
-] as const
-
-const MORE_NAV = [
-  { to: '/value-bets', label: 'Tipp-Chancen' },
-  { to: '/edge', label: 'Modellvergleich' },
-  { to: '/team-form', label: 'Teamvergleich' },
-  { to: '/groups', label: 'Tabelle' },
-  { to: '/simulator', label: 'K.-o.-Simulator' },
-] as const
-
-function MobileMoreMenu({ open, onClose, menuRef }: {
-  open: boolean
-  onClose: () => void
-  menuRef: RefObject<HTMLDivElement | null>
-}) {
-  const { competition, setCompetition, competitions, light, toggleTheme } = useAppState()
-  const refresh = useRefreshData()
-  if (!open) return null
-
-  const options = competitions.length ? competitions : [
-    { id: 'wc2026' as const, short_name: 'WM 2026', display_name: 'World Cup 2026' },
-    { id: 'ucl2026' as const, short_name: 'UCL 2026/27', display_name: 'Champions League 2026/27' },
-  ]
-
-  return (
-    <div
-      id="mobile-more-menu"
-      ref={menuRef}
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-x-3 bottom-[4.75rem] z-40 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-2xl border border-line bg-surface p-4 shadow-2xl lg:hidden"
-      aria-label="Weitere Ansichten und Einstellungen"
-      tabIndex={-1}
-    >
-      <nav aria-label="Weitere Ansichten" className="grid gap-1">
-        {MORE_NAV.map(({ to, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            onClick={onClose}
-            className={({ isActive }) => cn(
-              'flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold transition',
-              isActive ? 'bg-emerald-dim text-emerald-a' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
-            )}
-          >
-            {label}
-          </NavLink>
-        ))}
-      </nav>
-
-      <div className="mt-4 space-y-2 border-t border-line pt-4">
-        <label className="flex min-h-11 items-center justify-between gap-3 rounded-xl px-3 text-sm text-fg-2">
-          <span>Wettbewerb</span>
-          <select
-            aria-label="Wettbewerb"
-            value={competition}
-            onChange={(event) => setCompetition(event.target.value)}
-            className="min-h-11 max-w-36 rounded-lg border border-line bg-surface-2 px-2 text-sm font-semibold text-fg outline-none focus:border-emerald-a"
-          >
-            {options.map((item) => <option key={item.id} value={item.id}>{item.short_name}</option>)}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 text-left text-sm text-fg-2 hover:bg-surface-2 hover:text-fg"
-        >
-          <span>Darstellung</span>
-          <span className="font-semibold text-fg">{light ? 'Hell' : 'Dunkel'}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
-          className="flex min-h-11 w-full items-center justify-between rounded-xl bg-action px-3 text-left text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-50"
-        >
-          <span>{refresh.isPending ? 'Lade…' : 'Gespeicherte Spiele neu laden'}</span>
-          <span aria-hidden>↻</span>
-        </button>
-      </div>
-    </div>
-  )
+function ScrollPosition() {
+  const location = useLocation()
+  const navigation = useNavigationType()
+  const { competition } = useAppState()
+  const positions = useRef(new Map<string, number>())
+  const key = `${competition}:${location.key}`
+  useLayoutEffect(() => {
+    const target = navigation === 'POP' ? positions.current.get(key) ?? 0 : 0
+    const restore = () => window.scrollTo({ top: target, behavior: 'instant' })
+    restore()
+    // Lazy routes can initially be shorter than the stored position.
+    const observer = new ResizeObserver(restore)
+    if (target) observer.observe(document.querySelector('main')!)
+    const remember = () => {
+      if (document.documentElement.scrollHeight >= target + window.innerHeight) {
+        observer.disconnect()
+        positions.current.set(key, window.scrollY)
+      }
+    }
+    window.addEventListener('scroll', remember, { passive: true })
+    return () => { observer.disconnect(); window.removeEventListener('scroll', remember) }
+  }, [key, navigation])
+  return null
 }
-
-function MobileTopBar() {
-  const { competition, competitions } = useAppState()
-  return (
-    <header className="min-h-14 border-b border-[#c9ad78]/40 bg-[#193b2b] px-4 py-2 lg:hidden">
-      <span className="block truncate font-display text-lg font-bold text-[#f8f7f2]">Football Forecast Lab</span>
-      <span className="block text-[10px] leading-4 text-[#cbdccf]">
-        {competitionLabel(competition, competitions)} · Statistische Fussballprognosen und transparente Modellanalyse.
-      </span>
-    </header>
-  )
-}
-
-function MobileBottomNav({ onMore, moreOpen, moreButtonRef, onNavigate }: {
-  onMore: () => void
-  moreOpen: boolean
-  moreButtonRef: RefObject<HTMLButtonElement | null>
-  onNavigate: () => void
-}) {
-  return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-3 border-t border-line bg-surface p-2 shadow-[0_-8px_24px_-20px_rgba(15,23,42,0.8)] lg:hidden" aria-label="Hauptnavigation">
-      {PRIMARY_NAV.map(({ to, label, icon }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={to === '/'}
-          onClick={onNavigate}
-          className={({ isActive }) => cn(
-            'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-bold transition',
-            isActive ? 'bg-emerald-dim text-emerald-a' : 'text-fg-3 hover:bg-surface-2 hover:text-fg',
-          )}
-        >
-          <span className="text-base" aria-hidden>{icon}</span>
-          {label}
-        </NavLink>
-      ))}
-      <button
-        type="button"
-        onClick={onMore}
-        ref={moreButtonRef}
-        aria-controls="mobile-more-menu"
-        aria-expanded={moreOpen}
-        className={cn(
-          'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-bold transition',
-          moreOpen ? 'bg-emerald-dim text-emerald-a' : 'text-fg-3 hover:bg-surface-2 hover:text-fg',
-        )}
-      >
-        <span className="text-base" aria-hidden>•••</span>
-        Mehr
-      </button>
-    </nav>
-  )
-}
-
 export function AppShell() {
   const { competition, competitions } = useAppState()
+  const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
-  const moreMenuRef = useRef<HTMLDivElement>(null)
-  const toggleMore = () => setMoreOpen((open) => !open)
+  const moreMenuRef = useRef<HTMLElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const isAnalysis = MORE_NAV.some(item => item.to === location.pathname)
+  const pageLabel = [...PRIMARY_NAV, ...MORE_NAV].find(item => item.to === location.pathname)?.label ?? 'Spielanalyse'
   const closeMore = () => setMoreOpen(false)
 
   useEffect(() => { document.title = `Football Forecast Lab | ${competitionLabel(competition, competitions)}` }, [competition, competitions])
-
   useEffect(() => {
     if (!moreOpen) return
+    const content = contentRef.current!
+    const moreButton = moreButtonRef.current
+    content.inert = true
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     moreMenuRef.current?.focus()
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setMoreOpen(false)
-      requestAnimationFrame(() => moreButtonRef.current?.focus())
+      if (event.key === 'Escape') { event.preventDefault(); setMoreOpen(false) }
+      if (event.key !== 'Tab') return
+      const controls = [...moreMenuRef.current!.querySelectorAll<HTMLElement>('a,button,select')].filter(el => !el.hasAttribute('disabled'))
+      const first = controls[0], last = controls.at(-1)
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === moreMenuRef.current)) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === moreMenuRef.current)) { event.preventDefault(); first?.focus() }
     }
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    return () => {
+      content.inert = false
+      document.body.style.overflow = originalOverflow
+      document.removeEventListener('keydown', handleKeyDown)
+      moreButton?.focus()
+    }
   }, [moreOpen])
 
-  return (
-    <div className="min-h-screen bg-bg lg:flex">
+  return <>
+    <ScrollPosition />
+    <div ref={contentRef} className="min-h-dvh lg:flex">
       <Sidebar />
       <div className="min-w-0 flex-1">
-        <MobileTopBar />
-        <main className="min-w-0 flex-1 px-4 pb-24 pt-5 sm:p-6 sm:pb-24 lg:p-8">
-          <div className="mx-auto max-w-6xl">
-            <Outlet />
-          </div>
-        </main>
+        <header className="shell-bar flex items-center justify-between gap-3 px-5 sm:px-8 lg:px-10">
+          <span className="lg:hidden"><Brand /></span>
+          <div className="hidden items-center gap-3 lg:flex"><span className="shell-bar-label">Football</span><span className="text-xs text-fg-3">/</span><span className="text-xs font-semibold text-fg">{pageLabel}</span></div>
+          <span className="shell-bar-context rounded border border-line px-2.5 py-1.5">{competitionLabel(competition, competitions)}</span>
+        </header>
+        <main className="min-w-0 px-5 pb-28 pt-7 sm:px-8 lg:px-10 lg:pb-10 lg:pt-10"><div className="mx-auto max-w-6xl"><Outlet /></div></main>
       </div>
-      <MobileMoreMenu open={moreOpen} onClose={closeMore} menuRef={moreMenuRef} />
-      <MobileBottomNav onMore={toggleMore} moreOpen={moreOpen} moreButtonRef={moreButtonRef} onNavigate={closeMore} />
+      <nav aria-label="Hauptnavigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-line bg-surface px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 lg:hidden">
+        {PRIMARY_NAV.map(({to,label,icon})=><NavLink key={to} to={to} end={to === '/'} onClick={closeMore} className={({isActive})=>cn('flex min-h-12 flex-col items-center justify-center gap-1.5 rounded text-[9px] font-semibold',isActive?'bg-emerald-dim text-emerald-a':'text-fg-2')}><NavIcon name={icon} />{label}</NavLink>)}
+        <button type="button" ref={moreButtonRef} aria-expanded={moreOpen} aria-controls="mobile-more-menu" onClick={()=>setMoreOpen(true)} className={cn('flex min-h-12 flex-col items-center justify-center gap-1.5 rounded text-[9px] font-semibold',isAnalysis?'bg-emerald-dim text-emerald-a':'text-fg-2')}><NavIcon name="more" />Mehr</button>
+      </nav>
     </div>
-  )
+    {moreOpen && <div className="fixed inset-0 z-50 flex items-end bg-black/40 lg:items-center lg:justify-center" onClick={closeMore}>
+      <section id="mobile-more-menu" role="dialog" aria-modal="true" aria-label="Analysen und Einstellungen" tabIndex={-1} ref={moreMenuRef} onClick={e=>e.stopPropagation()} className="max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-surface p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none lg:max-w-md lg:rounded-2xl">
+        <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold">Analysen & Einstellungen</h2><button type="button" onClick={closeMore} aria-label="Menü schliessen" className="min-h-11 rounded-lg px-3 text-sm text-fg-2 hover:bg-surface-2">Schliessen ×</button></div>
+        <nav aria-label="Analysen" className="mb-5 grid gap-1">{MORE_NAV.map(({to,label,description})=><NavLink key={to} to={to} onClick={closeMore} className={({isActive})=>cn('rounded-lg px-3 py-3',isActive?'bg-emerald-dim':'hover:bg-surface-2')}><span className="block text-sm font-semibold text-fg">{label}</span><span className="mt-1 block text-xs text-fg-3">{description}</span></NavLink>)}</nav>
+        <div className="space-y-4 border-t border-line pt-4"><CompetitionSelect /><Settings /></div>
+      </section>
+    </div>}
+  </>
 }

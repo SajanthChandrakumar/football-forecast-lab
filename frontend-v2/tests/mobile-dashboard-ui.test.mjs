@@ -4,10 +4,10 @@ import { existsSync, readFileSync } from 'node:fs'
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
-test('mobile shell exposes the approved three-item navigation', () => {
-  const shell = read('src/components/layout/AppShell.tsx')
+test('mobile shell exposes the clear primary navigation', () => {
+  const shell = read('src/components/layout/AppShell.tsx') + read('src/components/layout/Sidebar.tsx')
   assert.match(shell, /Spiele/)
-  assert.match(shell, /Meine Tipps/)
+  assert.match(shell, /Gemeinsame Tipps/)
   assert.match(shell, /Mehr/)
   assert.match(shell, /to: '\/'/)
   assert.match(shell, /to: '\/performance'/)
@@ -26,27 +26,26 @@ test('mobile Mehr menu has dialog, focus, Escape, and close contracts', () => {
   assert.match(shell, /useRef/)
   assert.match(shell, /\.focus\(\)/)
   assert.match(shell, /event\.key [!=]+ 'Escape'/)
-  assert.match(shell, /onClick=\{onNavigate\}/)
+  assert.match(shell, /content.inert = true/)
+  assert.match(shell, /event.shiftKey/)
 })
 
 test('dashboard uses plain-language mobile prediction cards', () => {
   const row = read('src/features/dashboard/FixtureRow.tsx')
   assert.match(row, /Modelltipp/)
   assert.match(row, /min-h-11/)
-  assert.match(row, /\{trailing\}/)
+  assert.match(row, /trailing != null/)
 })
 
-test('dashboard and detail share the automatic hint component', () => {
+test('shared match hints expose source-aware outcome probabilities and separate extra context', () => {
   const card = read('src/components/shared/MatchHintCard.tsx')
   const dashboard = read('src/features/dashboard/FixtureRow.tsx')
   const detail = read('src/features/detail/DetailView.tsx')
 
   assert.match(card, /buildMatchHint/)
-  assert.match(card, /Spielausgang/)
-  assert.match(card, /<details/)
-  assert.match(card, /Warum\?/)
-  assert.match(card, /min-h-11/)
-  assert.match(card, /compact \? 'text-sm' : 'text-base'/)
+  assert.match(card, /hint\.probabilities/)
+  assert.match(card, /formatObservedAt\(hint\.observedAt\)/)
+  assert.match(card, /hint\.reasons/)
   assert.match(dashboard, /<MatchHintCard match=\{match\}/)
   assert.match(detail, /<MatchHintCard match=\{match\}/)
 })
@@ -60,8 +59,12 @@ test('fixture cards show the model tip, a short reason and an explicit detail ac
 
 test('detail exposes local copy first and discloses that the saved tip is shared', () => {
   const detail = read('src/features/detail/DetailView.tsx')
+  const tipEditor = read('src/components/shared/SharedTipEditor.tsx')
   assert.match(detail, /Tipp kopieren/)
-  assert.match(detail, /Gemeinsamen Spieltipp speichern/)
+  assert.match(detail, /<SharedTipEditor/)
+  assert.match(tipEditor, /formatScoreFields/)
+  assert.match(tipEditor, /sharedTipIsOpen/)
+  assert.match(tipEditor, /targetCompetition: competition/)
   assert.match(detail, /nicht nutzergetrennt/)
   assert.match(detail, /navigator\.clipboard\.writeText/)
 })
@@ -88,13 +91,6 @@ test('unavailable match data keeps its status and last observation for the empty
   assert.match(queries, /observed_at/)
   assert.match(dashboard, /Spieldaten gerade nicht verfügbar/)
   assert.match(dashboard, /observed_at/)
-})
-
-test('global styling uses the calmer neutral palette and removes the blueprint grid', () => {
-  const css = read('src/index.css')
-  assert.match(css, /#2c6049/i)
-  assert.match(css, /#f5f4ef/i)
-  assert.doesNotMatch(css, /blueprint grid/i)
 })
 
 test('built index references assets that exist in the release artifact', () => {

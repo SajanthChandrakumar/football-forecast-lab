@@ -16,7 +16,7 @@ export function GlassCard({ children, hover, className, ...rest }: Props) {
 
 export function SectionTitle({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <h2 className={cn('text-xs font-bold uppercase tracking-[0.15em] text-fg-3', className)}>
+    <h2 className={cn('text-base font-bold tracking-tight text-fg', className)}>
       {children}
     </h2>
   )

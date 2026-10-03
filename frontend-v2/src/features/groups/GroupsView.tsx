@@ -1,16 +1,14 @@
 import { useMemo } from 'react'
-import { motion } from 'framer-motion'
 import { useArchive, useStandings } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
-import { cn } from '../../lib/util'
 import { GlassCard } from '../../components/shared/GlassCard'
 import { TeamLogo } from '../../components/shared/Badges'
 import type { StandingsRow } from '../../lib/types'
 import { validUclStandingsRows } from '../../lib/standings.mjs'
-import { PageTransition, PageHeader, staggerContainer, staggerItem } from '../../components/shared/PageTransition'
+import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { CardGridSkeleton } from '../../components/shared/Skeleton'
+import { QueryState } from '../../components/shared/QueryState'
 
-// 48 teams in 12 groups — standings computed live from archive results.
 const WC_GROUPS: Record<string, string[]> = {
   A: ['Mexico', 'South Africa', 'South Korea', 'Czechia'],
   B: ['Canada', 'Bosnia and Herzegovina', 'Qatar', 'Switzerland'],
@@ -26,7 +24,6 @@ const WC_GROUPS: Record<string, string[]> = {
   L: ['England', 'Croatia', 'Ghana', 'Panama'],
 }
 
-// Groups view uses its own normalization target names (matches WC_GROUPS keys).
 const NORMALIZE: Record<string, string> = {
   'United States': 'USA', USA: 'USA',
   'Korea Republic': 'South Korea', 'South Korea': 'South Korea',
@@ -36,7 +33,6 @@ const NORMALIZE: Record<string, string> = {
   'Czech Republic': 'Czechia', Czechia: 'Czechia',
   Curacao: 'Curaçao',
 }
-const norm = (t: string) => NORMALIZE[t] ?? t
 
 interface Row {
   team: string
@@ -45,50 +41,46 @@ interface Row {
 }
 
 export function GroupsView() {
-  const { data: archive, isLoading } = useArchive()
-  const { data: standingsData, isLoading: standingsLoading } = useStandings()
+  const archiveQuery = useArchive()
+  const standingsQuery = useStandings()
   const { competition } = useAppState()
+  const { data: archive, isLoading: archiveLoading } = archiveQuery
+  const { data: standingsData, isLoading: standingsLoading } = standingsQuery
 
   const standings = useMemo(() => {
     const rows = new Map<string, Row>()
     for (const teams of Object.values(WC_GROUPS)) {
-      for (const t of teams) rows.set(t, { team: t, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0 })
+      for (const team of teams) rows.set(team, { team, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0 })
     }
-    for (const m of Object.values(archive ?? {})) {
-      const pmr = m.post_match_result
-      if (pmr?.status !== 'completed' || !pmr.actual_score || m.metadata?.is_ko_phase) continue
-      const [hs, as] = pmr.actual_score.split(':').map(Number)
-      if (Number.isNaN(hs) || Number.isNaN(as)) continue
-      const home = rows.get(norm(m.metadata.home_team))
-      const away = rows.get(norm(m.metadata.away_team))
+    for (const match of Object.values(archive ?? {})) {
+      const result = match.post_match_result
+      if (result?.status !== 'completed' || !result.actual_score || match.metadata?.is_ko_phase) continue
+      const [homeGoals, awayGoals] = result.actual_score.split(':').map(Number)
+      if (Number.isNaN(homeGoals) || Number.isNaN(awayGoals)) continue
+      const home = rows.get(normalizeTeam(match.metadata.home_team))
+      const away = rows.get(normalizeTeam(match.metadata.away_team))
       if (!home || !away) continue
       home.p++; away.p++
-      home.gf += hs; home.ga += as
-      away.gf += as; away.ga += hs
-      if (hs > as) { home.w++; away.l++ }
-      else if (as > hs) { away.w++; home.l++ }
+      home.gf += homeGoals; home.ga += awayGoals
+      away.gf += awayGoals; away.ga += homeGoals
+      if (homeGoals > awayGoals) { home.w++; away.l++ }
+      else if (awayGoals > homeGoals) { away.w++; home.l++ }
       else { home.d++; away.d++ }
     }
     return rows
   }, [archive])
 
-  const sortRows = (teams: string[]) =>
-    teams
-      .map((t) => standings.get(t)!)
-      .sort((a, b) => {
-        const pa = a.w * 3 + a.d
-        const pb = b.w * 3 + b.d
-        if (pb !== pa) return pb - pa
-        const gda = a.gf - a.ga
-        const gdb = b.gf - b.ga
-        if (gdb !== gda) return gdb - gda
-        return b.gf - a.gf
-      })
+  const sortRows = (teams: string[]) => teams.map((team) => standings.get(team)!).sort((a, b) => {
+    const pointsDifference = (b.w * 3 + b.d) - (a.w * 3 + a.d)
+    if (pointsDifference) return pointsDifference
+    const goalDifference = (b.gf - b.ga) - (a.gf - a.ga)
+    if (goalDifference) return goalDifference
+    return b.gf - a.gf
+  })
 
   if (competition === 'ucl2026') {
-    const officialRows = standingsData?.flatMap((group) => group.rows ?? []) ?? []
-    const rows = validUclStandingsRows(officialRows)
-    return <UclStandings rows={rows ?? []} valid={Boolean(rows)} isLoading={standingsLoading} />
+    const rows = validUclStandingsRows(standingsData?.flatMap((group) => group.rows ?? []) ?? [])
+    return <UclStandings rows={rows ?? []} valid={Boolean(rows)} isLoading={standingsLoading} error={standingsQuery.error} onRetry={() => void standingsQuery.refetch()} />
   }
 
   if (competition !== 'wc2026') {
@@ -97,93 +89,57 @@ export function GroupsView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Gruppen" subtitle="Tabellen aus den bisherigen Resultaten — Top 2 qualifiziert, Platz 3 mit Playoff-Chance." />
-      {isLoading && <CardGridSkeleton count={6} cols="md:grid-cols-2 xl:grid-cols-3" />}
+      <PageHeader title="Gruppen" subtitle="Berechnet aus den im Archiv gespeicherten abgeschlossenen Gruppenspielen." />
+      <p className="mb-4 text-xs leading-relaxed text-fg-2">Sp. = Spiele · S = Siege · U = Unentschieden · N = Niederlagen · Tore = geschossen:erhalten · TD = Tordifferenz · Pkt = Punkte</p>
+      {archiveLoading && <CardGridSkeleton count={6} cols="md:grid-cols-2 xl:grid-cols-3" />}
+      {!archiveLoading && archiveQuery.error && <QueryState title="Gruppendaten konnten nicht geladen werden" message="Die gespeicherten Spielergebnisse sind derzeit nicht erreichbar." onRetry={() => void archiveQuery.refetch()} />}
 
-      <motion.div
-        variants={staggerContainer} initial="initial" animate="animate"
-        className={cn('grid gap-4 md:grid-cols-2 xl:grid-cols-3', isLoading && 'hidden')}
-      >
-        {Object.entries(WC_GROUPS).map(([group, teams]) => (
-          <motion.div key={group} variants={staggerItem}>
-            <GlassCard className="!p-4">
-              <h3 className="mb-2 font-display text-xl font-extrabold text-emerald-a">Gruppe {group}</h3>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[10px] font-bold uppercase tracking-wider text-fg-3">
-                    <th className="pb-1 text-left">Team</th>
-                    <th className="pb-1 text-right">P</th>
-                    <th className="pb-1 text-right">S</th>
-                    <th className="pb-1 text-right">U</th>
-                    <th className="pb-1 text-right">N</th>
-                    <th className="pb-1 text-right max-sm:hidden">Tore</th>
-                    <th className="pb-1 text-right">TD</th>
-                    <th className="pb-1 text-right">Pkt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortRows(teams).map((r, i) => (
-                    <tr
-                      key={r.team}
-                      className={cn(
-                        'border-t border-line',
-                        i < 2 && 'bg-emerald-dim/40',
-                        i === 2 && 'bg-amber-a/5',
-                        i > 2 && 'opacity-60',
-                      )}
-                    >
-                      <td className="py-1.5 font-semibold text-fg">
-                        <span className="inline-flex items-center gap-1.5"><TeamLogo name={r.team} />{r.team}</span>
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums text-fg-2">{r.p}</td>
-                      <td className="py-1.5 text-right tabular-nums text-fg-2">{r.w}</td>
-                      <td className="py-1.5 text-right tabular-nums text-fg-2">{r.d}</td>
-                      <td className="py-1.5 text-right tabular-nums text-fg-2">{r.l}</td>
-                      <td className="py-1.5 text-right tabular-nums text-fg-2 max-sm:hidden">{r.gf}:{r.ga}</td>
-                      <td className="py-1.5 text-right tabular-nums text-fg-2">{r.gf - r.ga > 0 ? '+' : ''}{r.gf - r.ga}</td>
-                      <td className="display-num py-1.5 text-right text-fg">{r.w * 3 + r.d}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </GlassCard>
-          </motion.div>
-        ))}
-      </motion.div>
+      {!archiveLoading && !archiveQuery.error && <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Object.entries(WC_GROUPS).map(([group, teams]) => <GlassCard key={group} className="min-w-0 !p-4">
+          <h2 className="mb-1 text-base font-medium text-fg">Gruppe {group}</h2>
+          <div className="min-w-0 overflow-x-auto rounded-lg border border-line" role="region" aria-label={`Tabelle Gruppe ${group}`} tabIndex={0}>
+            <table className="w-full min-w-[440px] text-sm">
+              <caption className="sr-only">Gruppe {group}: Spiele, Siege, Unentschieden, Niederlagen, Tore, Tordifferenz und Punkte</caption>
+              <thead><tr className="border-b border-line bg-surface-2 text-xs font-medium text-fg-2">
+                <th scope="col" className="px-3 py-2.5 text-left">Team</th><th scope="col" className="px-2 py-2.5 text-right">Sp.</th><th scope="col" className="px-2 py-2.5 text-right">S</th><th scope="col" className="px-2 py-2.5 text-right">U</th><th scope="col" className="px-2 py-2.5 text-right">N</th><th scope="col" className="px-2 py-2.5 text-right">Tore</th><th scope="col" className="px-2 py-2.5 text-right">TD</th><th scope="col" className="px-3 py-2.5 text-right">Pkt</th>
+              </tr></thead>
+              <tbody>{sortRows(teams).map((row) => <tr key={row.team} className="border-t border-line">
+                <th scope="row" className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-fg"><span className="inline-flex items-center gap-2"><TeamLogo name={row.team} />{row.team}</span></th>
+                <td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.p}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.w}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.d}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.l}</td>
+                <td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.gf}:{row.ga}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.gf - row.ga > 0 ? '+' : ''}{row.gf - row.ga}</td><td className="px-3 py-2.5 text-right font-medium tabular-nums text-fg">{row.w * 3 + row.d}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </GlassCard>)}
+      </div>}
     </PageTransition>
   )
 }
 
-function UclStandings({ rows, valid, isLoading }: { rows: StandingsRow[]; valid: boolean; isLoading: boolean }) {
+function UclStandings({ rows, valid, isLoading, error, onRetry }: { rows: StandingsRow[]; valid: boolean; isLoading: boolean; error: unknown; onRetry: () => void }) {
   const sorted = [...rows].sort((a, b) => (a.pos ?? 999) - (b.pos ?? 999))
   return (
     <PageTransition>
-      <PageHeader title="Ligatabelle" subtitle="Die aktuelle Ligaphase mit Spielen, Torverhältnis und Punkten aller 36 Teams." />
-      {isLoading && <p className="text-fg-2">Ligatabelle wird geladen…</p>}
-      {!isLoading && !valid && <p className="text-fg-2">Die offizielle Ligatabelle ist derzeit nicht vollständig verfügbar.</p>}
-      {valid && <GlassCard className="!p-0 overflow-hidden">
-        <p className="border-b border-line px-5 py-3 text-xs text-fg-2">P Spiele · S Siege · U Unentschieden · N Niederlagen · TD Tordifferenz · Pkt Punkte</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-[10px] font-bold uppercase tracking-wider text-fg-3">
-              <th className="px-5 py-2">#</th><th className="px-2 py-2">Team</th><th className="px-2 py-2 text-right">P</th><th className="px-2 py-2 text-right">S</th><th className="px-2 py-2 text-right">U</th><th className="px-2 py-2 text-right">N</th><th className="px-2 py-2 text-right">TD</th><th className="px-5 py-2 text-right">Pkt</th>
-            </tr></thead>
-            <tbody>{sorted.map((row, index) => {
-              const pos = row.pos ?? index + 1
-              return <tr key={row.team} className={cn('border-t border-line', pos <= 8 && 'bg-emerald-dim/40', pos > 24 && 'opacity-60')}>
-                <td className="px-5 py-2 tabular-nums text-fg-3">{pos}</td>
-                <td className="px-2 py-2 font-semibold text-fg"><TeamLogo name={row.team} src={row.logo} /> <span className="ml-1">{row.team}</span></td>
-                <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.p ?? '–'}</td>
-                <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.w ?? '–'}</td>
-                <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.d ?? '–'}</td>
-                <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.l ?? '–'}</td>
-                <td className="px-2 py-2 text-right tabular-nums text-fg-2">{row.gd ?? '–'}</td>
-                <td className="display-num px-5 py-2 text-right text-fg">{row.pts ?? '–'}</td>
-              </tr>
-            })}</tbody>
+      <PageHeader title="Ligatabelle" subtitle="Die Ligaphase mit Spielen, Torverhältnis und Punkten aller Teams." />
+      {isLoading && <p className="text-sm text-fg-2">Ligatabelle wird geladen…</p>}
+      {!isLoading && Boolean(error) && <QueryState title="Ligatabelle konnte nicht geladen werden" message="Die Tabelle ist derzeit nicht erreichbar." onRetry={onRetry} />}
+      {!isLoading && !error && !valid && <p className="rounded-xl border border-line bg-surface px-5 py-6 text-sm text-fg-2">Die Ligatabelle ist derzeit nicht vollständig verfügbar.</p>}
+      {!isLoading && !error && valid && <GlassCard className="!p-0">
+        <p className="border-b border-line px-5 py-3 text-xs leading-relaxed text-fg-2">Sp. Spiele · S Siege · U Unentschieden · N Niederlagen · TD Tordifferenz · Pkt Punkte</p>
+        <div className="min-w-0 overflow-x-auto" role="region" aria-label="UCL-Ligatabelle" tabIndex={0}>
+          <table className="w-full min-w-[600px] text-sm">
+            <thead><tr className="text-xs font-medium text-fg-2"><th scope="col" className="px-5 py-3 text-left">Pl.</th><th scope="col" className="px-3 py-3 text-left">Team</th><th scope="col" className="px-3 py-3 text-right">Sp.</th><th scope="col" className="px-3 py-3 text-right">S</th><th scope="col" className="px-3 py-3 text-right">U</th><th scope="col" className="px-3 py-3 text-right">N</th><th scope="col" className="px-3 py-3 text-right">TD</th><th scope="col" className="px-5 py-3 text-right">Pkt</th></tr></thead>
+            <tbody>{sorted.map((row, index) => <tr key={row.team} className="border-t border-line">
+              <td className="px-5 py-3 tabular-nums text-fg-2">{row.pos ?? index + 1}</td><th scope="row" className="px-3 py-3 text-left font-medium text-fg"><span className="inline-flex items-center gap-2"><TeamLogo name={row.team} src={row.logo} />{row.team}</span></th>
+              <td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.p ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.w ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.d ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.l ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.gd ?? '–'}</td><td className="px-5 py-3 text-right font-medium tabular-nums text-fg">{row.pts ?? '–'}</td>
+            </tr>)}</tbody>
           </table>
         </div>
       </GlassCard>}
     </PageTransition>
   )
+}
+
+function normalizeTeam(team: string) {
+  return NORMALIZE[team] ?? team
 }

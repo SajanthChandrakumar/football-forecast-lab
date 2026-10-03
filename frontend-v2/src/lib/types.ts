@@ -352,3 +352,14 @@ export interface StandingsGroup {
   name?: string
   rows: StandingsRow[]
 }
+
+export interface ModelEvaluation {
+  competition: CompetitionId
+  completed_count: number
+  captured_count: number
+  common_sample_count: number
+  coverage_rate: number | null
+  exclusions: Record<string, number>
+  metrics: Record<'model' | 'market' | 'elo', { brier_score: number | null; log_loss: number | null }>
+  metric_definitions: { brier_score: string; brier_range: [number, number]; log_loss: string; probability_floor: number }
+}

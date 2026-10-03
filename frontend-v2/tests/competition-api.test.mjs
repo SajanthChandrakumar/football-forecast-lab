@@ -9,6 +9,7 @@ import { hasUclSimulationResults } from '../src/lib/simulation.mjs'
 import * as simulation from '../src/lib/simulation.mjs'
 
 let officialPerformance
+let commonPerformance
 let competitionLabel
 let rankUpcomingValueBets
 let teamFormTeamNames
@@ -17,7 +18,7 @@ let teamFormCoverage
 let teamFormSnapshotState
 let teamsWithoutHistory
 try {
-  ({ officialPerformance } = await import('../src/lib/performance.mjs'))
+  ({ officialPerformance, commonPerformance } = await import('../src/lib/performance.mjs'))
 } catch {
   // The assertion below reports the missing implementation as a failed behavior test.
 }
@@ -191,7 +192,7 @@ test('Team Form reports incomplete UCL ratings and only shows World Cup host bon
   assert.match(view, /role="alert"/)
   assert.match(view, /coverage\.available} von \{coverage\.required\}/)
   assert.match(view, /Fehlende Teams: \{coverage\.missing\.join\(', '\)\}/)
-  assert.match(view, /competition === 'wc2026' && <p/)
+  assert.match(view, /competition === 'wc2026' && ' Für USA, Kanada und Mexiko enthält das WM-Modell \+80 Elo Gastgeberbonus\.'/)
   assert.match(hook, /competition === 'ucl2026' \? ratingTeams : \[\.\.\.allTeams\]/)
 })
 
@@ -223,7 +224,8 @@ test('performance counts only actual user tips and refreshes archive data', () =
 
   assert.match(performance, /userCount/)
   assert.match(scoreboard, /tipped: totals\.userCount/)
-  assert.match(view, /totals\.correctTendency \/ totals\.userCount/)
+  assert.match(view, /comparison\.matches/)
+  assert.match(view, /Gemeinsame Tipps und Modell im fairen Vergleich/)
   assert.match(refresh, /invalidateQueries\(\{ queryKey: \['archive', competition\] \}\)/)
 })
 
@@ -266,6 +268,48 @@ test('performance includes Elo reconstructions and reports their points separate
       broker: { pts: 15, tipped: 2, tendency: 2 },
       professor: { pts: 16, tipped: 2, tendency: 2 },
     },
+  })
+})
+
+test('shared-tip comparison uses only completed matches with both pre-match tips and official points', () => {
+  const result = commonPerformance({
+    shared: {
+      prediction: { user_tip: '1:0', top_tip: '2:1', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 8, algo_points: 5 },
+    },
+    noSharedTip: {
+      prediction: { top_tip: '1:0', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: null, algo_points: 8 },
+    },
+    noModelTip: {
+      prediction: { user_tip: '1:0', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 5, algo_points: 0 },
+    },
+    unavailableModelTip: {
+      prediction: { user_tip: '1:0', top_tip: 'N/A', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 5, algo_points: 0 },
+    },
+    reconstructed: {
+      prediction: { user_tip: '0:0', top_tip: '1:0', algo_reconstructed: true },
+      post_match_result: { status: 'completed', points_earned: 10, algo_points: 10 },
+    },
+    missingModelPoints: {
+      prediction: { user_tip: '1:1', top_tip: '2:1', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 8, algo_points: null },
+    },
+    pending: {
+      prediction: { user_tip: '0:0', top_tip: '1:0', algo_reconstructed: false },
+      post_match_result: { status: 'pending', points_earned: 5, algo_points: 8 },
+    },
+  })
+
+  assert.deepEqual(result, {
+    matches: 1,
+    userPoints: 8,
+    userTendency: 1,
+    algoPoints: 5,
+    algoTendency: 1,
+    matchIds: ['shared'],
   })
 })
 

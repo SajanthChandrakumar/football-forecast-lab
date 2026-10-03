@@ -2,6 +2,40 @@ export function isOfficialPerformanceEntry(entry) {
   return entry?.post_match_result?.status === 'completed'
 }
 
+export function commonPerformance(archive) {
+  const result = {
+    matches: 0,
+    userPoints: 0,
+    userTendency: 0,
+    algoPoints: 0,
+    algoTendency: 0,
+    matchIds: [],
+  }
+
+  for (const [matchId, entry] of Object.entries(archive ?? {})) {
+    if (!isOfficialPerformanceEntry(entry)) continue
+
+    const prediction = entry?.prediction ?? {}
+    const outcome = entry?.post_match_result ?? {}
+    if (prediction.algo_reconstructed === true) continue
+    if (!isScoreTip(prediction.user_tip) || !isScoreTip(prediction.top_tip)) continue
+    if (outcome.points_earned == null || outcome.algo_points == null) continue
+
+    result.matches++
+    result.matchIds.push(matchId)
+    result.userPoints += outcome.points_earned
+    result.algoPoints += outcome.algo_points
+    if (outcome.points_earned >= 5) result.userTendency++
+    if (outcome.algo_points >= 5) result.algoTendency++
+  }
+
+  return result
+}
+
+function isScoreTip(value) {
+  return typeof value === 'string' && /^\d+:\d+$/.test(value)
+}
+
 export function officialPerformance(archive, botKeys) {
   const botStats = Object.fromEntries(
     botKeys.map((key) => [key, { pts: 0, tipped: 0, tendency: 0 }]),

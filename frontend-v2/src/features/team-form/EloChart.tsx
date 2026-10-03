@@ -2,11 +2,11 @@ import { useMemo } from 'react'
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { teamsWithoutHistory } from '../../lib/team-form.mjs'
+import { formatEloTimestamp, teamsWithoutHistory } from '../../lib/team-form.mjs'
 import type { EloHistory } from '../../lib/types'
 import type { MatchInfo } from './useTeamFormData'
 
-const LINE_COLORS = ['#10b981', '#d4af37', '#5b9bd5', '#9b6dd1', '#de7a76', '#d9a441', '#4dd0c4', '#9a9a9a']
+const LINE_COLORS = ['var(--emerald)', 'var(--gold)', 'var(--purple)', 'var(--red)']
 
 interface Props {
   teams: string[]
@@ -30,9 +30,7 @@ function buildRows(teams: string[], history: EloHistory | undefined): ChartRow[]
   return ordered.map((ts) => {
     const row: ChartRow = {
       ts,
-      label: ts === 0
-        ? 'Start'
-        : new Date(ts * 1000).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit' }),
+      label: formatEloTimestamp(ts),
     }
     for (const t of teams) {
       const p = (history[t] ?? []).find((x) => x.timestamp === ts)
@@ -66,17 +64,19 @@ export function EloChart({ teams, history, matchInfo }: Props) {
         </p>
       )}
       {rows.length > 0 && (
-        <div className="h-80">
+        <div className="h-80 w-full min-w-0" role="region" aria-label={`Elo-Verlauf für ${teams.join(', ')}`}>
+          <p className="sr-only">Der Verlauf zeigt die gespeicherten Elo-Werte nach Datum. Die Achsenbeschriftungen enthalten das Jahr; die Legende ordnet jede Linie einem Team zu.</p>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
+            <LineChart accessibilityLayer data={rows} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'var(--border)' }} />
               <YAxis domain={['auto', 'auto']} tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
               <Tooltip content={<EloTooltip matchInfo={matchInfo} />} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12, color: 'var(--text-2)' }} />
               {teams.map((t, i) => (
                 <Line
                   key={t}
+                  isAnimationActive={false}
                   type="monotone"
                   dataKey={t}
                   stroke={LINE_COLORS[i % LINE_COLORS.length]}
@@ -120,7 +120,7 @@ function EloTooltip({ active, label, payload, matchInfo }: TooltipProps) {
             <span className="tabular-nums text-fg-2">{entry.value}</span>
             {info && (
               <span className="text-fg-3">
-                · {info.score} vs {info.opponent} ({RESULT_LABEL[info.result]})
+                · {info.score} gegen {info.opponent} ({RESULT_LABEL[info.result]})
               </span>
             )}
           </div>
