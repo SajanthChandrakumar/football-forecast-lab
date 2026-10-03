@@ -83,9 +83,9 @@ def simulate_knockout(elo_ratings: dict[str, float], n_runs: int = 20_000, seed:
         results.append({
             "team": team,
             "elo": round(float(team_elo[i]), 1),
-            "reached_qf": round(float(np.mean(r16_winners == i)) * 100, 1),
-            "reached_sf": round(float(np.mean(qf_winners == i)) * 100, 1),
-            "reached_final": round(float(np.mean(sf_winners == i)) * 100, 1),
+            "reached_qf": round(float(np.mean(np.any(r16_winners == i, axis=1))) * 100, 1),
+            "reached_sf": round(float(np.mean(np.any(qf_winners == i, axis=1))) * 100, 1),
+            "reached_final": round(float(np.mean(np.any(sf_winners == i, axis=1))) * 100, 1),
             "champion": round(float(np.mean(champion == i)) * 100, 1),
         })
     results.sort(key=lambda r: r["champion"], reverse=True)
