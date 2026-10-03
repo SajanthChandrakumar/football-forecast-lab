@@ -9,6 +9,7 @@ import { hasUclSimulationResults } from '../src/lib/simulation.mjs'
 import * as simulation from '../src/lib/simulation.mjs'
 
 let officialPerformance
+let commonPerformance
 let performanceEntryKind
 let competitionLabel
 let rankUpcomingValueBets
@@ -19,7 +20,7 @@ let teamFormSnapshotState
 let teamFormCanonicalName
 let teamsWithoutHistory
 try {
-  ({ officialPerformance, performanceEntryKind } = await import('../src/lib/performance.mjs'))
+  ({ officialPerformance, performanceEntryKind, commonPerformance } = await import('../src/lib/performance.mjs'))
 } catch {
   // The assertion below reports the missing implementation as a failed behavior test.
 }
@@ -55,9 +56,11 @@ test('fallback competition registry includes Premier League in both selectors', 
   assert.deepEqual(FALLBACK_COMPETITIONS.find(({ id }) => id === 'epl2026'), {
     id: 'epl2026', short_name: 'PL 2026/27', display_name: 'Premier League 2026/27',
   })
-  for (const path of ['../src/components/layout/Sidebar.tsx', '../src/components/layout/AppShell.tsx']) {
-    assert.match(readFileSync(new URL(path, import.meta.url), 'utf8'), /FALLBACK_COMPETITIONS/)
-  }
+  const sidebar = readFileSync(new URL('../src/components/layout/Sidebar.tsx', import.meta.url), 'utf8')
+  const shell = readFileSync(new URL('../src/components/layout/AppShell.tsx', import.meta.url), 'utf8')
+  assert.match(sidebar, /FALLBACK_COMPETITIONS/)
+  assert.match(shell, /<CompetitionSelect/)
+  assert.match(sidebar, /export function CompetitionSelect/)
 })
 
 test('competition labels use new event metadata without presenting it as the World Cup', () => {
@@ -100,13 +103,10 @@ test('Premier League standings require the complete, uniquely ranked 20-club tab
 
   const view = readFileSync(new URL('../src/features/groups/GroupsView.tsx', import.meta.url), 'utf8')
   assert.match(view, /competition === 'epl2026'/)
-  assert.match(view, /PremierLeagueStandings/)
-  const tableStart = view.indexOf('function PremierLeagueStandings')
-  const tableEnd = view.indexOf('function UclStandings', tableStart)
-  assert.notEqual(tableStart, -1)
-  assert.notEqual(tableEnd, -1)
-  const table = view.slice(tableStart, tableEnd)
-  assert.doesNotMatch(table, /Top 8|qualifiz|pos <= 8|pos > 24/)
+  assert.match(view, /premierLeague \? validPremierLeagueStandingsRows : validUclStandingsRows/)
+  assert.match(view, /Premier-League-Tabelle/)
+  assert.doesNotMatch(view, /Top 8|qualifiz|pos <= 8|pos > 24/)
+
 })
 
 test('hasScoreMatrix rejects empty matrices', () => {
@@ -275,8 +275,9 @@ test('Premier League loads scoped ClubElo provenance and exposes stale ratings',
   const queries = readFileSync(new URL('../src/hooks/queries.ts', import.meta.url), 'utf8')
   const view = readFileSync(new URL('../src/features/team-form/TeamFormView.tsx', import.meta.url), 'utf8')
   assert.match(queries, /enabled: competition === 'ucl2026' \|\| competition === 'epl2026'/)
-  assert.match(view, /staleEplRatings/)
-  assert.match(view, /ClubElo-Datenstand für die Premier League ist möglicherweise veraltet/)
+  assert.match(view, /coverage\.showAlert/)
+  assert.match(view, /competition === 'epl2026' \? 'Premier-League'/)
+  assert.match(view, /Die Aktualität der ClubElo-Daten/)
 })
 
 test('Team Form surfaces stale partial ClubElo refresh while keeping complete last-known ratings usable', () => {
@@ -307,7 +308,8 @@ test('performance counts only actual user tips and refreshes archive data', () =
 
   assert.match(performance, /userCount/)
   assert.match(scoreboard, /tipped: totals\.userCount/)
-  assert.match(view, /totals\.correctTendency \/ totals\.userCount/)
+  assert.match(view, /comparison\.userTendency/)
+  assert.match(view, /comparison\.matches/)
   assert.match(refresh, /invalidateQueries\(\{ queryKey: \['archive', competition\] \}\)/)
 })
 
@@ -439,10 +441,10 @@ test('performance summary and points race use the complete saved algorithm total
   const view = readFileSync(new URL('../src/features/performance/PerformanceView.tsx', import.meta.url), 'utf8')
   const race = readFileSync(new URL('../src/features/performance/PointsRaceChart.tsx', import.meta.url), 'utf8')
 
-  assert.match(view, /Algo · \{totals\.algoAllCount\} Tipps gesamt/)
+  assert.match(view, /Modell · \{totals\.algoAllCount\} Tipps gesamt/)
   assert.match(view, /\{totals\.algoAllTotal\}/)
   assert.match(view, /belegte Vorabspiele/)
-  assert.match(race, /running\['Algo gesamt'\] \+= entry\.post_match_result\.algo_points \?\? 0/)
+  assert.match(race, /running\['Modell gesamt'\] \+= entry\.post_match_result\.algo_points \?\? 0/)
   assert.doesNotMatch(race, /filter\(\(\{ entry \}\) => isOfficialPerformanceEntry\(entry\)\)/)
 })
 
@@ -494,5 +496,52 @@ test('performance separates unverifiable legacy tips from verified pre-match tip
     reconstructedCount: 1,
     probabilityCount: 1,
     brierScore: 0.245,
+  })
+})
+
+test('shared-tip comparison uses only completed matches with both pre-match tips and official points', () => {
+  const result = commonPerformance(Object.fromEntries(Object.entries({
+    shared: {
+      prediction: { user_tip: '1:0', top_tip: '2:1', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 8, algo_points: 5 },
+    },
+    noSharedTip: {
+      prediction: { top_tip: '1:0', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: null, algo_points: 8 },
+    },
+    noModelTip: {
+      prediction: { user_tip: '1:0', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 5, algo_points: 0 },
+    },
+    unavailableModelTip: {
+      prediction: { user_tip: '1:0', top_tip: 'N/A', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 5, algo_points: 0 },
+    },
+    reconstructed: {
+      prediction: { user_tip: '0:0', top_tip: '1:0', algo_reconstructed: true },
+      post_match_result: { status: 'completed', points_earned: 10, algo_points: 10 },
+    },
+    missingModelPoints: {
+      prediction: { user_tip: '1:1', top_tip: '2:1', algo_reconstructed: false },
+      post_match_result: { status: 'completed', points_earned: 8, algo_points: null },
+    },
+    pending: {
+      prediction: { user_tip: '0:0', top_tip: '1:0', algo_reconstructed: false },
+      post_match_result: { status: 'pending', points_earned: 5, algo_points: 8 },
+    },
+  }).map(([id, entry]) => [id, {
+    ...entry,
+    metadata: { commence_time: '2026-09-10T18:00:00Z' },
+    prediction: { frozen_at: '2026-09-10T17:50:00Z', probabilities: { home: 0.6, draw: 0.25, away: 0.15 }, ...entry.prediction },
+    post_match_result: { actual_score: '2:1', ...entry.post_match_result },
+  }])))
+
+  assert.deepEqual(result, {
+    matches: 1,
+    userPoints: 8,
+    userTendency: 1,
+    algoPoints: 5,
+    algoTendency: 1,
+    matchIds: ['shared'],
   })
 })

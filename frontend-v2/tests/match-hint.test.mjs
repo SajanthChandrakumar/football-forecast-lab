@@ -23,7 +23,25 @@ test('uses margin-free bookmaker probabilities before model probabilities', () =
   assert.equal(hint.source, 'bookmaker')
   assert.equal(hint.sourceLabel, 'Buchmacherquote')
   assert.equal(hint.confidence, 'high')
-  assert.match(hint.summary, /^Bayern ist klarer Favorit\./)
+  assert.ok(hint.probabilities.home > hint.probabilities.draw)
+  assert.ok(Math.abs(hint.probabilities.home + hint.probabilities.draw + hint.probabilities.away - 1) < 1e-12)
+  assert.equal(hint.summary, 'Die höchste Einzelwahrscheinlichkeit entfällt auf Bayern.')
+})
+
+test('keeps probability source and observed time aligned, with missing times explicit', () => {
+  const market = buildMatchHint(match({
+    odds: { home: 2, draw: 3, away: 4 },
+    odds_observed_at: '2026-10-01T12:00:00Z',
+    observed_at: '2026-10-02T12:00:00Z',
+  }))
+  assert.equal(market.observedAt, '2026-10-01T12:00:00Z')
+
+  const model = buildMatchHint(match({
+    source_mode: 'elo-only',
+    probabilities: { home: 0.5, draw: 0.3, away: 0.2 },
+    observed_at: null,
+  }))
+  assert.equal(model.observedAt, null)
 })
 
 test('uses model probabilities only for elo-only matches', () => {
@@ -34,7 +52,7 @@ test('uses model probabilities only for elo-only matches', () => {
   assert.equal(hint.source, 'elo')
   assert.equal(hint.sourceLabel, 'Elo-Modellquote · nicht wettbar')
   assert.equal(hint.confidence, 'medium')
-  assert.match(hint.summary, /^Bayern ist leichter Favorit\./)
+  assert.equal(hint.summary, 'Die höchste Einzelwahrscheinlichkeit entfällt auf Bayern.')
 })
 
 test('returns an explicit unavailable hint instead of guessing', () => {
@@ -46,6 +64,8 @@ test('returns an explicit unavailable hint instead of guessing', () => {
     confidenceLabel: 'Nicht verfügbar',
     source: 'unavailable',
     sourceLabel: 'Nicht verfügbar',
+    probabilities: null,
+    observedAt: null,
     reasons: [],
   })
 })
@@ -56,7 +76,7 @@ test('classifies a narrow probability spread as low confidence', () => {
     source_mode: 'elo-only',
   }))
   assert.equal(hint.confidence, 'low')
-  assert.equal(hint.summary, 'Das Spiel ist sehr ausgeglichen.')
+  assert.equal(hint.summary, 'Die höchste Einzelwahrscheinlichkeit entfällt auf Bayern.')
 })
 
 test('describes draw as the most likely single outcome without team reasons', () => {
@@ -67,7 +87,7 @@ test('describes draw as the most likely single outcome without team reasons', ()
     xg_away: 1,
     home_form: { form: ['W'], on_fire: true },
   }))
-  assert.equal(hint.summary, 'Ein Unentschieden ist der wahrscheinlichste einzelne Ausgang.')
+  assert.equal(hint.summary, 'Die höchste Einzelwahrscheinlichkeit liegt beim Unentschieden.')
   assert.deepEqual(hint.reasons, [])
 })
 
@@ -84,7 +104,7 @@ test('keeps at most two aligned reasons in priority order', () => {
   assert.equal(hint.reasons.length, 2)
   assert.equal(hint.reasons[0], 'Torerwartung: Bayern 1.84 zu Arsenal 1.22.')
   assert.equal(hint.reasons[1], 'Bayern kommt mit der stärkeren aktuellen Form.')
-  assert.equal(hint.summary, 'Bayern ist klarer Favorit. Torerwartung: Bayern 1.84 zu Arsenal 1.22.')
+  assert.equal(hint.summary, 'Die höchste Einzelwahrscheinlichkeit entfällt auf Bayern.')
 })
 
 test('uses Elo, absences, and knockout context only when their exact conditions match', () => {

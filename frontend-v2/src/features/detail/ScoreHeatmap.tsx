@@ -9,7 +9,7 @@ export function ScoreHeatmap({ calc, modelTip, homeDisp, awayDisp }: {
 }) {
   const { light } = useAppState()
   const matrix = calc.matrix
-  if (!matrix || !hasScoreMatrix(matrix)) return <p className="text-sm text-fg-3">Score data unavailable.</p>
+  if (!matrix || !hasScoreMatrix(matrix)) return <p className="text-sm text-fg-3">Keine Ergebniswahrscheinlichkeiten verfügbar.</p>
   const maxP = calc.max_prob
     ?? Math.max(...Object.values(matrix).flatMap((row) => Object.values(row)), 0.0001)
   const goals = [0, 1, 2, 3, 4, 5]
@@ -30,7 +30,7 @@ export function ScoreHeatmap({ calc, modelTip, homeDisp, awayDisp }: {
           </ol>
           {modelTip && summary.modelTipChance !== null && (
             <p className="rounded-lg border border-line px-3 py-2 text-xs leading-relaxed text-fg-2">
-              Unser Tipp <strong className="text-fg">{modelTip}</strong> hat {(summary.modelTipChance * 100).toFixed(1)} % Chance, exakt einzutreffen. Er wird nach erwarteten Tippspielpunkten gewählt – deshalb muss er nicht das wahrscheinlichste Einzelergebnis sein.
+              Modelltipp <strong className="text-fg">{modelTip}</strong> hat {(summary.modelTipChance * 100).toFixed(1)} % Chance, exakt einzutreffen. Er wird nach erwarteten Tippspielpunkten gewählt – deshalb muss er nicht das wahrscheinlichste Einzelergebnis sein.
             </p>
           )}
         </div>

@@ -1,7 +1,7 @@
 import type {
   Archive, BotSimulation, CompetitionId, CompetitionInfo, CustomBot, CustomBotParams, EloHistory,
   EloRatings, EloRatingsStatus, KnockoutSimulation, MatchIntelligence, MatchesResponse, PoolContext, Prediction, Quota, RawMatch,
-  StandingsGroup, UclSimulation,
+  StandingsGroup, UclSimulation, ModelEvaluation,
 } from './types'
 import { competitionPath } from './competition.mjs'
 import { DEFAULT_UCL_SIMULATION_RUNS, uclSimulationPath } from './simulation.mjs'
@@ -31,6 +31,7 @@ export const api = {
       body: JSON.stringify({ match, is_ko: Boolean(match.is_ko_phase) }),
     }),
   archive: (competition: CompetitionId) => request<Archive>(competitionPath('/archive', competition)),
+  modelEvaluation: (competition: CompetitionId) => request<ModelEvaluation>(competitionPath('/model-evaluation', competition)),
   standings: (competition: CompetitionId) => request<StandingsGroup[]>(competitionPath('/standings', competition)),
   eloHistory: (competition: CompetitionId) => request<EloHistory>(competitionPath('/elo_history', competition)),
   eloRatings: (competition: CompetitionId) => request<EloRatings>(competitionPath('/elo_ratings', competition)),

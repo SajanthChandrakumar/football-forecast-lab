@@ -18,6 +18,7 @@ from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
 from src.services.model_evaluation import freeze_due_comparisons
+from src.services.forecast_evaluation import capture_archive_forecasts
 from src.quota_store import ProviderBudgetExceeded
 from src.services.snapshots import append_odds_snapshot, due_buckets, mark_bucket, parse_time
 
@@ -35,6 +36,7 @@ def run_maintenance(
     competition=None,
     now=None,
     force: bool = False,
+    allow_force_capture: bool = False,
     lease_seconds: int = LEASE_SECONDS,
     fixture_fetcher=None,
     clubelo_ingestor=None,
@@ -50,7 +52,7 @@ def run_maintenance(
     should invoke normal maintenance.
     """
     comp = get_competition(competition)
-    if force:
+    if force and (not allow_force_capture or archive_collections is None or math_engine is None):
         result = {"status": "noop", "reason": "force_disabled", "provider_calls": 0, "mutated": False}
         if comp.is_club_competition:
             result["team_form_status"] = {"status": "skipped", "reason": "force_disabled"}
@@ -104,6 +106,15 @@ def run_maintenance(
     team_form_status = None
     match_intelligence_status = None
     try:
+        def capture_evaluation():
+            if archive_collections is None or math_engine is None:
+                return 0
+            return capture_archive_forecasts(cache_collection, collection_for(archive_collections, comp),
+                PredictionService(math_engine), competition=comp, now=current)
+        if force:
+            captured = capture_evaluation()
+            return {"status": "noop", "reason": "force_disabled", "provider_calls": 0,
+                    "mutated": bool(captured), "evaluation_captured": captured}
         if comp.id == "ucl2026":
             team_form_status = {"status": "unavailable", "source": "api_football", "error": "team form service unavailable"}
             if team_form_service is not None:
@@ -211,6 +222,7 @@ def run_maintenance(
         if not due_by_event and not discovery_due:
             predictions_updated = _persist_club_predictions(cache_collection, comp, math_engine, clubelo_status)
             forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
+            evaluation_captured = capture_evaluation()
             return {
                 "status": "idle",
                 "provider_calls": 0,
@@ -221,6 +233,7 @@ def run_maintenance(
                     or snapshot_predictions
                     or predictions_updated
                     or forecasts_frozen
+                    or evaluation_captured
                     or (standings_status is not None and standings_status.get("changed"))
                 ),
                 "buckets": [],
@@ -231,6 +244,7 @@ def run_maintenance(
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
                 "forecasts_frozen": forecasts_frozen,
+            "evaluation_captured": evaluation_captured,
                 **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
                 **({"standings_status": standings_status} if standings_status is not None else {}),
             }
@@ -249,6 +263,7 @@ def run_maintenance(
                 cache_collection, comp, math_engine, clubelo_status
             )
             forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
+            evaluation_captured = capture_evaluation()
             return {
                 "status": "skipped" if budget_blocked else "failed",
                 **({"reason": "provider_budget_blocked"} if budget_blocked else {}),
@@ -265,6 +280,7 @@ def run_maintenance(
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
                 "forecasts_frozen": forecasts_frozen,
+            "evaluation_captured": evaluation_captured,
                 **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
                 **({"standings_status": standings_status} if standings_status is not None else {}),
             }
@@ -302,6 +318,7 @@ def run_maintenance(
                     _store_fixture_odds(cache_collection, comp, event_id, odds, match, current)
         _persist_club_predictions(cache_collection, comp, math_engine, clubelo_status)
         forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
+        evaluation_captured = capture_evaluation()
         return {
             "status": "success",
             "provider_calls": 1,
@@ -315,6 +332,7 @@ def run_maintenance(
             "reconstructed_results": reconstructed_results,
             "snapshot_predictions": snapshot_predictions,
             "forecasts_frozen": forecasts_frozen,
+            "evaluation_captured": evaluation_captured,
             "discovery": discovery_due,
             **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
             **({"standings_status": standings_status} if standings_status is not None else {}),

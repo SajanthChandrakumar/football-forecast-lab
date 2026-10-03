@@ -1,191 +1,70 @@
+import { FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
 import { NavLink } from 'react-router-dom'
-import { useQuota, useRefreshData } from '../../hooks/queries'
+import { useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
-import { Switch } from '../ui/Switch'
 import { cn } from '../../lib/util'
-import { competitionLabel, FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
 
-const NAV = [
-  { to: '/', icon: '▦', label: 'Spiele' },
-  { to: '/performance', icon: '◈', label: 'Meine Tipps' },
+export const PRIMARY_NAV = [
+  { to: '/', label: 'Spiele', icon: 'fixtures' },
+  { to: '/performance', label: 'Gemeinsame Tipps', icon: 'tips' },
+  { to: '/groups', label: 'Tabellen', icon: 'table' },
 ]
-
-const MORE_NAV = [
-  { to: '/value-bets', icon: '↑', label: 'Tipp-Chancen' },
-  { to: '/edge', icon: '⇄', label: 'Modellvergleich' },
-  { to: '/team-form', icon: '∿', label: 'Teamvergleich' },
-  { to: '/groups', icon: '▤', label: 'Tabelle' },
-  { to: '/simulator', icon: '🎲', label: 'K.O. Simulator' },
+export const MORE_NAV = [
+  { to: '/value-bets', label: 'Tipp-Chancen', icon: 'chances', description: 'Spiele nach erwarteten Punkten' },
+  { to: '/team-form', label: 'Teams vergleichen', icon: 'teams', description: 'Stärke und bisherige Ergebnisse' },
+  { to: '/edge', label: 'Modell & Markt', icon: 'compare', description: 'Unterschiedliche Einschätzungen' },
+  { to: '/simulator', label: 'Turnier simulieren', icon: 'trophy', description: 'Mögliche Turnierverläufe' },
 ]
-
-function QuotaMeter() {
-  const { data } = useQuota()
-  const rows = [
-    { label: 'Odds API', q: data?.odds },
-    { label: 'Football API', q: data?.football },
-  ]
-  return (
-    <div className="glass space-y-3 p-3.5">
-      {rows.map(({ label, q }) => {
-        const remaining = Number(q?.remaining)
-        const used = Number(q?.used)
-        const total = Number.isFinite(remaining) && Number.isFinite(used) ? remaining + used : null
-        const pct = total ? (remaining / total) * 100 : 0
-        return (
-          <div key={label}>
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-fg-3">{label}</span>
-              <span className="text-right">
-                <span className="display-num text-lg text-fg">{q?.remaining ?? '…'}</span>
-                <span className="ml-1 text-[10px] text-fg-3">/ {q?.used ?? '…'} used</span>
-              </span>
-            </div>
-            <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${pct}%`,
-                  background: pct > 30 ? 'var(--emerald)' : pct > 10 ? 'var(--amber)' : 'var(--red)',
-                }}
-              />
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
+const ICON_PATHS: Record<string, string> = {
+  fixtures: 'M4 5h16v15H4z M8 3v4 M16 3v4 M4 10h16 M8 14h2 M14 14h2',
+  tips: 'M5 3h14v18H5z M8 8h8 M8 12h4 M10 16l2 2 4-4',
+  table: 'M4 4h16v16H4z M4 9h16 M9 9v11 M4 14h16',
+  chances: 'M4 18l5-6 4 3 7-10 M14 5h6v6',
+  teams: 'M4 20v-2a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v2 M17 14a4 4 0 0 1 3 4v2 M12 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M17 4a3 3 0 0 1 0 6',
+  compare: 'M4 8h15 M15 4l4 4-4 4 M20 16H5 M9 12l-4 4 4 4',
+  trophy: 'M8 3h8v6a4 4 0 0 1-8 0z M8 5H4v3a4 4 0 0 0 4 4 M16 5h4v3a4 4 0 0 1-4 4 M12 13v5 M8 21h8 M10 18h4',
+  more: 'M5 12h1 M11.5 12h1 M18 12h1',
 }
-
-function SidebarButtons() {
+export function NavIcon({ name, className = 'h-[18px] w-[18px]' }: { name: string; className?: string }) {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={ICON_PATHS[name] ?? ICON_PATHS.more} /></svg>
+}
+export function Brand() {
+  return <span className="brand"><span className="brand-mark"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor"><path d="M5 4h15v4H9v3h8v4H9v6H5z" /><path d="M13 18h7v3h-7z" /></svg></span><span className="brand-name">Forecast Lab<span>Football intelligence</span></span></span>
+}
+export function CompetitionSelect() {
+  const { competition, setCompetition, competitions } = useAppState()
+  const options = competitions.length ? competitions : FALLBACK_COMPETITIONS
+  return <label className="competition-select block text-[9px] font-bold uppercase tracking-[0.14em] text-fg-3">Wettbewerb
+    <select aria-label="Wettbewerb" value={competition} onChange={e => setCompetition(e.target.value)} className="mt-2.5 min-h-11 w-full rounded border border-line-2 bg-surface px-3 text-xs font-semibold normal-case tracking-normal text-fg">
+      {options.map(item => <option key={item.id} value={item.id}>{item.id === 'wc2026' ? 'WM 2026' : item.short_name}</option>)}
+    </select>
+  </label>
+}
+export function Settings() {
+  const { light, toggleTheme } = useAppState()
   const refresh = useRefreshData()
-
-  return (
-    <div className="space-y-2">
-      <button
-        onClick={() => refresh.mutate()}
-        disabled={refresh.isPending}
-        className="min-h-11 w-full rounded-xl px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-50"
-        style={{
-          background: 'var(--cobalt)',
-        }}
-      >
-        {refresh.isPending ? 'Lade…' : 'Gespeicherte Spiele neu laden'}
-      </button>
-    </div>
-  )
+  return <div className="settings space-y-2">
+    <button type="button" onClick={toggleTheme} className="flex min-h-11 w-full items-center justify-between rounded px-3 text-xs text-fg-2 hover:bg-surface-2"><span>Darstellung</span><span className="font-medium text-fg">{light ? 'Hell' : 'Dunkel'}</span></button>
+    <button type="button" onClick={() => refresh.mutate()} disabled={refresh.isPending} className="min-h-11 w-full rounded border border-line px-3 text-left text-xs text-fg-2 hover:bg-surface-2 disabled:opacity-50">{refresh.isPending ? 'Wird geladen…' : 'Gespeicherte Daten neu laden'}</button>
+    {refresh.isError && <p role="alert" className="px-3 text-xs text-red-a">Daten konnten nicht neu geladen werden. Bitte erneut versuchen.</p>}
+    {refresh.isSuccess && <p role="status" className="px-3 text-xs text-fg-3">Gespeicherte Daten geladen.</p>}
+  </div>
 }
-
 export function Sidebar() {
-  const { competition, setCompetition, competitions, competitionsLoading, light, toggleTheme } = useAppState()
-  return (
-    <aside className="hidden w-64 shrink-0 flex-col gap-5 border-r border-line bg-surface p-5 lg:flex">
-      {/* Brand */}
-      <div className="rounded-2xl bg-[#193b2b] px-3 py-3">
-        <span className="block truncate font-display text-lg font-bold text-[#f8f7f2]">
-          Football Forecast Lab
-        </span>
-        <span className="mt-1 block text-[10px] leading-4 text-[#cbdccf]">
-          {competitionLabel(competition, competitions)} · Statistische Fussballprognosen und transparente Modellanalyse.
-        </span>
-      </div>
-
-      <nav>
-        <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Übersicht</div>
-        <ul className="space-y-1">
-          {NAV.map(({ to, icon, label }) => (
-            <li key={to}>
-              <NavLink
-                to={to}
-                end={to === '/'}
-                className={({ isActive }) =>
-                  cn(
-                    'relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition',
-                    isActive
-                      ? 'bg-emerald-dim text-fg'
-                      : 'text-fg-2 hover:bg-surface hover:text-fg',
-                  )
-                }
-              >
-                <span className="w-4 text-center text-emerald-a/80">{icon}</span>
-                {label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-        <details className="mt-3 border-t border-line pt-3">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-xl px-3 text-sm font-semibold text-fg-2 hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
-            Weitere Ansichten <span aria-hidden="true">⌄</span>
-          </summary>
-          <ul className="mt-1 space-y-1">
-            {MORE_NAV.map(({ to, icon, label }) => (
-              <li key={to}>
-                <NavLink to={to} className={({ isActive }) => cn('flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold', isActive ? 'bg-emerald-dim text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg')}>
-                  <span className="w-4 text-center text-emerald-a/80">{icon}</span>{label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </details>
+  return <aside className="app-sidebar sticky top-0 hidden h-dvh shrink-0 flex-col lg:flex">
+    <div className="flex h-[85px] shrink-0 items-center px-6"><Brand /></div>
+    <div className="min-h-0 flex-1 overflow-y-auto px-4">
+      <div className="border-y border-[#304334] px-1 py-6"><CompetitionSelect /></div>
+      <nav aria-label="Hauptnavigation" className="space-y-1 pb-6 pt-5">
+        <p className="px-3 pb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#7f9885]">Spieltag</p>
+        {PRIMARY_NAV.map(({ to, label, icon }) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => cn('side-nav', isActive && 'active')}><NavIcon name={icon} />{label}</NavLink>)}
+        <p className="px-3 pb-2 pt-7 text-[9px] font-bold uppercase tracking-[0.15em] text-[#7f9885]">Analysen</p>
+        {MORE_NAV.map(({ to, label, icon }) => <NavLink key={to} to={to} className={({ isActive }) => cn('side-nav', isActive && 'active')}><NavIcon name={icon} />{label}</NavLink>)}
       </nav>
-
-      <div>
-        <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Wettbewerb</div>
-        <label className="flex cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 hover:bg-surface">
-          <span>
-            <span className="block text-sm font-bold text-fg">{competitionLabel(competition, competitions)}</span>
-            <span className="block text-xs text-fg-3">{competitionsLoading ? 'Lädt…' : 'Spiele und Auswertung'}</span>
-          </span>
-          <select
-            aria-label="Wettbewerb"
-            value={competition}
-            onChange={(e) => setCompetition(e.target.value)}
-            className="max-w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs font-semibold text-fg outline-none focus:border-emerald-a/50"
-          >
-            {(competitions.length ? competitions : FALLBACK_COMPETITIONS).map((item) => <option key={item.id} value={item.id}>{item.short_name}</option>)}
-          </select>
-        </label>
-      </div>
-
-      <div>
-        <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-fg-2">Darstellung</div>
-        <label className="flex cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 hover:bg-surface">
-          <span>
-            <span className="block text-sm font-bold text-fg">Helles Design</span>
-            <span className="block text-[11px] text-fg-3">Hell oder dunkel</span>
-          </span>
-          <Switch checked={light} onCheckedChange={toggleTheme} />
-        </label>
-      </div>
-
-      <div className="mt-auto max-lg:mt-2 space-y-3">
-        <details className="border-t border-line pt-3">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-xl px-3 text-sm font-semibold text-fg-2 hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
-            Datenstatus <span aria-hidden="true">⌄</span>
-          </summary>
-          <div className="space-y-3 pt-2"><QuotaMeter /><SidebarButtons /></div>
-        </details>
-        <a
-          href="https://github.com/SajanthChandrakumar"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group flex items-center justify-between gap-2 rounded-xl border border-emerald-a/25 bg-surface p-2.5 text-[11px] font-medium text-fg-2 transition-all hover:border-emerald-a/50 hover:bg-emerald-dim/60 hover:text-fg"
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-dim text-[10px] font-bold text-emerald-a">
-              SC
-            </span>
-            <div className="truncate">
-              <span className="block text-[9px] font-bold uppercase tracking-wider text-fg-3 group-hover:text-emerald-a/80">
-                Engineered by
-              </span>
-              <span className="truncate font-semibold text-fg">Sajanth Chandrakumar</span>
-            </div>
-          </div>
-          <span className="text-fg-3 transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-a">
-            ↗
-          </span>
-        </a>
-      </div>
-    </aside>
-  )
+    </div>
+    <div className="shrink-0 border-t border-[#304334] p-4">
+      <details><summary className="min-h-11 px-3 py-3 text-xs font-medium text-[#b9c7ba]">Einstellungen</summary><Settings /></details>
+      <p className="px-3 pb-2 pt-5 text-[9px] leading-relaxed text-[#7f9885]">Football Forecast Lab<br />Von Sajanth Chandrakumar</p>
+    </div>
+  </aside>
 }

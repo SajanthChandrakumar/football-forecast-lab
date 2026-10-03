@@ -31,3 +31,5 @@ export declare function teamFormSnapshotState(ratingCoverage: TeamFormCoverage, 
 export declare function teamFormEntries(competition: CompetitionId, teams: string[], standingsRows?: StandingsRow[]): TeamFormEntry[]
 export declare function teamFormTeamNames(competition: CompetitionId, teams: string[], standingsRows?: StandingsRow[]): string[]
 export declare function teamsWithoutHistory(teams: string[], history?: EloHistory): string[]
+export declare function chronologicalRecentMatches<T extends { playedAt?: string | null }>(matches: T[], limit?: number): T[]
+export declare function formatEloTimestamp(timestamp: number): string

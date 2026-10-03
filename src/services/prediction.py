@@ -393,6 +393,26 @@ class PredictionService:
             }, {"true_probs": None, "elo_share": elo_share}
         return None
 
+    def evaluation_probabilities(
+        self,
+        odds: Mapping[str, Any] | None,
+        elo: Mapping[str, Any] | None,
+    ) -> dict[str, dict[str, float]] | None:
+        """Return model, no-margin market, and pure Elo 1X2 vectors."""
+        clean_odds, clean_elo = _safe_odds(odds), _safe_elo(elo)
+        if clean_odds is None or clean_elo is None:
+            return None
+        model = self._probabilities(clean_odds, clean_elo)
+        market = self._probabilities(clean_odds, None)
+        elo_only = self._probabilities(None, clean_elo)
+        if model is None or market is None or elo_only is None:
+            return None
+        return {
+            "model": model[0],
+            "market": market[0],
+            "elo": elo_only[0],
+        }
+
     def predict(
         self,
         *,
@@ -699,7 +719,7 @@ def freeze_prediction(
     if current < kickoff - timedelta(minutes=15):
         raise ValueError("Prediction freeze is available at T-15")
     if current >= kickoff - timedelta(minutes=5):
-        raise ValueError("Prediction freeze must happen before the tip deadline")
+        raise ValueError("Prediction freeze must happen before the tip deadline (T-5)")
     snapshot = select_t15_snapshot(_all_snapshots(cache_collection, match_id, comp), kickoff)
     if not snapshot:
         raise ValueError("No eligible T-15 snapshot")
@@ -781,10 +801,12 @@ def freeze_prediction(
             "frozen_at": frozen_at,
             **({"evaluation_baselines": freeze_fields["evaluation_baselines"]} if "evaluation_baselines" in freeze_fields else {}),
         }
-    freeze_fields["evaluation_forecast"] = capture
+    if "evaluation_forecast" not in prediction:
+        freeze_fields["evaluation_forecast"] = capture
     update = {"$set": {f"prediction.{key}": value for key, value in freeze_fields.items()}}
     result_write = archive_collection.update_one(
-        {"_id": match_id, "prediction.frozen_at": {"$exists": False}},
+        {"_id": match_id, "prediction.frozen_at": {"$exists": False},
+         **({"prediction.evaluation_forecast": {"$exists": False}} if "evaluation_forecast" in freeze_fields else {})},
         update,
         upsert=False,
     )
@@ -793,6 +815,16 @@ def freeze_prediction(
     # Another writer won the compare-and-set.  Reload its complete document so
     # a concurrent user-tip/archive update is preserved for the caller.
     winner = archive_collection.find_one({"_id": match_id})
+    if winner and "evaluation_forecast" in (winner.get("prediction") or {}) and not (winner.get("prediction") or {}).get("frozen_at"):
+        freeze_fields.pop("evaluation_forecast", None)
+        retry = archive_collection.update_one(
+            {"_id": match_id, "prediction.frozen_at": {"$exists": False}},
+            {"$set": {f"prediction.{key}": value for key, value in freeze_fields.items()}},
+            upsert=False,
+        )
+        if getattr(retry, "matched_count", 0):
+            return archive_collection.find_one({"_id": match_id})
+        winner = archive_collection.find_one({"_id": match_id})
     if winner and (winner.get("prediction") or {}).get("frozen_at"):
         return winner
     raise ValueError("Prediction freeze was concurrently replaced")

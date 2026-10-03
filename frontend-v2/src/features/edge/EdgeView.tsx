@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react'
-import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useMatches } from '../../hooks/queries'
 import { cn } from '../../lib/util'
 import { TeamLogo } from '../../components/shared/Badges'
 import { shortDate } from '../../lib/format'
-import { PageTransition, PageHeader, staggerContainer, staggerItem } from '../../components/shared/PageTransition'
+import { fixtureStatus } from '../../lib/fixture-status.mjs'
+import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { CardGridSkeleton } from '../../components/shared/Skeleton'
+import { QueryState } from '../../components/shared/QueryState'
 import type { Match } from '../../lib/types'
 
 type EdgeGrade = 'hit' | 'miss' | 'close'
@@ -15,281 +16,146 @@ interface GradedEdgeMatch {
   match: Match
   edgePp: number
   absEdge: number
-  favHome: boolean
-  favTeam: string
   grade?: EdgeGrade
 }
 
-function gradeEdge(m: Match, edgePp: number): EdgeGrade | undefined {
-  if (!m.actual_score) return undefined
-  const parts = m.actual_score.split(':')
+function gradeEdge(match: Match, edgePp: number): EdgeGrade | undefined {
+  if (!match.actual_score) return undefined
+  const parts = match.actual_score.split(':')
   if (parts.length !== 2) return undefined
-  const hg = parseInt(parts[0], 10)
-  const ag = parseInt(parts[1], 10)
-  if (isNaN(hg) || isNaN(ag)) return undefined
-
-  if (Math.abs(edgePp) < 2.0 || hg === ag) {
-    return 'close'
-  }
-
-  const eloFavoredHome = edgePp > 0
-  const homeWon = hg > ag
-
-  return eloFavoredHome === homeWon ? 'hit' : 'miss'
+  const homeGoals = Number.parseInt(parts[0], 10)
+  const awayGoals = Number.parseInt(parts[1], 10)
+  if (Number.isNaN(homeGoals) || Number.isNaN(awayGoals)) return undefined
+  if (Math.abs(edgePp) < 2 || homeGoals === awayGoals) return 'close'
+  return (edgePp > 0) === (homeGoals > awayGoals) ? 'hit' : 'miss'
 }
 
 export function EdgeView() {
-  const { data: matches, isLoading } = useMatches()
+  const { data: matches, availability, isLoading, error, refetch } = useMatches()
   const navigate = useNavigate()
   const [tab, setTab] = useState<'upcoming' | 'history'>('upcoming')
 
   const { upcoming, historical, stats } = useMemo(() => {
-    const now = Date.now()
     const up: GradedEdgeMatch[] = []
     const hist: GradedEdgeMatch[] = []
 
-    for (const m of matches ?? []) {
-      if (m.edge_home == null) continue
-      const edgePp = m.edge_home * 100
-      const absEdge = Math.abs(edgePp)
-      const favHome = edgePp > 0
-      const favTeam = favHome ? m.home_team : m.away_team
-
-      const isCompleted = m.completed || (m.actual_score != null && m.actual_score !== '')
-      if (isCompleted) {
-        const grade = gradeEdge(m, edgePp)
-        hist.push({ match: m, edgePp, absEdge, favHome, favTeam, grade })
-      } else {
-        const ct = m.raw_match?.commence_time
-        if (ct && new Date(String(ct)).getTime() > now) {
-          up.push({ match: m, edgePp, absEdge, favHome, favTeam })
-        } else if (m.actual_score) {
-          const grade = gradeEdge(m, edgePp)
-          hist.push({ match: m, edgePp, absEdge, favHome, favTeam, grade })
-        } else {
-          up.push({ match: m, edgePp, absEdge, favHome, favTeam })
-        }
-      }
+    for (const match of matches ?? []) {
+      if (match.edge_home == null || match.market_home_share == null || match.elo_home_share == null) continue
+      const edgePp = match.edge_home * 100
+      const status = fixtureStatus(match)
+      if (status === 'upcoming') up.push({ match, edgePp, absEdge: Math.abs(edgePp) })
+      else if (status === 'played') hist.push({ match, edgePp, absEdge: Math.abs(edgePp), grade: gradeEdge(match, edgePp) })
     }
 
     up.sort((a, b) => b.absEdge - a.absEdge)
     hist.sort((a, b) => b.absEdge - a.absEdge)
-
-    let hits = 0
-    let misses = 0
-    let closes = 0
-    for (const item of hist) {
-      if (item.grade === 'hit') hits++
-      else if (item.grade === 'miss') misses++
-      else if (item.grade === 'close') closes++
-    }
+    const hits = hist.filter((item) => item.grade === 'hit').length
+    const misses = hist.filter((item) => item.grade === 'miss').length
+    const closes = hist.filter((item) => item.grade === 'close').length
     const decisive = hits + misses
-    const hitRate = decisive > 0 ? (hits / decisive) * 100 : 0
-
     return {
       upcoming: up,
       historical: hist,
-      stats: { total: hist.length, hits, misses, closes, hitRate },
+      stats: { hits, misses, closes, hitRate: decisive ? hits / decisive * 100 : 0 },
     }
   }, [matches])
 
   const activeCards = tab === 'upcoming' ? upcoming : historical
+  const unavailable = availability?.status === 'unavailable'
 
   return (
     <PageTransition>
-      <PageHeader
-        title="Modellvergleich"
-        subtitle="Wo das Elo-Modell und der Markt unterschiedliche Einschätzungen zeigen."
-      />
+      <PageHeader title="Modellvergleich" subtitle="Vergleich des Heimsieg-Anteils zwischen Markt und Elo-Modell." />
+      <p className="mb-5 max-w-3xl rounded-xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg-2">
+        Beide Werte teilen Sieg und Niederlage auf 100 % auf und lassen ein mögliches Remis heraus. Sie sind daher keine absoluten 1/X/2-Siegwahrscheinlichkeiten. „Prozentpunkte“ zeigen den Abstand zwischen den beiden Anteilen.
+      </p>
 
-      {/* Tabs */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex rounded-xl bg-surface-2 p-1">
-          <button
-            type="button"
-            onClick={() => setTab('upcoming')}
-            className={cn(
-              'rounded-lg px-4 py-2 text-xs font-bold transition-all',
-              tab === 'upcoming'
-                ? 'bg-surface text-fg shadow-sm'
-                : 'text-fg-3 hover:text-fg'
-            )}
-          >
-            Kommende Edges ({upcoming.length})
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Spiele auswählen">
+          <button type="button" aria-pressed={tab === 'upcoming'} onClick={() => setTab('upcoming')} className={tabButtonClass(tab === 'upcoming')}>
+            Kommende Spiele ({upcoming.length})
           </button>
-          <button
-            type="button"
-            onClick={() => setTab('history')}
-            className={cn(
-              'rounded-lg px-4 py-2 text-xs font-bold transition-all',
-              tab === 'history'
-                ? 'bg-surface text-fg shadow-sm'
-                : 'text-fg-3 hover:text-fg'
-            )}
-          >
-            Historie & Trefferbilanz ({historical.length})
+          <button type="button" aria-pressed={tab === 'history'} onClick={() => setTab('history')} className={tabButtonClass(tab === 'history')}>
+            Gespielte Spiele ({historical.length})
           </button>
         </div>
 
         {tab === 'history' && historical.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            <div className="glass rounded-lg px-3 py-1.5 font-semibold text-fg">
-              Trefferquote:{' '}
-              <span className="display-num text-emerald-a font-bold">
-                {stats.hitRate.toFixed(0)}%
-              </span>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-1.5 font-medium text-fg-2">
-              <span className="text-emerald-a font-bold">🎯 {stats.hits} Treffer</span>
-              <span>·</span>
-              <span className="text-amber-a font-bold">⚖️ {stats.closes} Remis/Knapp</span>
-              <span>·</span>
-              <span className="text-red-400 font-bold">❌ {stats.misses} Verfehlt</span>
-            </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-2">
+            <span>Trefferquote bei klarer Modellkante: <b className="tabular-nums text-fg">{stats.hitRate.toFixed(0)}%</b></span>
+            <span><b className="font-medium text-fg">{stats.hits}</b> Treffer · <b className="font-medium text-fg">{stats.closes}</b> knapp/Remis · <b className="font-medium text-fg">{stats.misses}</b> verfehlt</span>
           </div>
         )}
       </div>
 
       {isLoading && <CardGridSkeleton count={4} />}
+      {!isLoading && error && <QueryState title="Spieldaten konnten nicht geladen werden" message="Der Modellvergleich konnte nicht aktualisiert werden." onRetry={() => void refetch()} />}
+      {!isLoading && !error && unavailable && <QueryState title="Spieldaten derzeit nicht verfügbar" message="Für diesen Zeitraum stehen aktuell keine verwendbaren Daten zur Verfügung." onRetry={() => void refetch()} />}
 
-      {!isLoading && activeCards.length === 0 && (
-        <div className="glass rounded-xl p-8 text-center text-fg-2">
-          {tab === 'upcoming' ? (
-            <p>
-              Keine kommenden Spiele mit Edge-Daten.{' '}
-              {historical.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setTab('history')}
-                  className="mt-2 block w-full text-emerald-a underline hover:text-emerald"
-                >
-                  Wechsle zur Historie ({historical.length} ausgerechnete Spiele) →
-                </button>
-              )}
-            </p>
-          ) : (
-            <p>Für abgeschlossene Spiele liegen noch keine auswertbaren Modell-Markt-Vergleiche vor.</p>
-          )}
+      {!isLoading && !error && !unavailable && activeCards.length === 0 && (
+        <div className="rounded-xl border border-line bg-surface px-5 py-8 text-center text-sm text-fg-2">
+          {tab === 'upcoming' ? 'Keine kommenden Spiele mit vollständigen Markt- und Elo-Daten.' : 'Für gespielte Spiele liegen noch keine auswertbaren Vergleiche vor.'}
         </div>
       )}
 
-      <motion.div
-        key={tab}
-        variants={staggerContainer}
-        initial="initial"
-        animate="animate"
-        className="grid gap-4 md:grid-cols-2"
-      >
-        {activeCards.map(({ match: m, edgePp, absEdge, favTeam, grade }) => {
-          const strength =
-            absEdge >= 12
-              ? 'text-emerald-a'
-              : absEdge >= 6
-                ? 'text-amber-a'
-                : 'text-fg-3'
-          const market = (m.market_home_share ?? 0.5) * 100
-          const elo = (m.elo_home_share ?? 0.5) * 100
+      {!isLoading && !error && !unavailable && activeCards.length > 0 && <div className="grid gap-3 md:grid-cols-2">
+        {activeCards.map(({ match, edgePp, grade }) => {
+          const market = match.market_home_share! * 100
+          const elo = match.elo_home_share! * 100
+          const absEdge = Math.abs(edgePp)
+          const edgeCopy = absEdge < 0.05
+            ? 'Elo-Modell und Markt weisen dem Heimsieg denselben Anteil ohne Remis zu.'
+            : edgePp > 0
+            ? `Elo gibt dem Heimsieg-Anteil ohne Remis ${absEdge.toFixed(1)} Prozentpunkte mehr Gewicht als der Markt.`
+            : `Elo gibt dem Heimsieg-Anteil ohne Remis ${absEdge.toFixed(1)} Prozentpunkte weniger Gewicht als der Markt.`
+          const kickoff = match.raw_match?.commence_time
 
           return (
-            <motion.button
-              key={m.id}
-              variants={staggerItem}
-              onClick={() => navigate(`/match/${m.id}`)}
-              className="glass glass-hover p-5 text-left"
-            >
+            <button key={match.id} type="button" onClick={() => navigate(`/match/${match.id}`)} className="rounded-xl border border-line bg-surface p-4 text-left transition hover:border-line-2 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue)]">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-1.5 font-semibold text-fg">
-                    <TeamLogo name={m.home_team} src={m.home_logo} />{m.home_team}
-                    <span className="text-fg-3">vs</span>
-                    <TeamLogo name={m.away_team} src={m.away_logo} />{m.away_team}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold text-fg">
+                    <span className="inline-flex items-center gap-1.5"><TeamLogo name={match.home_team} src={match.home_logo} />{match.home_team}</span>
+                    <span className="text-fg-3">gegen</span>
+                    <span className="inline-flex items-center gap-1.5"><TeamLogo name={match.away_team} src={match.away_logo} />{match.away_team}</span>
                   </div>
-                  <div className="mt-0.5 text-xs text-fg-3">
-                    {shortDate(String(m.raw_match?.commence_time))}
-                  </div>
+                  <div className="mt-1 text-xs text-fg-3">{kickoff ? shortDate(kickoff) : 'Anstoss offen'}</div>
                 </div>
-
-                <div className="flex flex-col items-end gap-1">
-                  <div className={cn('display-num text-2xl', strength)}>
-                    {edgePp > 0 ? '+' : ''}
-                    {edgePp.toFixed(1)}
-                    <span className="ml-0.5 text-xs font-semibold">pp</span>
-                  </div>
-
-                  {grade && (
-                    <GradeBadge grade={grade} actualScore={m.actual_score} />
-                  )}
-                </div>
+                {grade && <GradeBadge grade={grade} actualScore={match.actual_score} />}
               </div>
 
-              <div className="mt-3 text-xs font-semibold text-fg-2">
-                Modell favorisierte <b className="text-fg">{favTeam}</b> stärker
-                als der Markt
+              <p className="mt-4 text-sm leading-relaxed text-fg-2">{edgeCopy}</p>
+              <div className="mt-4 space-y-3">
+                <Bar label="Markt · Heimsieg ohne Remis" value={market} color="var(--text-3)" />
+                <Bar label="Elo · Heimsieg ohne Remis" value={elo} color="var(--blue)" />
               </div>
-
-              <div className="mt-3 space-y-2">
-                <Bar label="Markt" value={market} color="var(--text-3)" />
-                <Bar label="Elo" value={elo} color="var(--emerald)" />
-              </div>
-            </motion.button>
+            </button>
           )
         })}
-      </motion.div>
+      </div>}
     </PageTransition>
   )
 }
 
-function GradeBadge({
-  grade,
-  actualScore,
-}: {
-  grade: EdgeGrade
-  actualScore?: string | null
-}) {
-  if (grade === 'hit') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-a">
-        🎯 Treffer {actualScore ? `(${actualScore})` : ''}
-      </span>
-    )
-  }
-  if (grade === 'miss') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-red-500/15 px-2 py-0.5 text-[11px] font-bold text-red-400">
-        ❌ Verfehlt {actualScore ? `(${actualScore})` : ''}
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-a">
-      ⚖️ Remis/Knapp {actualScore ? `(${actualScore})` : ''}
-    </span>
-  )
+function tabButtonClass(active: boolean) {
+  return cn('min-h-11 rounded-lg border px-4 py-2 text-sm font-medium transition', active ? 'border-line-2 bg-surface-2 text-fg' : 'border-line bg-surface text-fg-2 hover:bg-surface-2')
 }
 
-function Bar({
-  label,
-  value,
-  color,
-}: {
-  label: string
-  value: number
-  color: string
-}) {
+function GradeBadge({ grade, actualScore }: { grade: EdgeGrade; actualScore?: string | null }) {
+  const label = grade === 'hit' ? 'Treffer' : grade === 'miss' ? 'Verfehlt' : 'Knapp oder Remis'
+  const style = grade === 'hit' ? 'border-emerald-a/30 bg-emerald-a/5 text-emerald-a' : grade === 'miss' ? 'border-red-a/30 bg-red-a/5 text-red-a' : 'border-amber-a/30 bg-amber-a/5 text-amber-a'
+  return <span className={cn('shrink-0 rounded-md border px-2 py-1 text-xs font-medium', style)}>{label}{actualScore ? ` · ${actualScore}` : ''}</span>
+}
+
+function Bar({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-12 text-[10px] font-bold uppercase tracking-wider text-fg-3">
-        {label}
-      </span>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${value}%`, background: color }}
-        />
+    <div>
+      <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
+        <span className="text-fg-2">{label}</span><span className="shrink-0 tabular-nums text-fg">{value.toFixed(1)}%</span>
       </div>
-      <span className="w-10 text-right text-xs tabular-nums text-fg-2">
-        {value.toFixed(0)}%
-      </span>
+      <div className="h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden="true">
+        <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: color }} />
+      </div>
     </div>
   )
 }

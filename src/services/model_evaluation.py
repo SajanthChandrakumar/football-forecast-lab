@@ -76,6 +76,18 @@ def _time(value: Any):
         return None
 
 
+def _comparison_forecast(capture):
+    if capture.get("capture_source") not in {"freeze", "maintenance"}:
+        return capture
+    probabilities = capture.get("probabilities") if isinstance(capture.get("probabilities"), Mapping) else {}
+    provenance = capture.get("provenance") if isinstance(capture.get("provenance"), Mapping) else {}
+    return {**capture, "frozen_at": capture.get("captured_at"), "probabilities": probabilities.get("model"),
+            "evaluation_baselines": {
+                "bookmaker": {**(provenance.get("market") if isinstance(provenance.get("market"), Mapping) else {}), "probabilities": probabilities.get("market")},
+                "elo": {**(provenance.get("elo") if isinstance(provenance.get("elo"), Mapping) else {}), "probabilities": probabilities.get("elo")},
+            }}
+
+
 def _verified_model(entry: Mapping[str, Any]) -> tuple[dict[str, float], str, Any] | None:
     prediction = entry.get("prediction")
     metadata = entry.get("metadata")
@@ -88,7 +100,7 @@ def _verified_model(entry: Mapping[str, Any]) -> tuple[dict[str, float], str, An
     if any(term in tip_source for term in ("reconstruct", "historical", "legacy")):
         return None
     capture = prediction.get("evaluation_forecast")
-    forecast = capture if isinstance(capture, Mapping) else prediction
+    forecast = _comparison_forecast(capture) if isinstance(capture, Mapping) else prediction
     frozen_at = _time(forecast.get("frozen_at"))
     kickoff = _time(metadata.get("commence_time"))
     probabilities = _probabilities(forecast.get("probabilities"))
@@ -180,7 +192,7 @@ def compare_models(archive: Mapping[str, Any] | None, competition=None) -> dict[
         model_probs, actual, (frozen_at, kickoff) = model_sample
         prediction = entry["prediction"]
         capture = prediction.get("evaluation_forecast")
-        forecast = capture if isinstance(capture, Mapping) else prediction
+        forecast = _comparison_forecast(capture) if isinstance(capture, Mapping) else prediction
         baselines = forecast.get("evaluation_baselines")
         baselines = baselines if isinstance(baselines, Mapping) else {}
         bookmaker = _valid_baseline(baselines.get("bookmaker"), frozen_at, kickoff)

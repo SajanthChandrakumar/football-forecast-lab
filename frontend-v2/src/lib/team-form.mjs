@@ -119,3 +119,25 @@ export function teamFormTeamNames(competition, teams, standingsRows = []) {
 export function teamsWithoutHistory(teams, history = {}) {
   return teams.filter((team) => !history[team]?.length)
 }
+
+export function chronologicalRecentMatches(matches, limit = 5) {
+  const chronological = (matches ?? []).map((match, index) => ({
+    match,
+    index,
+    timestamp: Date.parse(match.playedAt ?? ''),
+  })).sort((a, b) => {
+    const aKnown = Number.isFinite(a.timestamp)
+    const bKnown = Number.isFinite(b.timestamp)
+    if (aKnown !== bKnown) return aKnown ? 1 : -1
+    return (aKnown ? a.timestamp - b.timestamp : 0) || a.index - b.index
+  })
+  return chronological.slice(-Math.max(0, Math.trunc(limit))).map(({ match }) => match)
+}
+
+export function formatEloTimestamp(timestamp) {
+  if (timestamp === 0) return 'Beginn'
+  if (!Number.isFinite(timestamp)) return 'Zeitpunkt nicht verfügbar'
+  return new Date(timestamp * 1_000).toLocaleDateString('de-CH', {
+    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Zurich',
+  })
+}

@@ -4,22 +4,21 @@ import { shortDate } from '../../lib/format'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PointsBadge, TeamLogo } from '../../components/shared/Badges'
 import { performanceEntryKind } from '../../lib/performance.mjs'
-import { HOUSE_BOTS, type CompletedMatch } from './usePerformanceData'
+import type { CompletedMatch } from './usePerformanceData'
 
 type Filter = 'all' | 'hit' | 'miss' | 'notipped'
 
 const FILTERS: { key: Filter; label: string }[] = [
-  { key: 'all', label: 'Alle' },
-  { key: 'hit', label: '✓ Treffer' },
-  { key: 'miss', label: '✗ Daneben' },
-  { key: 'notipped', label: 'Kein Tipp' },
+  { key: 'all', label: 'Alle Spiele' },
+  { key: 'hit', label: 'Richtige Tendenz' },
+  { key: 'miss', label: 'Falsche Tendenz' },
+  { key: 'notipped', label: 'Ohne gemeinsamen Tipp' },
 ]
 
 const PAGE_SIZE = 12
 
-export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
+export function MatchHistory({ completed, hasReconstructed }: {
   completed: CompletedMatch[]
-  hasLegacy: boolean
   hasReconstructed: boolean
 }) {
   const [filter, setFilter] = useState<Filter>('all')
@@ -29,7 +28,7 @@ export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
     const hasTip = entry.prediction?.user_tip != null
     switch (filter) {
       case 'hit': return hasTip && points >= 5
-      case 'miss': return hasTip && points === 0
+      case 'miss': return hasTip && points < 5
       case 'notipped': return !hasTip
       default: return true
     }
@@ -40,17 +39,19 @@ export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
 
   return (
     <GlassCard className="!p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
-        <SectionTitle>Match History</SectionTitle>
-        <div className="flex gap-1.5">
+      <div className="border-b border-line px-4 py-4 sm:px-5">
+        <SectionTitle className="mb-3">Abgeschlossene Spiele</SectionTitle>
+        <div className="flex flex-wrap gap-2" aria-label="Spiele filtern">
           {FILTERS.map(({ key, label }) => (
             <button
               key={key}
+              type="button"
+              aria-pressed={filter === key}
               onClick={() => { setFilter(key); setLimit(PAGE_SIZE) }}
               className={cn(
-                'rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
+                'min-h-10 rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
                 filter === key
-                  ? 'border-emerald-a/50 bg-emerald-dim text-emerald-a'
+                  ? 'border-blue-a bg-blue-a/10 text-blue-a'
                   : 'border-line bg-surface text-fg-2 hover:bg-surface-2',
               )}
             >
@@ -60,27 +61,30 @@ export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
         </div>
       </div>
 
-      <div className="grid gap-4 p-5 md:grid-cols-2">
-        {visible.map((cm) => <MatchCard key={cm.id} cm={cm} />)}
-        {visible.length === 0 && (
-          <p className="text-sm text-fg-3">Keine Spiele in dieser Kategorie.</p>
-        )}
-      </div>
+      {completed.length === 0 ? (
+        <p className="px-5 py-6 text-sm text-fg-2">Noch keine abgeschlossenen Spiele.</p>
+      ) : (
+        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+          {visible.map((cm) => <MatchCard key={cm.id} cm={cm} />)}
+          {visible.length === 0 && <p className="text-sm text-fg-2">Keine Spiele für diesen Filter.</p>}
+        </div>
+      )}
 
       {remaining > 0 && (
         <div className="px-5 pb-5 text-center">
           <button
+            type="button"
             onClick={() => setLimit((l) => l + PAGE_SIZE)}
-            className="rounded-xl border border-line bg-surface px-5 py-2 text-sm font-semibold text-fg-2 transition hover:border-emerald-a/40 hover:text-fg"
+            className="min-h-11 rounded-lg border border-line px-4 py-2 text-sm font-semibold text-fg-2 hover:bg-surface-2"
           >
-            {remaining} weitere Spiele anzeigen ↓
+            {remaining} weitere {remaining === 1 ? 'Spiel' : 'Spiele'} anzeigen
           </button>
         </div>
       )}
 
-      {(hasLegacy || hasReconstructed) && (
-        <p className="border-t border-line px-5 py-3 text-[11px] italic text-fg-3">
-          Altbestand ist nicht vollständig als Vorab-Tipp belegbar. Rekonstruktionen sind Elo-Näherungen ohne historische Buchmacherquoten.
+      {hasReconstructed && (
+        <p className="border-t border-line px-5 py-3 text-xs text-fg-3">
+          Mit * markierte Modelltipps wurden nachträglich aus Elo-Ratings rekonstruiert.
         </p>
       )}
     </GlassCard>
@@ -90,78 +94,45 @@ export function MatchHistory({ completed, hasLegacy, hasReconstructed }: {
 function MatchCard({ cm }: { cm: CompletedMatch }) {
   const { entry, points } = cm
   const userTip = entry.prediction?.user_tip ?? null
-  const algoKind = performanceEntryKind(entry)
-  const algoLabel = algoKind === 'verified' ? 'Algo · Vorab' : algoKind === 'reconstructed' ? 'Algo · Rekonstr.' : 'Algo · Alt'
-  const hasTip = userTip != null
-  const resultClass = !hasTip
-    ? 'border-l-line'
-    : points >= 8 ? 'border-l-emerald-a' : points >= 5 ? 'border-l-amber-a' : 'border-l-red-a'
-
+  const modelKind = performanceEntryKind(entry)
+  const modelLabel = modelKind === 'verified' ? 'Modell · vorab belegt' : modelKind === 'reconstructed' ? 'Modell · rekonstruiert*' : 'Modell · Vorabstand unbelegt'
+  const modelTip = entry.prediction?.top_tip ?? null
   const date = entry.metadata?.commence_time
     ? shortDate(entry.metadata.commence_time)
     : shortDate(entry.pre_match_snapshot?.timestamp_recorded ?? null)
 
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-line border-l-[3px] bg-surface', resultClass)}>
-      <div className="flex items-center gap-3 border-b border-line px-4 py-2.5">
-        <span className="shrink-0 text-[11px] font-semibold text-fg-3">{date}</span>
+    <article className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className="flex items-center gap-3 border-b border-line px-3 py-3">
+        <span className="shrink-0 text-xs font-medium text-fg-3">{date}</span>
         <span className="min-w-0 flex flex-1 items-center gap-1 truncate text-sm font-semibold text-fg">
           <TeamLogo name={entry.metadata.home_team} /><span className="truncate">{entry.metadata.home_team}</span>
-          <span className="mx-1 font-normal text-fg-3">vs</span>
+          <span className="mx-1 font-normal text-fg-3">–</span>
           <TeamLogo name={entry.metadata.away_team} /><span className="truncate">{entry.metadata.away_team}</span>
         </span>
-        <span className="display-num shrink-0 rounded-lg border border-line-2 bg-surface-2 px-2.5 py-0.5 text-fg">
-          {entry.post_match_result.actual_score}
+        <span className="shrink-0 rounded-md border border-line px-2 py-1 font-mono text-sm font-semibold text-fg" aria-label={`Endstand ${entry.post_match_result.actual_score ?? 'nicht verfügbar'}`}>
+          {entry.post_match_result.actual_score ?? '—'}
         </span>
       </div>
 
-      <div className="px-4 py-2">
-        <TipRow
-          label={algoLabel}
-          color="var(--blue)"
-          tip={entry.prediction?.top_tip}
-          pts={entry.post_match_result.algo_points}
+      <div className="px-3 py-2">
+        <HistoryTipRow
+          label={modelLabel}
+          tip={modelTip}
+          points={entry.post_match_result.algo_points}
         />
-        <UserTipRow cm={cm} />
-        {HOUSE_BOTS.map((b) => {
-          const tip = entry.prediction?.bots?.[b.key]?.tip
-          if (!tip) return null
-          return (
-            <TipRow
-              key={b.key} label={b.label} color={b.color} tip={tip}
-              pts={entry.post_match_result.bot_points?.[b.key]}
-            />
-          )
-        })}
+        <HistoryTipRow label={entry.prediction?.user_tip_source === 'shared_historical' ? 'Gemeinsamer Tipp · historisch importiert' : 'Gemeinsamer Tipp'} tip={userTip} points={userTip ? points : null} />
       </div>
-    </div>
+    </article>
   )
 }
 
-function TipRow({ label, color, tip, pts }: {
-  label: string; color: string; tip?: string | null; pts?: number | null
-}) {
+function HistoryTipRow({ label, tip, points }: { label: string; tip?: string | null; points?: number | null }) {
   return (
-    <div className="grid grid-cols-[72px_1fr_auto] items-center gap-2 border-b border-line py-1.5 last:border-b-0">
-      <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color }}>{label}</span>
-      <span className="display-num text-sm text-fg">{tip ?? '–'}</span>
-      <PointsBadge points={pts} />
-    </div>
-  )
-}
-
-function UserTipRow({ cm }: { cm: CompletedMatch }) {
-  const { entry, points } = cm
-  const userTip = entry.prediction?.user_tip ?? null
-  const isSharedHistoricalTip = entry.prediction?.user_tip_source === 'shared_historical'
-
-  return (
-    <div className="grid grid-cols-[72px_1fr_auto] items-center gap-2 border-b border-line py-1.5 last:border-b-0">
-      <span className="text-[10px] font-bold uppercase tracking-wide text-gold-a">{isSharedHistoricalTip ? 'Geteilt' : 'Du'}</span>
-      <span className="display-num text-sm text-fg" title={userTip ? undefined : 'Die Tippfrist ist nach Anpfiff geschlossen.'}>
-        {userTip ?? 'Tippfrist vorbei'}
-      </span>
-      <PointsBadge points={userTip ? points : null} />
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-line py-2 last:border-b-0">
+      <span className="text-xs font-medium text-fg-2">{label}</span>
+      <span className="font-mono text-sm font-semibold tabular-nums text-fg">{tip ?? '—'}</span>
+      <PointsBadge points={points} />
     </div>
   )
 }

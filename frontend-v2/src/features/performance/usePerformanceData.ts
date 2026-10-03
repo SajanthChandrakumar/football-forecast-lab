@@ -3,14 +3,14 @@ import { useQuery } from '@tanstack/react-query'
 import { useArchive, useCustomBot, useSimulateBot } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { api } from '../../lib/api'
-import { officialPerformance } from '../../lib/performance.mjs'
+import { commonPerformance, officialPerformance } from '../../lib/performance.mjs'
 import type { Archive, ArchiveEntry, BotKey } from '../../lib/types'
 
 export const HOUSE_BOTS: { key: BotKey; label: string; color: string }[] = [
-  { key: 'broker', label: 'Broker', color: '#5b9bd5' },
-  { key: 'professor', label: 'Professor', color: '#4caf82' },
-  { key: 'sniper', label: 'X-Sniper', color: '#9b6dd1' },
-  { key: 'gambler', label: 'Zocker', color: '#9a9a9a' },
+  { key: 'broker', label: 'Broker', color: 'var(--blue)' },
+  { key: 'professor', label: 'Professor', color: 'var(--text-2)' },
+  { key: 'sniper', label: 'X-Sniper', color: 'var(--purple)' },
+  { key: 'gambler', label: 'Zocker', color: 'var(--amber)' },
 ]
 
 export interface CompletedMatch {
@@ -55,6 +55,15 @@ export interface PerformanceTotals {
   hasReconstructed: boolean
 }
 
+export interface CommonPerformance {
+  matches: number
+  userPoints: number
+  userTendency: number
+  algoPoints: number
+  algoTendency: number
+  matchIds: string[]
+}
+
 function entryDate(e: ArchiveEntry): string {
   return e.metadata?.commence_time ?? e.pre_match_snapshot?.timestamp_recorded ?? ''
 }
@@ -71,6 +80,7 @@ export function aggregate(archive: Archive | undefined) {
     hasReconstructed: false,
   }
   const official = officialPerformance(archive, HOUSE_BOTS.map(({ key }) => key))
+  const comparison = commonPerformance(archive) as CommonPerformance
   const botStats = official.botStats as Record<BotKey, { pts: number; tipped: number; tendency: number }>
   totals.algoAllTotal = official.algoAllTotal
   totals.algoAllCount = official.algoAllCount
@@ -103,15 +113,16 @@ export function aggregate(archive: Archive | undefined) {
   }
 
   completed.sort((a, b) => b.sortDate.localeCompare(a.sortDate)) // newest first
-  return { completed, totals, botStats }
+  return { completed, totals, botStats, comparison }
 }
 
 export function usePerformanceData() {
   const { competition } = useAppState()
-  const { data: archive, isLoading } = useArchive()
+  const archiveQuery = useArchive()
+  const { data: archive, isLoading, isError, refetch } = archiveQuery
   const { data: customBot } = useCustomBot()
   const simulate = useSimulateBot()
-  const { completed, totals, botStats } = useMemo(() => aggregate(archive), [archive])
+  const { completed, totals, botStats, comparison } = useMemo(() => aggregate(archive), [archive])
 
   // Saved build-a-bot competes alongside the house bots — replayed via simulate.
   const { data: customSim } = useQuery({
@@ -127,7 +138,7 @@ export function usePerformanceData() {
       out.push({
         key: 'custom',
         label: customBot.name ?? 'Mein Bot',
-        color: '#2dd4bf',
+        color: 'var(--blue)',
         pts: customSim.total_points,
         tipped: customSim.matches,
         tendency: Math.round((customSim.tendency_rate ?? 0) * customSim.matches),
@@ -138,5 +149,8 @@ export function usePerformanceData() {
     return out
   }, [customBot, customSim])
 
-  return { archive, completed, totals, botStats, extraBots, customBot, simulate, isLoading }
+  return {
+    archive, completed, totals, botStats, comparison, extraBots, customBot, simulate,
+    isLoading, isError, retryArchive: () => refetch(),
+  }
 }

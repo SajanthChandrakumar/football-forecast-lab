@@ -6,81 +6,85 @@ import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { cn } from '../../lib/util'
 import { HOUSE_BOTS, type CompletedMatch, type ScoreRow } from './usePerformanceData'
 
-/** Cumulative points per predictor over the played matches (oldest → newest). */
-export function PointsRaceChart({ completed, extraBots }: {
+/** Points on the same common pre-match sample shown in the main comparison. */
+export function PointsRaceChart({ completed, commonMatchIds, extraBots }: {
   completed: CompletedMatch[]
-  extraBots: ScoreRow[]
+  commonMatchIds?: string[]
+  extraBots?: ScoreRow[]
 }) {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
 
   const { rows, series } = useMemo(() => {
+    const commonIds = commonMatchIds ? new Set(commonMatchIds) : null
     const chrono = completed
+      .filter(({ id }) => !commonIds || commonIds.has(id))
       .sort((a, b) => a.sortDate.localeCompare(b.sortDate))
-    const series = [
-      { key: 'Du', color: '#d4af37', dash: '6 3' },
-      { key: 'Algo gesamt', color: '#60a5fa', dash: '3 3' },
-      ...HOUSE_BOTS.map((b) => ({ key: b.label, color: b.color, dash: undefined as string | undefined })),
-      ...extraBots.map((b) => ({ key: b.label, color: b.color, dash: undefined as string | undefined })),
+    const series = commonIds ? [
+      { key: 'Gemeinsame Tipps', color: 'var(--gold)', dash: '6 3' },
+      { key: 'Modell', color: 'var(--blue)', dash: undefined as string | undefined },
+    ] : [
+      { key: 'Gemeinsame Tipps', color: 'var(--gold)', dash: '6 3' },
+      { key: 'Modell gesamt', color: 'var(--blue)', dash: '3 3' },
+      ...HOUSE_BOTS.map((bot) => ({ key: bot.label, color: bot.color, dash: undefined as string | undefined })),
+      ...(extraBots ?? []).map((bot) => ({ key: bot.label, color: bot.color, dash: undefined as string | undefined })),
     ]
-    const running: Record<string, number> = Object.fromEntries(series.map((s) => [s.key, 0]))
-
+    const running: Record<string, number> = Object.fromEntries(series.map((item) => [item.key, 0]))
     const rows = chrono.map(({ id, entry, points }) => {
-      const label = `${entry.metadata.home_team.slice(0, 3).toUpperCase()}–${entry.metadata.away_team.slice(0, 3).toUpperCase()}`
-      running['Du'] += points
-      running['Algo gesamt'] += entry.post_match_result.algo_points ?? 0
-      const bp = entry.post_match_result.bot_points ?? {}
-      for (const b of HOUSE_BOTS) running[b.label] += bp[b.key] ?? 0
-      for (const eb of extraBots) running[eb.label] += eb.pointsByMatch?.[id] ?? 0
-      return { label, ...running }
+      running['Gemeinsame Tipps'] += points
+      if (commonIds) running.Modell += entry.post_match_result.algo_points ?? 0
+      else {
+        running['Modell gesamt'] += entry.post_match_result.algo_points ?? 0
+        for (const bot of HOUSE_BOTS) running[bot.label] += entry.post_match_result.bot_points?.[bot.key] ?? 0
+        for (const bot of extraBots ?? []) running[bot.label] += bot.pointsByMatch?.[id] ?? 0
+      }
+      return {
+        label: `${entry.metadata.home_team.slice(0, 3).toUpperCase()}–${entry.metadata.away_team.slice(0, 3).toUpperCase()}`,
+        ...running,
+      }
     })
     return { rows, series }
-  }, [completed, extraBots])
+  }, [completed, commonMatchIds, extraBots])
 
   if (rows.length < 2) return null
 
-  const toggle = (key: string) => setHidden((prev) => {
-    const next = new Set(prev)
+  const toggle = (key: string) => setHidden((previous) => {
+    const next = new Set(previous)
     if (next.has(key)) next.delete(key)
     else next.add(key)
     return next
   })
 
-  // Thin out X-axis labels once there are many matches, so they don't overlap into a smudge.
   const tickInterval = rows.length > 24 ? Math.ceil(rows.length / 12) : rows.length > 12 ? 1 : 0
 
   return (
     <GlassCard>
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-        <SectionTitle>Points Race</SectionTitle>
-        <span className="text-[11px] text-fg-3">Klick auf einen Namen zum Ein-/Ausblenden</span>
+        <SectionTitle>{commonMatchIds ? 'Punkteverlauf im gemeinsamen Vergleich' : 'Gesamter gespeicherter Punkteverlauf'}</SectionTitle>
+        <span className="text-xs text-fg-3">{commonMatchIds ? 'Nur gemeinsame Vergleichsspiele' : 'Alle gespeicherten Tipps, einschließlich älterer und rekonstruierter Tipps'}</span>
       </div>
 
-      {/* Custom legend: toggle chips instead of Recharts' cramped one-liner */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {series.map((s) => {
-          const off = hidden.has(s.key)
+      <div className="mb-3 flex flex-wrap gap-2" aria-label="Kurven auswählen">
+        {series.map((item) => {
+          const isHidden = hidden.has(item.key)
           return (
             <button
-              key={s.key}
-              onClick={() => toggle(s.key)}
+              key={item.key}
+              type="button"
+              aria-pressed={!isHidden}
+              onClick={() => toggle(item.key)}
               className={cn(
-                'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition',
-                off
-                  ? 'border-line bg-surface text-fg-3 opacity-50'
-                  : 'border-line-2 bg-surface-2 text-fg',
+                'min-h-10 rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
+                isHidden ? 'border-line bg-surface text-fg-3' : 'border-line-2 bg-surface-2 text-fg',
               )}
             >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ background: off ? 'var(--text-3)' : s.color }}
-              />
-              {s.key}
+              <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: item.color }} aria-hidden="true" />
+              {item.key}
             </button>
           )
         })}
       </div>
 
-      <div className="h-96">
+      <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows} margin={{ top: 4, right: 16, bottom: 12, left: -4 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -88,9 +92,9 @@ export function PointsRaceChart({ completed, extraBots }: {
               dataKey="label"
               tick={{ fill: 'var(--text-3)', fontSize: 10 }}
               interval={tickInterval}
-              angle={-40}
+              angle={-35}
               textAnchor="end"
-              height={56}
+              height={52}
               tickMargin={8}
               tickLine={false}
               axisLine={{ stroke: 'var(--border)' }}
@@ -99,16 +103,21 @@ export function PointsRaceChart({ completed, extraBots }: {
             <Tooltip
               contentStyle={{
                 background: 'var(--surface-2)', border: '1px solid var(--border-2)',
-                borderRadius: 12, fontSize: 12, backdropFilter: 'blur(14px)',
+                borderRadius: 8, fontSize: 12,
               }}
-              labelStyle={{ color: 'var(--text-2)', fontWeight: 700 }}
+              labelStyle={{ color: 'var(--text-2)', fontWeight: 600 }}
             />
-            {series.map((s) => (
+            {series.map((item) => (
               <Line
-                key={s.key} type="monotone" dataKey={s.key}
-                stroke={s.color} strokeWidth={s.key === 'Du' ? 3 : 2}
-                strokeDasharray={s.dash} dot={false} activeDot={{ r: 4 }}
-                hide={hidden.has(s.key)}
+                key={item.key}
+                type="monotone"
+                dataKey={item.key}
+                stroke={item.color}
+                strokeWidth={item.key === 'Modell' ? 2.5 : 2}
+                strokeDasharray={item.dash}
+                dot={false}
+                activeDot={{ r: 4 }}
+                hide={hidden.has(item.key)}
               />
             ))}
           </LineChart>

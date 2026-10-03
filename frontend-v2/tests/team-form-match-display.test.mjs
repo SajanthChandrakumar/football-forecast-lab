@@ -24,10 +24,10 @@ test('form badges expose result words and an explicit unavailable state', () => 
   assert.match(badges, /slice\(-5\)/)
 })
 
-test('fixture cards show compact form for both teams without replacing the primary tip', () => {
+test('compact fixture cards identify both teams and prioritise the model tip', () => {
   const row = read('src/features/dashboard/FixtureRow.tsx')
-  assert.match(row, /<FormBadges form=\{match\.home_form\}/)
-  assert.match(row, /<FormBadges form=\{match\.away_form\}/)
+  assert.match(row, /<TeamLogo name=\{match\.home_team\}/)
+  assert.match(row, /<TeamLogo name=\{match\.away_team\}/)
   assert.match(row, /Modelltipp/)
   assert.match(row, /min-h-11/)
 })
