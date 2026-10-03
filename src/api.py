@@ -55,6 +55,7 @@ from src.routes.simulate import init_router as simulate_router
 from src.routes.maintenance import init_router as maintenance_router
 from src.routes.pool import init_router as pool_router
 from src.routes.elo_status import init_router as elo_status_router
+from src.routes.model_evaluation import init_router as model_evaluation_router
 
 app = FastAPI(title="Football Forecast Lab API")
 
@@ -197,6 +198,7 @@ app.include_router(maintenance_router(
 ))
 app.include_router(pool_router(cache_collections, archive_collections))
 app.include_router(elo_status_router(cache_collections))
+app.include_router(model_evaluation_router(archive_collections))
 
 # ── Small endpoints (not worth extracting) ───────────────────
 

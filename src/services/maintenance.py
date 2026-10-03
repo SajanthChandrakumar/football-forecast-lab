@@ -17,6 +17,7 @@ from src.services.archive import (
 from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
+from src.services.model_evaluation import capture_archive_forecasts
 from src.services.snapshots import append_odds_snapshot, bucket_state, due_buckets, mark_bucket, parse_time
 
 
@@ -32,6 +33,7 @@ def run_maintenance(
     competition=None,
     now=None,
     force: bool = False,
+    allow_force_capture: bool = False,
     lease_seconds: int = LEASE_SECONDS,
     fixture_fetcher=None,
     clubelo_ingestor=None,
@@ -41,11 +43,11 @@ def run_maintenance(
     """Capture due odds buckets with at most one bulk provider call.
 
     ``force`` is deliberately a public no-op.  Manual/public refreshes cannot
-    spend provider credits or write a snapshot; only the authenticated route
-    should invoke normal maintenance.
+    spend provider credits or write an odds snapshot. The authenticated route
+    may enable ``allow_force_capture`` to archive evaluation from cached inputs.
     """
     comp = get_competition(competition)
-    if force:
+    if force and (not allow_force_capture or archive_collections is None or math_engine is None):
         result = {"status": "noop", "reason": "force_disabled", "provider_calls": 0, "mutated": False}
         if comp.id == "ucl2026":
             result["team_form_status"] = {"status": "skipped", "reason": "force_disabled"}
@@ -98,6 +100,18 @@ def run_maintenance(
     clubelo_status = None
     team_form_status = None
     try:
+        def capture_evaluation():
+            if archive_collections is None or math_engine is None:
+                return 0
+            return capture_archive_forecasts(
+                cache_collection, collection_for(archive_collections, comp),
+                PredictionService(math_engine), competition=comp, now=current,
+            )
+
+        if force:
+            captured = capture_evaluation()
+            return {"status": "noop", "reason": "force_disabled", "provider_calls": 0,
+                    "mutated": bool(captured), "evaluation_captured": captured}
         if comp.id == "ucl2026":
             team_form_status = {"status": "unavailable", "source": "api_football", "error": "team form service unavailable"}
             if team_form_service is not None:
@@ -150,7 +164,9 @@ def run_maintenance(
         discovery_due = _discovery_due(cache_collection, comp, current)
         if not due_by_event and not discovery_due:
             predictions_updated = _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
+            evaluation_captured = capture_evaluation()
             return {
+                "evaluation_captured": evaluation_captured,
                 "status": "idle",
                 "provider_calls": 0,
                 "mutated": bool(
@@ -159,6 +175,7 @@ def run_maintenance(
                     or reconstructed_results
                     or snapshot_predictions
                     or predictions_updated
+                    or evaluation_captured
                 ),
                 "buckets": [],
                 "fixture_status": fixture_status,
@@ -181,7 +198,9 @@ def run_maintenance(
             predictions_updated = _persist_ucl_predictions(
                 cache_collection, comp, math_engine, clubelo_status
             )
+            evaluation_captured = capture_evaluation()
             return {
+                "evaluation_captured": evaluation_captured,
                 "status": "failed",
                 "source": "odds_api",
                 "observed_at": current.isoformat(),
@@ -229,7 +248,9 @@ def run_maintenance(
                 if odds:
                     _store_fixture_odds(cache_collection, comp, event_id, odds, match, current)
         _persist_ucl_predictions(cache_collection, comp, math_engine, clubelo_status)
+        evaluation_captured = capture_evaluation()
         return {
+            "evaluation_captured": evaluation_captured,
             "status": "success",
             "provider_calls": 1,
             "mutated": True,

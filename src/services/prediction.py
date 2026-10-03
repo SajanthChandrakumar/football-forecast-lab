@@ -393,6 +393,26 @@ class PredictionService:
             }, {"true_probs": None, "elo_share": elo_share}
         return None
 
+    def evaluation_probabilities(
+        self,
+        odds: Mapping[str, Any] | None,
+        elo: Mapping[str, Any] | None,
+    ) -> dict[str, dict[str, float]] | None:
+        """Return model, no-margin market, and pure Elo 1X2 vectors."""
+        clean_odds, clean_elo = _safe_odds(odds), _safe_elo(elo)
+        if clean_odds is None or clean_elo is None:
+            return None
+        model = self._probabilities(clean_odds, clean_elo)
+        market = self._probabilities(clean_odds, None)
+        elo_only = self._probabilities(None, clean_elo)
+        if model is None or market is None or elo_only is None:
+            return None
+        return {
+            "model": model[0],
+            "market": market[0],
+            "elo": elo_only[0],
+        }
+
     def predict(
         self,
         *,
@@ -697,10 +717,20 @@ def freeze_prediction(
     current = parse_time(now or datetime.now(timezone.utc))
     if current < kickoff - timedelta(minutes=15):
         raise ValueError("Prediction freeze is available at T-15")
+    if current >= kickoff - timedelta(minutes=5):
+        raise ValueError("Prediction freeze closes at T-5")
     snapshot = select_t15_snapshot(_all_snapshots(cache_collection, match_id, comp), kickoff)
     if not snapshot:
         raise ValueError("No eligible T-15 snapshot")
     elo = (entry.get("pre_match_snapshot") or {}).get("elo_state")
+    from src.services.model_evaluation import build_evaluation_forecast, persist_evaluation_forecast
+    evaluation = build_evaluation_forecast(
+        service, snapshot, elo or {}, kickoff_at=kickoff_value,
+        captured_at=current, capture_source="freeze",
+        elo_observed_at=(entry.get("pre_match_snapshot") or {}).get("timestamp_recorded"),
+    )
+    if evaluation is not None:
+        persist_evaluation_forecast(archive_collection, match_id, evaluation)
     snapshot_provenance = snapshot.get("provenance") if isinstance(snapshot.get("provenance"), Mapping) else {}
     result = service.predict(
         odds=snapshot,

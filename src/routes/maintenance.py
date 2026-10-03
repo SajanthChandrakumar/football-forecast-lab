@@ -27,6 +27,7 @@ def init_router(cache_collections, odds_provider, *, archive_collections=None, m
             archive_collections=archive_collections,
             competition=competition,
             force=force,
+            allow_force_capture=True,
             now=(now_fn() if now_fn else None),
             fixture_fetcher=espn_data.get_scoreboard,
             clubelo_ingestor=ingest_clubelo,
