@@ -168,12 +168,18 @@ export const useRefreshData = () => {
   const { competition } = useAppState()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async () => normalizeMatches(await api.matches(competition, true)),
-    onSuccess: (data) => {
-      qc.setQueryData(['matches', competition], data)
-      qc.invalidateQueries({ queryKey: ['archive', competition] })
-      qc.invalidateQueries({ queryKey: ['quota', competition] })
-      qc.invalidateQueries({ queryKey: ['modelEvaluation', competition] })
+    mutationFn: async () => {
+      const data = normalizeMatches(await api.matches(competition, true))
+      if (data.status === 'unavailable' || data.status === 'failed') {
+        throw new Error('Spieldaten sind derzeit nicht verfügbar.')
+      }
+      return { competition, data }
+    },
+    onSuccess: ({ competition: refreshedCompetition, data }) => {
+      qc.setQueryData(['matches', refreshedCompetition], data)
+      qc.invalidateQueries({ queryKey: ['archive', refreshedCompetition] })
+      qc.invalidateQueries({ queryKey: ['quota', refreshedCompetition] })
+      qc.invalidateQueries({ queryKey: ['modelEvaluation', refreshedCompetition] })
     },
   })
 }

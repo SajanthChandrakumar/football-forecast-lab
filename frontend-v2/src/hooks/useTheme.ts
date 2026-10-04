@@ -4,11 +4,15 @@ import { useCallback, useEffect, useState } from 'react'
 const KEY = 'theme'
 
 export function useTheme() {
-  const [light, setLight] = useState(() => localStorage.getItem(KEY) !== 'dark')
+  const [light, setLight] = useState(() => {
+    try { return localStorage.getItem(KEY) !== 'dark' }
+    catch { return true }
+  })
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark')
-    localStorage.setItem(KEY, light ? 'light' : 'dark')
+    try { localStorage.setItem(KEY, light ? 'light' : 'dark') }
+    catch { /* The theme remains usable without browser storage. */ }
   }, [light])
 
   const toggle = useCallback(() => setLight((v) => !v), [])

@@ -9,6 +9,7 @@ type Props = {
   competition: CompetitionId
   savedTip?: string | null
   now: number
+  unavailableReason?: string
   compact?: boolean
   autoFocus?: boolean
   onAutoFocus?: () => void
@@ -27,7 +28,7 @@ function tipErrorMessage(error: unknown) {
   return 'Der Tipp konnte nicht gespeichert werden. Bitte prüfe die Verbindung und versuche es erneut.'
 }
 
-export function SharedTipEditor({ match, competition, savedTip, now, compact = false, autoFocus = false, onAutoFocus, onSaveAndNext, onSaveStart, onSaved }: Props) {
+export function SharedTipEditor({ match, competition, savedTip, now, unavailableReason, compact = false, autoFocus = false, onAutoFocus, onSaveAndNext, onSaveStart, onSaved }: Props) {
   const saveTip = useSaveUserTip()
   const kickoff = match.raw_match?.commence_time
   const [score, setScore] = useState(() => parseScoreFields(savedTip ?? '') ?? EMPTY_SCORE)
@@ -38,7 +39,7 @@ export function SharedTipEditor({ match, competition, savedTip, now, compact = f
   const homeField = useRef<HTMLInputElement>(null)
   const didAutoFocus = useRef(false)
   const state = fixtureStatus(match, now)
-  const canSave = state === 'upcoming' && sharedTipIsOpen(kickoff, now) && !cutoffReached
+  const canSave = state === 'upcoming' && sharedTipIsOpen(kickoff, now) && !cutoffReached && !unavailableReason
   const scoreForSave = formatScoreFields(score.home, score.away)
 
   useEffect(() => {
@@ -60,12 +61,18 @@ export function SharedTipEditor({ match, competition, savedTip, now, compact = f
   useEffect(() => {
     const cutoff = Date.parse(kickoff ?? '') - 5 * 60_000
     if (!Number.isFinite(cutoff)) return
-    const delay = cutoff - Date.now()
-    if (delay <= 0) {
-      setCutoffReached(true)
-      return
+    let timer: number | undefined
+    setCutoffReached(cutoff <= Date.now())
+    const checkCutoff = () => {
+      const remaining = cutoff - Date.now()
+      if (remaining <= 0) {
+        setCutoffReached(true)
+        return
+      }
+      // Browser timers overflow beyond about 25 days. Recheck before closing.
+      timer = window.setTimeout(checkCutoff, Math.min(remaining, 2_147_483_647))
     }
-    const timer = window.setTimeout(() => setCutoffReached(true), delay)
+    checkCutoff()
     return () => window.clearTimeout(timer)
   }, [kickoff])
 
@@ -81,7 +88,8 @@ export function SharedTipEditor({ match, competition, savedTip, now, compact = f
       return
     }
 
-    if (state !== 'upcoming' || !sharedTipIsOpen(kickoff, Date.now())) {
+    if (unavailableReason) return
+    if (cutoffReached || state !== 'upcoming' || !sharedTipIsOpen(kickoff, Date.now())) {
       setCutoffReached(true)
       setFeedback({ kind: 'error', text: kickoff && Number.isFinite(Date.parse(kickoff))
         ? 'Die gemeinsame Tippabgabe ist fünf Minuten vor Anpfiff geschlossen.'
@@ -104,7 +112,10 @@ export function SharedTipEditor({ match, competition, savedTip, now, compact = f
         onSaved?.(submittedTip)
         if (goNext) onSaveAndNext?.()
       },
-      onError: (error) => setFeedback({ kind: 'error', text: tipErrorMessage(error) }),
+      onError: (error) => {
+        if (error instanceof Error && error.message.startsWith('409')) setCutoffReached(true)
+        setFeedback({ kind: 'error', text: tipErrorMessage(error) })
+      },
     })
   }
 
@@ -141,7 +152,7 @@ export function SharedTipEditor({ match, competition, savedTip, now, compact = f
           Speichern & nächstes Spiel
         </button>}
       </form>
-      {!canSave && <p className="mt-2 text-xs text-fg-2">{cutoffReached ? 'Die Tippabgabe wurde geschlossen.' : cutoffMessage}</p>}
+      {!canSave && <p className="mt-2 text-xs text-fg-2">{unavailableReason ?? (cutoffReached ? 'Die Tippabgabe wurde geschlossen.' : cutoffMessage)}</p>}
       {feedback && <p className="mt-2 text-xs text-fg-2" role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
     </section>
   )

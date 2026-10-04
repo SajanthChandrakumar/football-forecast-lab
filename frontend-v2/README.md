@@ -1,32 +1,30 @@
-# React + TypeScript + Vite
+# Football Forecast Lab frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React, TypeScript and Vite. Development API requests are proxied to the local backend on port 8000.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm ci
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Verification
+
+```sh
+node --test tests/*.test.mjs
+npm run typecheck
+npm run lint
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+Browser tests use the production build, serve it on 127.0.0.1:4173 and intercept API requests with disposable fixtures. They never connect to MongoDB or external data providers. Build before running them; the test runner rejects an already occupied preview port.
+
+The suite covers tips and retries, deadline handling, competition switching, persistent team comparison, request and browser-storage failures, keyboard navigation and both themes at 375, 390, 768 and 1440 pixels. The fixtures use a fixed clock and independent state for every test. They validate frontend behavior; backend integration is covered separately by pytest.
+
+On failure, Playwright saves screenshots, traces and an HTML report. GitHub Actions runs the same suite and retains failure diagnostics for seven days.
+
+```sh
+npx playwright show-report
+npm run test:e2e -- --project=phone-375
+```

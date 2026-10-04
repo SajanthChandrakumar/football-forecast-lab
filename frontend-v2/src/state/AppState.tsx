@@ -49,7 +49,10 @@ export function AppStateProvider({
     storedCompetition.current = null
   }, [competitions])
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, competition) }, [competition])
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, competition) }
+    catch { /* Keep the selected competition in memory. */ }
+  }, [competition])
   useEffect(() => {
     for (const [id, teams] of Object.entries(selectedTeamsByCompetition)) {
       if (teams !== null) writeTeamSelection(id, teams)

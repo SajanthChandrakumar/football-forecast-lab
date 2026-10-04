@@ -177,7 +177,12 @@ function HistoricalMatchRow({ item }: { item: TeamFormMatch }) {
       </button>
       {open && (
         <div className="mt-3 border-t border-line pt-3">
-          {history.isLoading ? <p className="text-xs text-fg-2">Aufstellung wird geladen…</p> : hasCompleteLineups ? (
+          {history.isLoading ? <p className="text-xs text-fg-2">Aufstellung wird geladen…</p> : history.error ? (
+            <div role="alert" className="text-xs text-fg-2">
+              <p>Aufstellung konnte nicht geladen werden. Bitte versuche es erneut.</p>
+              <button type="button" onClick={() => { void history.refetch() }} disabled={history.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Aufstellung erneut laden</button>
+            </div>
+          ) : hasCompleteLineups ? (
             <div className="grid gap-5">
               {lineups.map(([team, lineup]) => <TeamLineup key={team} team={team} lineup={lineup} />)}
             </div>
@@ -434,7 +439,14 @@ export function DetailView() {
               {copyStatus && <p role="status" className="mt-2 text-xs text-fg-2">{copyStatus}</p>}
             </div>
 
-            <SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={archive.data?.[match.id]?.prediction.user_tip} now={now} />
+            {archive.isLoading && <p role="status" className="rounded-lg border border-line p-4 text-sm text-fg-2">Gespeicherte gemeinsame Tipps werden geladen …</p>}
+            {archive.error && <div role="alert" className="rounded-lg border border-line p-4 text-sm text-fg-2">
+              <h3 className="font-semibold text-fg">Gemeinsame Tipps konnten nicht geladen werden</h3>
+              <p className="mt-1">Lade die gespeicherten Tipps erneut, bevor du einen Tipp abgibst.</p>
+              <button type="button" onClick={() => { void archive.refetch() }} disabled={archive.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Tipps erneut laden</button>
+            </div>}
+            {archive.data?.[match.id] && <SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={archive.data[match.id].prediction.user_tip} now={now} unavailableReason={archive.error ? 'Tipps sind gerade nicht erreichbar. Deine Eingabe bleibt erhalten.' : undefined} />}
+            {!archive.isLoading && !archive.error && archive.data && !archive.data[match.id] && <p className="rounded-lg border border-line p-4 text-sm text-fg-2">Dieses Spiel ist noch nicht im Tipp-Archiv gespeichert. Ein gemeinsamer Tipp ist deshalb noch nicht verfügbar.</p>}
           </div>
         </div>
 

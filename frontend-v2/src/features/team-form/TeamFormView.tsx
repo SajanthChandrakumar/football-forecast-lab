@@ -95,9 +95,9 @@ export function TeamFormView() {
 
             <div className="mb-5 space-y-3">
               {selectedTeams.length > 0 && <div role="group" aria-label="Ausgewählte Teams" className="flex flex-wrap gap-2">
-                {selectedTeams.map((team) => <span key={team} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-line-2 bg-surface-2 py-1 pl-2.5 pr-1.5 text-xs font-medium text-fg">
-                  <TeamLogo name={team} />{team}
-                  <button type="button" onClick={() => toggleTeam(team)} aria-label={`${team} aus dem Vergleich entfernen`} className="grid h-8 w-8 place-items-center rounded-full text-base text-fg-2 hover:bg-surface hover:text-fg">×</button>
+                {selectedTeams.map((team) => <span key={team} className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-full border border-line-2 bg-surface-2 py-1 pl-2.5 pr-1.5 text-xs font-medium text-fg">
+                  <TeamLogo name={team} /><span className="min-w-0 break-words">{team}</span>
+                  <button type="button" onClick={() => toggleTeam(team)} aria-label={`${team} aus dem Vergleich entfernen`} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-base text-fg-2 hover:bg-surface hover:text-fg">×</button>
                 </span>)}
               </div>}
               <label htmlFor="team-form-search" className="block text-xs font-medium text-fg-2">Teams suchen und hinzufügen</label>
@@ -119,7 +119,7 @@ export function TeamFormView() {
                     disabled={!active && limitReached}
                     onClick={() => toggleTeam(row.team)}
                     className={cn(
-                      'min-h-10 rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-45',
+                      'min-h-11 rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-45',
                       active ? 'border-action bg-action text-on-action' : 'border-line bg-surface text-fg-2 hover:bg-surface-2',
                     )}
                   ><span className="inline-flex items-center gap-2"><TeamLogo name={row.team} />{row.team}</span></button>
@@ -163,7 +163,7 @@ export function TeamFormView() {
                 return <article key={row.team} role="listitem" className={cn('min-w-0 rounded-lg border border-line p-3', active && 'bg-surface-2')}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-fg"><span className="w-6 shrink-0 text-right tabular-nums text-fg-3">{index + 1}</span><TeamLogo name={row.team} /><span className="truncate">{row.team}</span></div>
-                    <button type="button" aria-pressed={active} disabled={!active && selectedTeams.length >= 4} onClick={() => toggleTeam(row.team)} className="min-h-10 shrink-0 rounded-lg border border-line-2 px-3 text-xs font-semibold text-fg disabled:opacity-50">{active ? 'Entfernen' : 'Vergleichen'}</button>
+                    <button type="button" aria-pressed={active} disabled={!active && selectedTeams.length >= 4} onClick={() => toggleTeam(row.team)} className="min-h-11 shrink-0 rounded-lg border border-line-2 px-3 text-xs font-semibold text-fg disabled:opacity-50">{active ? 'Entfernen' : 'Vergleichen'}</button>
                   </div>
                   <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2 text-xs text-fg-2">
                     <span><b className="text-base tabular-nums text-fg">{Math.round(row.elo)}</b> Elo{row.delta != null && <> · Δ {row.delta > 0 ? '+' : ''}{Math.round(row.delta)}</>}</span>
@@ -187,7 +187,7 @@ export function TeamFormView() {
                   const active = selectedTeams.includes(row.team)
                   return <tr key={row.team} className={cn('border-b border-line last:border-0', active && 'bg-surface-2')}>
                     <td className="px-5 py-3 tabular-nums text-fg-2">{index + 1}</td>
-                    <th scope="row" className="px-3 py-3 text-left font-medium text-fg"><button type="button" aria-pressed={active} disabled={!active && selectedTeams.length >= 4} onClick={() => toggleTeam(row.team)} className="inline-flex min-h-10 items-center gap-2 rounded px-1 text-left hover:text-[var(--blue)] disabled:cursor-not-allowed disabled:opacity-50"><TeamLogo name={row.team} />{row.team}</button></th>
+                    <th scope="row" className="px-3 py-3 text-left font-medium text-fg"><button type="button" aria-pressed={active} disabled={!active && selectedTeams.length >= 4} onClick={() => toggleTeam(row.team)} className="inline-flex min-h-11 items-center gap-2 rounded px-1 text-left hover:text-[var(--blue)] disabled:cursor-not-allowed disabled:opacity-50"><TeamLogo name={row.team} />{row.team}</button></th>
                     <td className="px-3 py-3 text-right tabular-nums text-fg">{Math.round(row.elo)}</td>
                     <td className={cn('px-3 py-3 text-right tabular-nums', row.delta == null ? 'text-fg-3' : row.delta > 0 ? 'text-emerald-a' : row.delta < 0 ? 'text-red-a' : 'text-fg-2')}>{row.delta == null ? '–' : `${row.delta > 0 ? '+' : ''}${Math.round(row.delta)}`}</td>
                     <td className="px-3 py-3 text-center tabular-nums text-fg-2 max-sm:hidden">{row.w}-{row.d}-{row.l}</td>

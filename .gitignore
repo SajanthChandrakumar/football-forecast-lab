@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 data/*.json
 .vs/
+# Browser test artifacts
+frontend-v2/playwright-report/
+frontend-v2/test-results/

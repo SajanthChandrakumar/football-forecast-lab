@@ -31,6 +31,13 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q src
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend-v2/package-lock.json
+
       - name: Install frontend dependencies
         working-directory: frontend-v2
         run: npm ci
@@ -50,3 +57,22 @@ jobs:
       - name: Frontend production build
         working-directory: frontend-v2
         run: npm run build
+
+      - name: Install browser test runtime
+        working-directory: frontend-v2
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser workflow and responsive tests
+        working-directory: frontend-v2
+        run: npm run test:e2e
+
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-diagnostics
+          path: |
+            frontend-v2/playwright-report/
+            frontend-v2/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

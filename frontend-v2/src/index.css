@@ -128,6 +128,7 @@ button:disabled { cursor: default; }
   .fixture-row, .fixture-column-labels { grid-template-columns: 70px minmax(0,1fr) 110px 64px 86px; gap: 12px; }
 }
 @media (max-width: 680px) {
+  input:not([type='range']):not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px; }
   .page-header { display: block; margin-bottom: 23px; }
   .page-title { font-size: 38px; }
   .page-kicker { font-size: 9px; margin-bottom: 10px; }
@@ -139,8 +140,8 @@ button:disabled { cursor: default; }
   .fixture-toolbar { flex-wrap: wrap; gap: 0; margin-bottom: 17px; }
   .fixture-tabs { width: 100%; gap: 17px; }
   .fixture-tab { min-height: 46px; font-size: 11px; }
-  .fixture-search { width: 100%; margin: 11px 0; min-height: 39px; }
-  .fixture-search input { width: 100%; padding: 9px 0; font-size: 12px; }
+  .fixture-search { width: 100%; margin: 11px 0; min-height: 44px; }
+  .fixture-search input { width: 100%; padding: 9px 0; font-size: 16px; }
   .round-summary { padding: 14px 16px; }
   .fixture-row { grid-template-columns: minmax(0,1fr) 61px 44px; grid-template-areas: 'time time time' 'teams score action' 'source source source'; padding: 14px 16px; gap: 10px 12px; }
   .fixture-time { display: flex; gap: 9px; align-items: baseline; font-size: 12px; }

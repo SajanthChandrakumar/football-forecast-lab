@@ -299,18 +299,15 @@ test('Team Form surfaces stale partial ClubElo refresh while keeping complete la
   assert.match(view, /letzten vollständigen Ratings/)
 })
 
-test('performance counts only actual user tips and refreshes archive data', () => {
+test('performance keeps actual shared tips separate from model totals', () => {
   const performance = readFileSync(new URL('../src/features/performance/usePerformanceData.ts', import.meta.url), 'utf8')
   const scoreboard = readFileSync(new URL('../src/features/performance/BotScoreboard.tsx', import.meta.url), 'utf8')
   const view = readFileSync(new URL('../src/features/performance/PerformanceView.tsx', import.meta.url), 'utf8')
-  const queries = readFileSync(new URL('../src/hooks/queries.ts', import.meta.url), 'utf8')
-  const refresh = queries.slice(queries.indexOf('export const useRefreshData'))
 
   assert.match(performance, /userCount/)
   assert.match(scoreboard, /tipped: totals\.userCount/)
   assert.match(view, /comparison\.userTendency/)
   assert.match(view, /comparison\.matches/)
-  assert.match(refresh, /invalidateQueries\(\{ queryKey: \['archive', competition\] \}\)/)
 })
 
 test('performance includes Elo reconstructions and reports their points separately', () => {

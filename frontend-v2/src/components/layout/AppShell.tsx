@@ -79,8 +79,8 @@ export function AppShell() {
         <main className="min-w-0 px-5 pb-28 pt-7 sm:px-8 lg:px-10 lg:pb-10 lg:pt-10"><div className="mx-auto max-w-6xl"><Outlet /></div></main>
       </div>
       <nav aria-label="Hauptnavigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-line bg-surface px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 lg:hidden">
-        {PRIMARY_NAV.map(({to,label,icon})=><NavLink key={to} to={to} end={to === '/'} onClick={closeMore} className={({isActive})=>cn('flex min-h-12 flex-col items-center justify-center gap-1.5 rounded text-[9px] font-semibold',isActive?'bg-emerald-dim text-emerald-a':'text-fg-2')}><NavIcon name={icon} />{label}</NavLink>)}
-        <button type="button" ref={moreButtonRef} aria-expanded={moreOpen} aria-controls="mobile-more-menu" onClick={()=>setMoreOpen(true)} className={cn('flex min-h-12 flex-col items-center justify-center gap-1.5 rounded text-[9px] font-semibold',isAnalysis?'bg-emerald-dim text-emerald-a':'text-fg-2')}><NavIcon name="more" />Mehr</button>
+        {PRIMARY_NAV.map(({to,label,icon})=><NavLink key={to} to={to} end={to === '/'} onClick={closeMore} className={({isActive})=>cn('flex min-h-12 flex-col items-center justify-center gap-1.5 rounded text-[11px] font-semibold',isActive?'bg-emerald-dim text-emerald-a':'text-fg-2')}><NavIcon name={icon} />{label}</NavLink>)}
+        <button type="button" ref={moreButtonRef} aria-expanded={moreOpen} aria-controls="mobile-more-menu" onClick={()=>setMoreOpen(true)} className={cn('flex min-h-12 flex-col items-center justify-center gap-1.5 rounded text-[11px] font-semibold',isAnalysis?'bg-emerald-dim text-emerald-a':'text-fg-2')}><NavIcon name="more" />Mehr</button>
       </nav>
     </div>
     {moreOpen && <div className="fixed inset-0 z-50 flex items-end bg-black/40 lg:items-center lg:justify-center" onClick={closeMore}>

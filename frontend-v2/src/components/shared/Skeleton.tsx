@@ -8,7 +8,8 @@ export function Skeleton({ className }: { className?: string }) {
 /** Day-grouped fixture list placeholder (Dashboard). */
 export function FixtureListSkeleton({ days = 2, rowsPerDay = 4 }: { days?: number; rowsPerDay?: number }) {
   return (
-    <div className="space-y-7">
+    <div className="space-y-7" role="status" aria-label="Spiele werden geladen" aria-busy="true">
+      <span className="sr-only">Spiele werden geladen …</span>
       {Array.from({ length: days }, (_, d) => (
         <section key={d}>
           <Skeleton className="mb-2 h-3.5 w-44" />

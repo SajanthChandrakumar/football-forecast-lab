@@ -1,4 +1,4 @@
-import { FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
+import { competitionLabel, FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
 import { NavLink } from 'react-router-dom'
 import { useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
@@ -41,13 +41,13 @@ export function CompetitionSelect() {
   </label>
 }
 export function Settings() {
-  const { light, toggleTheme } = useAppState()
+  const { light, toggleTheme, competitions } = useAppState()
   const refresh = useRefreshData()
   return <div className="settings space-y-2">
     <button type="button" onClick={toggleTheme} className="flex min-h-11 w-full items-center justify-between rounded px-3 text-xs text-fg-2 hover:bg-surface-2"><span>Darstellung</span><span className="font-medium text-fg">{light ? 'Hell' : 'Dunkel'}</span></button>
     <button type="button" onClick={() => refresh.mutate()} disabled={refresh.isPending} className="min-h-11 w-full rounded border border-line px-3 text-left text-xs text-fg-2 hover:bg-surface-2 disabled:opacity-50">{refresh.isPending ? 'Wird geladen…' : 'Gespeicherte Daten neu laden'}</button>
     {refresh.isError && <p role="alert" className="px-3 text-xs text-red-a">Daten konnten nicht neu geladen werden. Bitte erneut versuchen.</p>}
-    {refresh.isSuccess && <p role="status" className="px-3 text-xs text-fg-3">Gespeicherte Daten geladen.</p>}
+    {refresh.isSuccess && <p role="status" className="px-3 text-xs text-fg-3">Gespeicherte Daten für {competitionLabel(refresh.data.competition, competitions)} geladen.</p>}
   </div>
 }
 export function Sidebar() {
