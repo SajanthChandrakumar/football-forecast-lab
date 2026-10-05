@@ -19,7 +19,7 @@ export function PerformanceView() {
   if (isError && !archive) {
     return (
       <PageTransition>
-        <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps und Modelltipps im Rückblick." />
+        <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
         <QueryState
           title="Auswertung nicht verfügbar"
           message="Die gespeicherten Spieldaten konnten nicht geladen werden. Prüfe die Verbindung und versuche es erneut."
@@ -33,7 +33,7 @@ export function PerformanceView() {
   if (isLoading) {
     return (
       <PageTransition>
-        <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps und Modelltipps im Rückblick." />
+        <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
         <PerformanceSkeleton />
         <div className="mt-5"><ForecastEvaluation /></div>
       </PageTransition>
@@ -46,7 +46,7 @@ export function PerformanceView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps und Modelltipps im Rückblick." />
+      <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
 
       <div className="space-y-5">
         {isError && archive && (
@@ -74,11 +74,11 @@ export function PerformanceView() {
         </GlassCard>
 
         <GlassCard>
-          <SectionTitle className="mb-2">Gemeinsame Tipps und Modell im fairen Vergleich</SectionTitle>
-          <p className="mb-5 max-w-3xl text-sm leading-relaxed text-fg-2">
+          <SectionTitle className="mb-2">Gemeinsame Tipps vs. Modell</SectionTitle>
+          <details className="info-disclosure mb-3"><summary>Vergleichsgrundlage · gemeinsame Vorabspiele</summary><p className="info-content">
             Gezählt werden nur abgeschlossene Spiele mit gemeinsamem Tipp und gespeichertem Vorab-Modelltipp.
             Nachträglich rekonstruierte Elo-Tipps bleiben ausgeschlossen.
-          </p>
+          </p></details>
 
           {comparison.matches > 0 ? (
             <>

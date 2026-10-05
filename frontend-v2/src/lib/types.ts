@@ -84,7 +84,7 @@ export interface MatchLineup {
 }
 
 export interface MatchIntelligence {
-  status: 'fresh' | 'stale' | 'unavailable'
+  status: 'fresh' | 'stale' | 'failed' | 'unavailable'
   source?: string
   observed_at?: string | null
   reason?: string | null
@@ -202,6 +202,7 @@ export interface XpTip {
 }
 
 export interface Prediction {
+  max_xp?: number | null
   xg_home?: number | null
   xg_away?: number | null
   max_prob?: number

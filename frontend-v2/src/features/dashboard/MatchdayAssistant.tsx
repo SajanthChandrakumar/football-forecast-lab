@@ -128,7 +128,7 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
       <div className="border-b border-line bg-[linear-gradient(135deg,var(--surface),var(--surface-2))] p-4 sm:p-5">
         <p className="kicker">Tipps für die ganze Runde</p>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="matchday-assistant-title" className="font-display text-2xl font-black text-fg sm:text-3xl">Spieltag-Assistent</h2>
+          <h2 id="matchday-assistant-title" className="text-lg font-semibold text-fg">Spieltag-Assistent</h2>
           <label className="flex min-h-11 items-center gap-2 text-sm font-semibold text-fg-2">
             <span className="sr-only">Spielwoche oder Runde auswählen</span>
             <select
@@ -151,9 +151,7 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
             ? <span>Nächste T-5-Frist: {shortDate(new Date(deadline).toISOString())} · {kickoffTime(new Date(deadline).toISOString())}</span>
             : <span>Keine weitere T-5-Frist in dieser Runde.</span>}
         </div>
-        <p className="mt-3 rounded-xl border border-line bg-surface/70 px-3 py-2 text-xs leading-relaxed text-fg-2">
-          Geteilte Tipps: Gespeicherte Ergebnisse sind für alle Besucher sichtbar. Es gibt keine persönlichen Tippkonten.
-        </p>
+        <p className="mt-2 text-xs text-fg-3">Gemeinsam · Für alle sichtbar</p>
       </div>
 
       <details className="group">

@@ -659,3 +659,30 @@ def test_completed_matches_surface_archived_prediction_contract(monkeypatch):
     assert match["input_provenance"] == archived_provenance
     assert match["provenance"] == archived_provenance
     assert match["match_context"] == archived_context
+
+
+@pytest.mark.parametrize("competition", ["wc2026", "ucl2026"])
+def test_undated_elo_does_not_borrow_odds_age_or_claim_a_provider(competition):
+    result = PredictionService(_engine()).predict(
+        odds={"home": 2.0, "draw": 3.2, "away": 4.0},
+        elo={"home_rating": 1800, "away_rating": 1700},
+        competition=competition,
+        observed_at="2026-10-04T10:00:00+00:00",
+    )
+    assert result["source_mode"] == "odds+elo"
+    assert result["input_provenance"]["odds"]["observed_at"] == "2026-10-04T10:00:00+00:00"
+    assert result["input_provenance"]["elo"]["observed_at"] is None
+    assert result["input_provenance"]["elo"]["source"] == "elo"
+
+
+def test_elo_retains_its_own_nested_source_observation():
+    result = PredictionService(_engine()).predict(
+        odds={"home": 2.0, "draw": 3.2, "away": 4.0},
+        elo={"home_rating": 1800, "away_rating": 1700, "provenance": {
+            "source": "clubelo", "observed_at": "2026-09-24T10:00:00+00:00",
+        }},
+        competition="ucl2026",
+        observed_at="2026-10-04T10:00:00+00:00",
+    )
+    assert result["input_provenance"]["elo"]["source"] == "clubelo"
+    assert result["input_provenance"]["elo"]["observed_at"] == "2026-09-24T10:00:00+00:00"

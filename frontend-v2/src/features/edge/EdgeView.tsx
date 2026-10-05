@@ -65,10 +65,10 @@ export function EdgeView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Modellvergleich" subtitle="Vergleich des Heimsieg-Anteils zwischen Markt und Elo-Modell." />
-      <p className="mb-5 max-w-3xl rounded-xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg-2">
+      <PageHeader title="Modellvergleich" subtitle="Heimsieg-Anteil ohne Remis · Elo vs. Markt" />
+      <details className="info-disclosure mb-3"><summary>Was wird hier verglichen?</summary><p className="info-content">
         Beide Werte teilen Sieg und Niederlage auf 100 % auf und lassen ein mögliches Remis heraus. Sie sind daher keine absoluten 1/X/2-Siegwahrscheinlichkeiten. „Prozentpunkte“ zeigen den Abstand zwischen den beiden Anteilen.
-      </p>
+      </p></details>
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Spiele auswählen">
@@ -124,7 +124,8 @@ export function EdgeView() {
                 {grade && <GradeBadge grade={grade} actualScore={match.actual_score} />}
               </div>
 
-              <p className="mt-4 text-sm leading-relaxed text-fg-2">{edgeCopy}</p>
+              <p className="sr-only">{edgeCopy}</p>
+              <div className="edge-difference"><span>Elo − Markt<br />Prozentpunkte</span><strong>{edgePp > 0 ? '+' : ''}{edgePp.toFixed(1)}</strong></div>
               <div className="mt-4 space-y-3">
                 <Bar label="Markt · Heimsieg ohne Remis" value={market} color="var(--text-3)" />
                 <Bar label="Elo · Heimsieg ohne Remis" value={elo} color="var(--blue)" />

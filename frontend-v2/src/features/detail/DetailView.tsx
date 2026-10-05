@@ -8,6 +8,7 @@ import { fixtureStatus } from '../../lib/fixture-status.mjs'
 import type { BotKey, Match, TeamForm, TeamFormMatch, MatchLineup, MatchPlayer } from '../../lib/types'
 import { FormBadges, TeamLogo } from '../../components/shared/Badges'
 import { MatchHintCard } from '../../components/shared/MatchHintCard'
+import { MatchDataStatus } from '../../components/shared/MatchDataStatus'
 import { SharedTipEditor } from '../../components/shared/SharedTipEditor'
 import { PageTransition } from '../../components/shared/PageTransition'
 import { QueryState } from '../../components/shared/QueryState'
@@ -17,7 +18,7 @@ import { OddsHistory } from './OddsHistory'
 import { lineupState } from '../../lib/match-intelligence.mjs'
 import { lineupRows } from '../../lib/lineup-layout.mjs'
 import { ScoreHeatmap } from './ScoreHeatmap'
-import { formatDataStatus, formatObservedAt, parseTipCountRows } from './detail-form.mjs'
+import { formatObservedAt, parseTipCountRows } from './detail-form.mjs'
 import type { TipCountRow } from './detail-form.mjs'
 import { rankedTipInsights, recentFormSummary, matchLoadSummary, playerFormStatusMessage, playerFormSummary, teamHistoryAnalysis, teamHistoryMetrics } from '../../lib/tip-insights.mjs'
 
@@ -38,17 +39,6 @@ const stageLabels: Record<string, string> = {
   'Final': 'Finale',
 }
 
-const sourceLabels: Record<string, string> = {
-  api_football: 'API-Football',
-  clubelo: 'ClubElo',
-  elo: 'Elo-Modell',
-  espn: 'ESPN',
-  'espn+fotmob': 'ESPN + FotMob',
-  fotmob: 'FotMob',
-  market: 'Marktdaten',
-  odds_api: 'The Odds API',
-}
-
 type PoolForm = {
   user_points: string
   leader_points: string
@@ -61,12 +51,6 @@ const EMPTY_POOL_FORM: PoolForm = {
   leader_points: '',
   remaining_srf_max_points: '',
   tipRows: [{ tip: '', count: '' }],
-}
-
-function sourceLabel(source?: string | null) {
-  if (!source || source === 'none') return 'Quelle nicht angegeben'
-  if (sourceLabels[source]) return sourceLabels[source]
-  return source.split('+').map((part) => sourceLabels[part] ?? part.replaceAll('_', ' ')).join(' + ')
 }
 
 function stageLabel(stage?: string) {
@@ -314,7 +298,7 @@ export function DetailView() {
   if (!match) {
     return (
       <PageTransition>
-        <button type="button" onClick={backToGames} className="mb-4 min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
+        <button type="button" onClick={backToGames} className="mb-2 min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
         <QueryState title="Spiel nicht gefunden" message="Dieses Spiel ist in der aktuellen Spielliste nicht enthalten. Kehre zur Übersicht zurück und wähle ein anderes Spiel." />
       </PageTransition>
     )
@@ -324,7 +308,8 @@ export function DetailView() {
   const hasKickoff = Boolean(kickoff && Number.isFinite(Date.parse(kickoff)))
   const kickoffLabel = hasKickoff ? `${shortDate(kickoff)} · ${kickoffTime(kickoff)}` : 'Anstoßzeit nicht verfügbar'
   const cachedModelTip = match.model_tip ?? match.top_tip
-  const modelTip = predict.data?.model_tip ?? predict.data?.top_tip ?? cachedModelTip
+  const predictionTip = predict.data?.model_tip ?? predict.data?.top_tip
+  const modelTip = predictionTip ?? cachedModelTip
   const activeTip = modelTip && modelTip !== 'N/A' ? modelTip : null
   const fixtureState = fixtureStatus(match, now)
   const isUpcoming = fixtureState === 'upcoming'
@@ -337,11 +322,9 @@ export function DetailView() {
   const hasOutcomeProbabilities = probs.home + probs.draw + probs.away > 0
   const quoteSource = hasBookmakerOdds ? 'Buchmacherquoten' : (probabilities ? 'Elo-Modell, keine Wettquote' : 'Keine Quoten oder Modellwerte')
   const quoteObservedAt = hasBookmakerOdds ? match.odds_observed_at : (predict.data?.observed_at ?? match.observed_at)
-  const observedAt = predict.data?.observed_at ?? match.observed_at
-  const dataStatus = predict.data?.source_status ?? predict.data?.status ?? match.source_status ?? match.status
-  const dataStatusLabel = formatDataStatus(dataStatus, observedAt, now)
-  const dataSource = predict.data?.source ?? match.source
   const tipInsights = rankedTipInsights(predict.data?.xp_tips, predict.data?.matrix)
+  const recommendedInsight = tipInsights.find(item => item.tip === activeTip)
+  const expectedPoints = predictionTip != null ? (recommendedInsight?.expectedPoints ?? predict.data?.max_xp) : match.max_xp
   const xgHome = predict.data?.xg_home ?? match.xg_home
   const xgAway = predict.data?.xg_away ?? match.xg_away
   const xgTotal = (xgHome ?? 0) + (xgAway ?? 0)
@@ -391,7 +374,7 @@ export function DetailView() {
 
   return (
     <PageTransition>
-      <button type="button" onClick={backToGames} className="mb-4 min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
+      <button type="button" onClick={backToGames} className="mb-2 min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
       {matchesError && <div className="mb-4"><QueryState title="Spiele konnten nicht aktualisiert werden" message="Die zuletzt geladenen Spielinformationen werden angezeigt. Prüfe die Verbindung und lade die Liste erneut." onRetry={() => { void retryMatches() }} /></div>}
 
       <header className="match-heading">
@@ -401,28 +384,29 @@ export function DetailView() {
           <span>{kickoffLabel}</span>
           <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium">{matchStatusLabel(match, now)}</span>
         </div>
-        <h1 className="mt-5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-xl font-semibold tracking-tight text-fg sm:gap-5 sm:text-3xl">
+        <h1 className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-xl font-semibold tracking-tight text-fg sm:gap-5 sm:text-3xl">
           <span className="flex min-w-0 items-center gap-2"><TeamLogo name={match.home_team} src={match.home_logo} className="h-6 w-6 sm:h-8 sm:w-8" /><span className="min-w-0 break-words">{match.home_team}</span></span>
           <span className="text-xs font-medium text-fg-3 sm:text-sm">gegen</span>
           <span className="flex min-w-0 items-center justify-end gap-2 text-right"><span className="min-w-0 break-words">{match.away_team}</span><TeamLogo name={match.away_team} src={match.away_logo} className="h-6 w-6 sm:h-8 sm:w-8" /></span>
         </h1>
-        <button type="button" onClick={() => { setSelectedTeams([match.home_team, match.away_team]); navigate('/team-form') }} className="mt-4 min-h-11 rounded-lg border border-line-2 px-4 text-sm font-semibold text-fg hover:bg-surface-2">
+        <button type="button" onClick={() => { setSelectedTeams([match.home_team, match.away_team]); navigate('/team-form') }} className="mt-2 min-h-11 text-sm font-semibold text-blue-a hover:underline">
           Diese Teams vergleichen
         </button>
       </header>
 
-      <section aria-labelledby="recommendation-title" className="mb-5 rounded-xl border border-line bg-surface p-5 sm:p-6">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
+      <section aria-labelledby="recommendation-title" className="recommendation-panel">
+        <div className="recommendation-grid">
           <div className="recommendation-main">
-            <p className="text-sm font-medium text-fg-2">Modellvorschlag nach erwarteten Tippspielpunkten</p>
-            <h2 id="recommendation-title" className="mt-1 text-base font-semibold text-fg">Empfohlener Ergebnistipp</h2>
-            <p className="mt-3 text-5xl font-bold tracking-tight tabular-nums text-fg sm:text-6xl">{activeTip ?? '–'}</p>
-            <div className="mt-4 space-y-1 text-sm text-fg-2" aria-live="polite">
-              <p><span className="font-medium text-fg">Quelle:</span> {sourceLabel(dataSource)}</p>
-              <p><span className="font-medium text-fg">Datenstand:</span> {formatObservedAt(observedAt)}</p>
-              <p><span className="font-medium text-fg">Datenstatus:</span> {dataStatusLabel}</p>
-              {dataStatusLabel === 'Älterer Datenstand' && <p className="text-amber-a">Die Daten sind älter als 24 Stunden. Quoten und Teaminformationen können sich inzwischen geändert haben.</p>}
+            <div className="recommendation-label"><h2 id="recommendation-title" aria-label="Empfohlener Ergebnistipp">Modelltipp</h2><MatchDataStatus match={match} prediction={predictionTip != null ? predict.data : undefined} now={now} badge /></div>
+            <div className="recommendation-scoreline">
+              <p className="recommendation-score">{activeTip ?? '–'}</p>
+              <dl className="recommendation-metrics">
+                <div><dt>Ø Punkte</dt><dd title={expectedPoints == null ? 'Nicht verfügbar' : undefined}>{expectedPoints != null && Number.isFinite(expectedPoints) ? expectedPoints.toFixed(2) : '–'}</dd></div>
+                <div><dt>Exakter Treffer</dt><dd title={recommendedInsight?.exactChance == null ? 'Nicht verfügbar' : undefined}>{recommendedInsight?.exactChance != null ? pct(recommendedInsight.exactChance) : '–'}</dd></div>
+              </dl>
             </div>
+            <button type="button" onClick={() => { void copyTip() }} disabled={!canCopy} className="copy-tip-button">Tipp kopieren <span aria-hidden="true">↗</span></button>
+            {copyStatus && <p role="status" className="mt-2 text-xs text-fg-2">{copyStatus}</p>}
             {predict.isPending && <p role="status" className="mt-3 text-xs text-fg-3">Die Spielanalyse wird aktualisiert. Der vorhandene Spieltipp bleibt sichtbar.</p>}
             {predict.isError && <div className="mt-3 rounded-lg border border-line bg-surface-2 p-3 text-sm text-fg-2" role="alert">
               <p>Die Aktualisierung der Spielanalyse ist fehlgeschlagen{activeTip ? '; der vorhandene Spieltipp wird weiterhin angezeigt.' : '.'}</p>
@@ -432,13 +416,6 @@ export function DetailView() {
           </div>
 
           <div className="space-y-4">
-            <div className="rounded-lg border border-line bg-surface-2 p-4">
-              <p className="text-sm font-semibold text-fg">Modelltipp kopieren</p>
-              <p className="mt-1 text-xs leading-relaxed text-fg-2">Kopiert nur den Vorschlag in deine Zwischenablage und speichert ihn nicht.</p>
-              <button type="button" onClick={() => { void copyTip() }} disabled={!canCopy} className="mt-3 min-h-11 rounded-lg bg-action px-4 text-sm font-semibold text-on-action hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">Tipp kopieren</button>
-              {copyStatus && <p role="status" className="mt-2 text-xs text-fg-2">{copyStatus}</p>}
-            </div>
-
             {archive.isLoading && <p role="status" className="rounded-lg border border-line p-4 text-sm text-fg-2">Gespeicherte gemeinsame Tipps werden geladen …</p>}
             {archive.error && <div role="alert" className="rounded-lg border border-line p-4 text-sm text-fg-2">
               <h3 className="font-semibold text-fg">Gemeinsame Tipps konnten nicht geladen werden</h3>
@@ -450,10 +427,15 @@ export function DetailView() {
           </div>
         </div>
 
-        <aside className="mt-5 rounded-lg border border-line bg-surface-2 px-4 py-3 text-sm leading-relaxed text-fg-2">
-          <strong className="text-fg">Gemeinsamer Spieltipp:</strong> Ein gespeicherter Tipp wird zentral für dieses Spiel abgelegt. Er ist nicht nutzergetrennt, keinem persönlichen Konto zugeordnet und kann für alle sichtbar sein.
-        </aside>
+        <details className="info-disclosure recommendation-info">
+          <summary>Wie wird der Tipp gewählt?</summary>
+          <div className="info-content">
+            <p>Das Modell wählt den Ergebnistipp mit den höchsten erwarteten Tippspielpunkten. Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Die Chance für den exakten Treffer ist eine separate Angabe. Torwerte beschreiben einen Modellschnitt und sind kein garantiertes Ergebnis.</p>
+            <p className="mt-2">Kopieren überträgt den Vorschlag nur in die Zwischenablage. Speichern legt einen gemeinsamen Tipp für das Spiel ab: nicht nutzergetrennt und für alle sichtbar. Die Abgabe schließt fünf Minuten vor Anpfiff.</p>
+          </div>
+        </details>
       </section>
+      <MatchDataStatus match={match} prediction={predictionTip != null ? predict.data : undefined} now={now} />
 
       {missing.length > 0 && (
         <section className="mb-5 rounded-xl border border-line bg-surface p-4" aria-labelledby="lineup-title">
@@ -465,12 +447,11 @@ export function DetailView() {
       <section className="mb-5 rounded-xl border border-line bg-surface" aria-labelledby="analysis-title">
         <div className="border-b border-line px-5 py-4">
           <h2 id="analysis-title" className="text-base font-semibold text-fg">Spielanalyse</h2>
-          <p className="mt-1 text-sm text-fg-2">Siegchance und mögliche Ergebnistipps</p>
         </div>
         <div className="grid lg:grid-cols-2">
           <div className="p-5 lg:border-r lg:border-line">
             <h3 className="text-sm font-semibold text-fg">Wer gewinnt?</h3>
-            <p className="mt-1 text-sm text-fg-2">Die Chancen beziehen sich auf Sieg oder Remis, nicht auf ein genaues Ergebnis.</p>
+            <p className="mt-1 text-xs text-fg-3">Sieg / Remis / Niederlage</p>
             {hasOutcomeProbabilities ? (
               <>
                 <div className="mt-5 flex h-4 overflow-hidden rounded-full bg-surface-2" role="img" aria-label={`${match.home_team} Sieg ${pct(probs.home)}, Unentschieden ${pct(probs.draw)}, ${match.away_team} Sieg ${pct(probs.away)}`}>
@@ -479,9 +460,9 @@ export function DetailView() {
                   <span className="bg-line-2" style={{ width: `${probs.away * 100}%` }} />
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-fg-2">
-                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-blue-a" /><b className="block text-base tabular-nums text-fg">{pct(probs.home)}</b>{match.home_team}</div>
-                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-fg-3" /><b className="block text-base tabular-nums text-fg">{pct(probs.draw)}</b>Unentschieden</div>
-                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-line-2" /><b className="block text-base tabular-nums text-fg">{pct(probs.away)}</b>{match.away_team}</div>
+                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-blue-a" /><b className="block text-3xl font-semibold tabular-nums text-fg">{pct(probs.home)}</b>{match.home_team}</div>
+                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-fg-3" /><b className="block text-3xl font-semibold tabular-nums text-fg">{pct(probs.draw)}</b>Unentschieden</div>
+                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-line-2" /><b className="block text-3xl font-semibold tabular-nums text-fg">{pct(probs.away)}</b>{match.away_team}</div>
                 </div>
                 <p className="mt-4 text-xs text-fg-3">Quelle: {quoteSource} · {quoteObservedAt ? formatObservedAt(quoteObservedAt) : 'Zeitpunkt nicht verfügbar'}</p>
               </>
@@ -489,8 +470,8 @@ export function DetailView() {
           </div>
 
           <div className="border-t border-line p-5 lg:border-t-0">
-            <h3 className="text-sm font-semibold text-fg">Welche Ergebnisse kommen infrage?</h3>
-            <p className="mt-1 text-sm text-fg-2">Die besten Optionen nach durchschnittlich erwarteten Tippspielpunkten.</p>
+            <h3 className="text-sm font-semibold text-fg">Ergebnis-Alternativen</h3>
+            <p className="mt-1 text-xs text-fg-3">Nach Ø Tippspielpunkten</p>
             {tipInsights.length ? (
               <div className="mt-3 divide-y divide-line">
                 {tipInsights.map((item, index) => (
@@ -499,7 +480,6 @@ export function DetailView() {
                     <div className="text-right"><div className="text-sm font-semibold tabular-nums text-fg">{item.expectedPoints.toFixed(2)} Punkte</div><div className="text-xs tabular-nums text-fg-3">{item.exactChance === null ? 'Trefferchance nicht verfügbar' : `${(item.exactChance * 100).toFixed(1)} % genau`}</div></div>
                   </div>
                 ))}
-                <p className="pt-3 text-xs leading-relaxed text-fg-3">Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Die Chance für den exakten Treffer ist eine separate Angabe.</p>
               </div>
             ) : (
               <p className="mt-4 text-sm text-fg-2">{predict.isError ? 'Die Ergebnistipps konnten nicht berechnet werden.' : predict.isPending ? 'Die Ergebnistipps werden berechnet.' : 'Für dieses Spiel liegen keine weiteren Ergebnistipps vor.'}</p>
@@ -509,30 +489,29 @@ export function DetailView() {
       </section>
 
       <section className="mb-5 rounded-xl border border-line bg-surface p-5" aria-labelledby="context-title">
-        <h2 id="context-title" className="text-base font-semibold text-fg">Spielausgang und zusätzliche Hinweise</h2>
-        <div className="mt-3"><MatchHintCard match={match} /></div>
-        {xgHome != null && xgAway != null && xgTotal > 0 && (
-          <div className="mt-5 border-t border-line pt-4">
-            <h3 className="text-sm font-semibold text-fg">Erwartete Tore</h3>
+        <h2 id="context-title" className="text-base font-semibold text-fg">Tore & Form</h2>
+        {xgHome != null && xgAway != null && xgTotal > 0 ? (
+          <div className="mt-3">
+            <h3 className="sr-only">Erwartete Tore</h3>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               {[
                 { team: match.home_team, xg: xgHome, form: match.home_form },
                 { team: match.away_team, xg: xgAway, form: match.away_form },
               ].map(({ team, xg, form }) => (
                 <div key={team}>
-                  <div className="flex items-center justify-between gap-2 text-sm font-medium text-fg"><span>{team}</span><span className="tabular-nums">{xg.toFixed(2)}</span></div>
+                  <div className="flex items-center justify-between gap-2 text-sm font-medium text-fg"><span>{team}</span><span className="text-2xl font-semibold tabular-nums">{xg.toFixed(2)} <span className="text-xs font-normal text-fg-3">xG</span></span></div>
                   <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2"><div className="h-full rounded-full bg-blue-a" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
-                  <p className="mt-2 text-xs text-fg-2">{recentFormSummary(form)}{form?.status === 'stale' ? ' · Datenstand möglicherweise veraltet' : ''}</p>
+                  <div className="mt-3" aria-label={`${team}: ${recentFormSummary(form)}`}><FormBadges form={form} /></div>{form?.status === 'stale' && <p className="mt-2 text-xs text-amber-a">Älterer Formstand</p>}
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-xs text-fg-3">Die Werte beschreiben einen Modelldurchschnitt und sind kein garantiertes Ergebnis.</p>
+            <p className="mt-3 text-xs text-fg-3">xG = erwartete Tore im Modellschnitt</p>
           </div>
-        )}
+        ) : <p className="mt-3 text-sm text-fg-2">Torprognose nicht verfügbar.</p>}
       </section>
 
       <details className="mb-4 rounded-2xl border border-line bg-surface px-5 py-4" onToggle={(event) => setShowOddsHistory(event.currentTarget.open)}>
-        <summary className="min-h-6 cursor-pointer text-sm font-bold text-fg">Wie haben sich die Quoten verändert?</summary>
+        <summary className="min-h-11 cursor-pointer text-sm font-bold text-fg">Wie haben sich die Quoten verändert?</summary>
         <OddsHistory matchId={match.id} homeTeam={match.home_team} awayTeam={match.away_team} enabled={showOddsHistory} />
       </details>
 
@@ -541,6 +520,7 @@ export function DetailView() {
           Weitere Daten zur Analyse <span aria-hidden="true">⌄</span>
         </summary>
         <div className="space-y-4 border-t border-line p-4">
+          <section className="rounded-xl border border-line p-4"><h3 className="mb-3 text-sm font-semibold">Weitere Spielhinweise</h3><MatchHintCard match={match} /></section>
       <GlassCard className="mb-5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>

@@ -47,10 +47,10 @@ export function TeamFormView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Teamvergleich" subtitle="Elo-Verlauf und Resultate für bis zu vier Teams vergleichen." />
-      <p className="mb-5 max-w-3xl rounded-xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg-2">
+      <PageHeader title="Teamvergleich" subtitle="Teamstärke & Form · bis zu vier Teams" />
+      <details className="info-disclosure mb-3"><summary>Was zeigt der Teamvergleich?</summary><p className="info-content">
         Elo beschreibt die relative Teamstärke. Die Ergebnisse stammen aus dem Wettbewerbsarchiv.
-      </p>
+      </p></details>
       {competition === 'wc2026' && <p className="mb-4 text-xs text-fg-3">Gastgeber-Bonus: +80 Elo für USA, Kanada und Mexiko.</p>}
 
       {isLoading && <div className="space-y-4"><ChartSkeleton /><CardGridSkeleton count={1} cols="grid-cols-1" /></div>}
@@ -135,14 +135,13 @@ export function TeamFormView() {
                 return <div key={team} className="min-w-0 rounded-lg border border-line bg-surface-2 px-3 py-3">
                   <div className="flex items-center gap-2 truncate text-sm font-medium text-fg"><TeamLogo name={team} /><span className="truncate">{team}</span></div>
                   <div className="mt-2 text-2xl font-semibold tabular-nums text-fg">{Math.round(row.elo)} <span className="text-xs font-normal text-fg-3">Elo</span></div>
-                  <p className="mt-1 text-xs text-fg-2">Bilanz im Archiv: {row.w}-{row.d}-{row.l} aus {row.w + row.d + row.l} {row.w + row.d + row.l === 1 ? 'Spiel' : 'Spielen'}</p>
-                  <p className="mt-1 text-xs text-fg-3">Siege · Remis · Niederlagen</p>
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-xs text-fg-3">{[['Siege', row.w], ['Remis', row.d], ['Niederlagen', row.l]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="mt-1 text-base font-semibold tabular-nums text-fg">{value}</dd></div>)}</dl>
                   {row.w + row.d + row.l < 5 && <p className="mt-1 text-xs text-fg-3">Kleine Stichprobe: {row.w + row.d + row.l} {row.w + row.d + row.l === 1 ? 'abgeschlossenes Spiel' : 'abgeschlossene Spiele'}.</p>}
-                  {row.recentGames.length > 0 ? <ol className="mt-2 space-y-1.5 text-xs text-fg-2">
+                  {row.recentGames.length > 0 ? <details className="info-disclosure mt-2"><summary>Letzte Spiele ({row.recentGames.length})</summary><ol className="space-y-1.5 pb-3 text-xs text-fg-2">
                     {[...row.recentGames].reverse().map((game, index) => <li key={`${team}-${game.playedAt ?? 'unknown'}-${game.score}-${index}`} className="flex min-w-0 flex-wrap justify-between gap-x-2">
                       <span className="min-w-0">{game.playedAt && Number.isFinite(Date.parse(game.playedAt)) ? new Date(game.playedAt).toLocaleDateString('de-CH', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Europe/Zurich' }) : 'Datum nicht verfügbar'} · {FORM_LABEL[game.result]} {game.score} gegen {game.opponent}</span>
                     </li>)}
-                  </ol> : <p className="mt-2 text-xs text-fg-3">Keine abgeschlossenen Spiele im Archiv.</p>}
+                  </ol></details> : <p className="mt-2 text-xs text-fg-3">Keine abgeschlossenen Spiele im Archiv.</p>}
                 </div>
               })}
             </div>}

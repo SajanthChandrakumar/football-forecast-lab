@@ -1,5 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test'
-import type { Archive, CompetitionId, Match } from '../src/lib/types'
+import type { Archive, CompetitionId, Match, Prediction } from '../src/lib/types'
 
 export const NOW = new Date('2026-10-03T12:00:00Z')
 const day = 86_400_000
@@ -49,7 +49,7 @@ export async function installApi(page: Page) {
     }
   }
   const state = {
-    matches, archive, failArchive: false, failHistory: false, failSave: 0, unavailableRefresh: false,
+    matches, archive, prediction: undefined as Prediction | undefined, failArchive: false, failHistory: false, failSave: 0, unavailableRefresh: false,
     saveGate: undefined as Promise<void> | undefined,
     matchesGate: undefined as Promise<void> | undefined,
     saves: [] as { match_id: string; user_tip: string; competition: CompetitionId }[],
@@ -81,7 +81,16 @@ export async function installApi(page: Page) {
       archive[competition][tip.match_id].prediction.user_tip = tip.user_tip
       return respond({ ok: true })
     }
-    if (endpoint === 'predict') return respond({ model_tip: '2:1', top_tip: '2:1', probabilities: { home: .5, draw: .27, away: .23 }, matrix: { 2: { 1: .11 } }, xp_tips: [{ Tipp: '2:1', xP: 3.9 }], status: 'fresh', source: 'odds_api', observed_at: NOW.toISOString() })
+    if (endpoint === 'predict') {
+      const cached = matches[competition].find(match => match.id === request.postDataJSON().match.id)
+      return respond(state.prediction ?? {
+        model_tip: '2:1', top_tip: '2:1', probabilities: { home: .5, draw: .27, away: .23 },
+        matrix: { 2: { 1: .11 } }, xp_tips: [{ Tipp: '2:1', xP: 3.9 }],
+        status: 'fresh', source: 'odds_api', observed_at: NOW.toISOString(),
+        source_mode: cached?.source_mode ?? (cached?.odds ? 'odds-only' : 'unavailable'),
+        input_provenance: cached?.input_provenance,
+      })
+    }
     if (endpoint === 'standings') return respond([{ name: 'Ligaphase', rows: teams.map((team, i) => ({ team, pos: i + 1, p: 2, w: 1, d: 1, l: 0, gf: 3, ga: 1, gd: 2, pts: 4 })) }])
     if (endpoint === 'elo_ratings') return respond(Object.fromEntries(teams.map((team, i) => [team, { elo: 2000 - i * 10 }])))
     if (endpoint === 'elo_history') return respond(Object.fromEntries(teams.map((team, i) => [team, [

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSaveUserTip } from '../../hooks/queries'
 import { fixtureStatus, sharedTipIsOpen } from '../../lib/fixture-status.mjs'
 import { formatScoreFields, parseScoreFields } from '../../lib/score-tip.mjs'
+import { kickoffTime } from '../../lib/format'
 import type { CompetitionId, Match } from '../../lib/types'
 
 type Props = {
@@ -124,6 +125,9 @@ export function SharedTipEditor({ match, competition, savedTip, now, unavailable
     save()
   }
 
+  const cutoff = Date.parse(kickoff ?? '') - 5 * 60_000
+  const deadline = Number.isFinite(cutoff) ? kickoffTime(new Date(cutoff).toISOString()) : null
+
   const cutoffMessage = state === 'upcoming'
     ? kickoff && Number.isFinite(Date.parse(kickoff))
       ? 'Speichern ist fünf Minuten vor Anpfiff gesperrt.'
@@ -131,9 +135,9 @@ export function SharedTipEditor({ match, competition, savedTip, now, unavailable
     : 'Die gemeinsame Tippabgabe ist geschlossen.'
 
   return (
-    <section className={compact ? 'rounded-lg border border-line bg-surface-2 p-3' : 'rounded-lg border border-line p-4'}>
-      <h3 className="text-sm font-semibold text-fg">Gemeinsamen Ergebnistipp speichern</h3>
-      {!compact && <p className="mt-1 text-xs leading-relaxed text-fg-2">Dieser Tipp wird zentral für das Spiel gespeichert. Die Abgabe schließt fünf Minuten vor Anpfiff.</p>}
+    <section className={compact ? 'rounded-lg border border-line bg-surface-2 p-3' : 'shared-tip-editor'}>
+      <h3 className="text-sm font-semibold text-fg">Gemeinsamer Tipp</h3>
+      {!compact && <div className="tip-editor-meta"><span>Für alle sichtbar</span><span>{state === 'upcoming' && !cutoffReached && deadline ? `Abgabe bis ${deadline}` : !deadline ? "Anstoß offen" : "Abgabe geschlossen"}</span></div>}
       {confirmedTip && <p className="mt-2 text-xs text-fg-2">Gespeicherter gemeinsamer Tipp: <strong className="tabular-nums text-fg">{confirmedTip}</strong></p>}
       <form onSubmit={submit} className={compact ? 'mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2' : 'mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2'}>
         <label className="min-w-0 text-xs font-medium text-fg-2">
@@ -145,8 +149,8 @@ export function SharedTipEditor({ match, competition, savedTip, now, unavailable
           <span className="block truncate">{compact ? 'Auswärts' : `Tore ${match.away_team}`}</span>
           <input required aria-label={`Tore ${match.away_team}`} type="number" min={0} step={1} inputMode="numeric" value={score.away} onChange={(event) => updateScore('away', event.target.value)} readOnly={!canSave || saveTip.isPending} className="mt-1 min-h-11 w-full min-w-0 rounded-lg border border-line-2 bg-surface px-2 text-center text-base tabular-nums text-fg outline-none focus:border-blue-a focus:ring-2 focus:ring-blue-a/20 read-only:text-fg-2" />
         </label>
-        <button type="submit" disabled={!canSave || saveTip.isPending} className={compact ? 'min-h-11 rounded-lg bg-action px-3 text-sm font-semibold text-on-action hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50' : 'col-span-3 min-h-11 w-full rounded-lg border border-blue-a/40 bg-blue-a/10 px-4 text-sm font-semibold text-blue-a hover:bg-blue-a/15 disabled:cursor-not-allowed disabled:opacity-50'}>
-          {saveTip.isPending ? 'Speichert …' : compact ? 'Speichern' : 'Gemeinsamen Spieltipp speichern'}
+        <button type="submit" aria-label={compact ? undefined : saveTip.isPending ? 'Speichert …' : 'Gemeinsamen Spieltipp speichern'} disabled={!canSave || saveTip.isPending} className={compact ? 'min-h-11 rounded-lg bg-action px-3 text-sm font-semibold text-on-action hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50' : 'col-span-3 min-h-11 w-full rounded-lg bg-action px-4 text-sm font-semibold text-on-action hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'}>
+          {saveTip.isPending ? 'Speichert …' : 'Speichern'}
         </button>
         {compact && onSaveAndNext && <button type="button" disabled={!canSave || saveTip.isPending} onClick={() => save(true)} className="col-span-3 min-h-11 rounded-lg border border-line-2 px-3 text-sm font-semibold text-fg hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50">
           Speichern & nächstes Spiel

@@ -349,7 +349,7 @@ def _source_metadata(
     provenance = dict(nested) if isinstance(nested, Mapping) else {}
     source = value.get("source") or provenance.get("source") or default_source
     status = normalize_status(value.get("status"), default="fresh")
-    observed_at = value.get("observed_at") or default_observed_at
+    observed_at = value.get("observed_at") or provenance.get("observed_at") or default_observed_at
     return str(source), str(status), observed_at, provenance
 
 
@@ -437,8 +437,8 @@ class PredictionService:
         )
         elo_source, elo_status, elo_observed_at, elo_provenance = _source_metadata(
             elo,
-            default_source="clubelo",
-            default_observed_at=observed_at,
+            default_source="elo",
+            default_observed_at=None,
         )
         effective_observed_at = observed_at or odds_observed_at or elo_observed_at
         if effective_observed_at is None:

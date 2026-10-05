@@ -4,6 +4,7 @@ import { fixtureStatus } from '../../lib/fixture-status.mjs'
 import { kickoffTime, shortDate } from '../../lib/format'
 import { TeamLogo } from '../../components/shared/Badges'
 import { MatchHintCard } from '../../components/shared/MatchHintCard'
+import { MatchDataStatus } from '../../components/shared/MatchDataStatus'
 import { SharedTipEditor } from '../../components/shared/SharedTipEditor'
 import type { CompetitionId } from '../../lib/types'
 
@@ -30,6 +31,6 @@ export function FixtureRow({ match, trailing, pendingResult = false, now, compac
     {(status === 'upcoming' || status === 'played') && <Link to={`/match/${match.id}`} state={{ fromFixtureList: true }} aria-label={`${status === 'played' ? 'Analyse ansehen' : 'Tipp ansehen'}: ${match.home_team} gegen ${match.away_team}`} className="fixture-action min-h-11"><span className="fixture-action-label">{status === 'played' ? 'Analyse ansehen' : 'Tipp ansehen'}</span><span aria-hidden="true" className="fixture-action-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5"><path d="M4 10h12m-5-5 5 5-5 5" /></svg></span></Link>}
     {trailing != null && <div className="fixture-extra">{trailing}</div>}
     {sharedTipMode && competition && now != null && <div className="fixture-extra"><SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={savedTip} now={now} compact autoFocus={autoFocusTip} onAutoFocus={onTipAutoFocus} onSaveAndNext={onSaveAndNext} onSaveStart={onSaveStart} onSaved={onTipSaved} /></div>}
-    {!compact && status === 'upcoming' && <div className="fixture-hint"><MatchHintCard match={match} compact /></div>}
+    {status === 'upcoming' && <div className="fixture-hint">{!compact && <MatchHintCard match={match} compact />}<MatchDataStatus match={match} now={now} compact /></div>}
   </article>
 }

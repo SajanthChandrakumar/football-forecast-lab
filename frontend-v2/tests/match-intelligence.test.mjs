@@ -24,6 +24,13 @@ test('lineupState exposes confirmed lineups without hiding substitutes', () => {
 test('lineupState distinguishes not-yet-collected data', () => {
   assert.deepEqual(lineupState(undefined, 'Lens', 'Sporting CP'), {
     kind: 'unavailable',
-    message: 'Aufstellungen sind noch nicht veröffentlicht.',
+    message: 'Nicht erfasst',
   })
+})
+
+
+test('lineupState distinguishes provider errors and one-sided lineups from unpublished data', () => {
+  assert.equal(lineupState({ status: 'failed', reason: 'provider_error' }, 'Lens', 'Sporting CP').message, 'Abruf fehlgeschlagen')
+  assert.equal(lineupState({ status: 'unavailable', reason: 'lineups_not_published' }, 'Lens', 'Sporting CP').message, 'Vom Anbieter noch nicht veröffentlicht')
+  assert.equal(lineupState({ status: 'fresh', lineups: { Lens: { starters: [{ name: 'A' }] } } }, 'Lens', 'Sporting CP').partial, true)
 })

@@ -117,7 +117,7 @@ export function DashboardView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Spiele & Tipps." subtitle="Der Spielplan. Die Modelltipps. Deine nächste Entscheidung.">
+      <PageHeader title="Spiele & Tipps">
         {!isLoading && fixtureMatches.length > 0 && <aside className="matchday-brief" aria-label={nextRound ? 'Nächste Spielwoche' : 'Wettbewerbsarchiv'}>
           <p className="brief-label">{nextRound ? 'Als Nächstes' : 'Im Rückblick'}</p>
           <div className="flex items-end justify-between gap-5"><h2 className="brief-heading">{nextRound?.label ?? 'Abgeschlossene Spiele'}</h2><div className="text-right"><p className="brief-count">{nextRound ? nextRoundMatches.length : played.length}</p><p className="mt-1 text-[9px] text-[#c2cebe]">Spiele</p></div></div>
@@ -155,7 +155,7 @@ export function DashboardView() {
       {activeTab === 'tips' && archiveQuery.error && <QueryState title="Tippstatus nicht verfügbar" message="Die gespeicherten gemeinsamen Tipps konnten nicht geladen werden. Lade sie erneut, bevor du einen Tipp abgibst." onRetry={() => { void archiveQuery.refetch() }} />}
       {activeTab === 'tips' && tipSaveNotice && <p role="status" className="rounded-lg border border-emerald-a/30 bg-emerald-dim px-4 py-3 text-sm text-fg">{tipSaveNotice}</p>}
       {activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && openTips.length === 0 && <p className="rounded-lg border border-line bg-surface px-4 py-5 text-sm text-fg-2">Aktuell gibt es keine archivierten Spiele mit offenem, noch nicht abgegebenem gemeinsamen Tipp.</p>}
-      {activeTab === 'tips' && openTips.length > 0 && <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg-2">Diese Ergebnistipps werden gemeinsam und zentral pro Spiel gespeichert. Die Eingabe schließt fünf Minuten vor Anpfiff.</p>}
+      {activeTab === 'tips' && openTips.length > 0 && <p className="mb-3 text-xs text-fg-2">Gemeinsame Tipps · Für alle sichtbar · Abgabe bis T−5</p>}
       {!isLoading && !error && fixtureMatches.length === 0 && isUnavailable && (
         <div role="status" className="rounded-2xl border border-amber-a/30 bg-amber-a/5 p-5">
           <h2 className="text-base font-bold text-fg">Spieldaten gerade nicht verfügbar</h2>

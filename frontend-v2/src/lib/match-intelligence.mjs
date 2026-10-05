@@ -11,5 +11,13 @@ export function lineupState(data, homeTeam, awayTeam) {
   if (home?.starters?.length && away?.starters?.length) {
     return { kind: 'confirmed', home, away, observedAt: data.observed_at, source: data.source }
   }
-  return { kind: 'unavailable', message: 'Aufstellungen sind noch nicht veröffentlicht.' }
+  if (home?.starters?.length || away?.starters?.length) {
+    return { kind: 'unavailable', partial: true, message: 'Nur eine Mannschaft erfasst' }
+  }
+  const message = data?.reason === 'lineups_not_published'
+    ? 'Vom Anbieter noch nicht veröffentlicht'
+    : data?.status === 'failed' || ['provider_error', 'fetch_failed'].includes(data?.reason)
+      ? 'Abruf fehlgeschlagen'
+      : 'Nicht erfasst'
+  return { kind: 'unavailable', message }
 }
