@@ -7,7 +7,7 @@ from datetime import timezone
 
 from src.competitions import find_competition_document, get_competition
 from src.services.archive import build_archive_id_index, resolve_archive_id
-from src.services.snapshots import BUCKET_OFFSETS, parse_time
+from src.services.snapshots import SNAPSHOT_BUCKETS, parse_time
 
 
 MAX_ODDS_HISTORY_POINTS = 100
@@ -84,7 +84,7 @@ def _snapshot_rows(cache_collection, match_id: str, competition: str):
     query = {
         "competition": competition,
         "event_id": match_id,
-        "bucket": {"$in": list(BUCKET_OFFSETS)},
+        "bucket": {"$in": list(SNAPSHOT_BUCKETS)},
         "status": {"$in": sorted(_VALID_SNAPSHOT_STATUSES)},
     }
     cursor = cache_collection.find(query)
@@ -153,7 +153,7 @@ def get_odds_history(
     for row in _snapshot_rows(cache_collection, snapshot_event_id, comp.id):
         if row.get("source") != "odds_api" or row.get("status") not in _VALID_SNAPSHOT_STATUSES:
             continue
-        if row.get("bucket") not in BUCKET_OFFSETS:
+        if row.get("bucket") not in SNAPSHOT_BUCKETS:
             continue
         try:
             observed = parse_time(row.get("observed_at"))
@@ -166,7 +166,7 @@ def get_odds_history(
             continue
         odds, probabilities = cleaned
         timestamp = observed.astimezone(timezone.utc)
-        ranked.append((timestamp, list(BUCKET_OFFSETS).index(row["bucket"]), str(row.get("_id") or ""), {
+        ranked.append((timestamp, list(SNAPSHOT_BUCKETS).index(row["bucket"]), str(row.get("_id") or ""), {
             "observed_at": timestamp.isoformat(),
             "bucket": row["bucket"],
             "source": row["source"],

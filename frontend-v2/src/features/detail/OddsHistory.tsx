@@ -26,7 +26,7 @@ const OUTCOMES: { key: Outcome; label: string }[] = [
   { key: 'away', label: 'Auswärts' },
 ]
 const BUCKET_LABEL: Record<string, string> = {
-  t24h: 'T−24 h', t6h: 'T−6 h', t75m: 'T−75 min', t30m: 'T−30 min', t15m: 'T−15 min',
+  t24h: 'T−24 h', t6h: 'T−6 h', t75m: 'T−75 min', t30m: 'T−30 min', t15m: 'T−15 min', manual: 'Manuell',
 }
 const COLORS: Record<Outcome, string> = { home: '#547a63', draw: '#778078', away: '#ae895c' }
 

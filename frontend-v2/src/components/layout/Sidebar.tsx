@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
+import { ManualDataRefresh } from '../shared/ManualDataRefresh'
 
 export const PRIMARY_NAV = [
   { to: '/', label: 'Spiele', icon: 'fixtures' },
@@ -45,6 +46,7 @@ export function Settings() {
   const refresh = useRefreshData()
   return <div className="settings space-y-2">
     <button type="button" onClick={toggleTheme} className="flex min-h-11 w-full items-center justify-between rounded px-3 text-xs text-fg-2 hover:bg-surface-2"><span>Darstellung</span><span className="font-medium text-fg">{light ? 'Hell' : 'Dunkel'}</span></button>
+    <ManualDataRefresh />
     <button type="button" onClick={() => refresh.mutate()} disabled={refresh.isPending} className="min-h-11 w-full rounded border border-line px-3 text-left text-xs text-fg-2 hover:bg-surface-2 disabled:opacity-50">{refresh.isPending ? 'Wird geladen…' : 'Gespeicherte Daten neu laden'}</button>
     {refresh.isError && <p role="alert" className="px-3 text-xs text-red-a">Daten konnten nicht neu geladen werden. Bitte erneut versuchen.</p>}
     {refresh.isSuccess && <p role="status" className="px-3 text-xs text-fg-3">Gespeicherte Daten für {competitionLabel(refresh.data.competition, competitions)} geladen.</p>}
@@ -62,7 +64,7 @@ export function Sidebar() {
         {MORE_NAV.map(({ to, label, icon }) => <NavLink key={to} to={to} className={({ isActive }) => cn('side-nav', isActive && 'active')}><NavIcon name={icon} />{label}</NavLink>)}
       </nav>
     </div>
-    <div className="shrink-0 border-t border-[#304334] p-4">
+    <div className="max-h-[70dvh] shrink-0 overflow-y-auto border-t border-[#304334] p-4">
       <details><summary className="min-h-11 px-3 py-3 text-xs font-medium text-[#b9c7ba]">Einstellungen</summary><Settings /></details>
       <p className="px-3 pb-2 pt-5 text-[9px] leading-relaxed text-[#7f9885]">Football Forecast Lab<br />Von Sajanth Chandrakumar</p>
     </div>

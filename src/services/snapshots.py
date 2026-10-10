@@ -14,6 +14,7 @@ BUCKET_OFFSETS = {
     "t30m": 30,
     "t15m": 15,
 }
+SNAPSHOT_BUCKETS = (*BUCKET_OFFSETS, "manual")
 SNAPSHOT_STATUSES = frozenset({"fresh", "stale", "unavailable", "failed"})
 
 
@@ -54,7 +55,7 @@ def append_odds_snapshot(
     status: str = "fresh",
     error: str | None = None,
 ) -> dict:
-    if bucket not in BUCKET_OFFSETS:
+    if bucket not in SNAPSHOT_BUCKETS:
         raise ValueError(f"Unknown odds bucket: {bucket}")
     status = normalize_status(status)
     comp = get_competition(competition)

@@ -26,6 +26,7 @@ from src.services.snapshots import append_odds_snapshot, due_buckets, mark_bucke
 LEASE_SECONDS = 300
 DISCOVERY_INTERVAL = timedelta(days=1)
 FIXTURE_LIVE_INTERVAL = timedelta(minutes=15)
+MANUAL_REFRESH_COOLDOWN = 60
 
 
 def run_maintenance(
@@ -37,6 +38,7 @@ def run_maintenance(
     now=None,
     force: bool = False,
     allow_force_capture: bool = False,
+    manual: bool = False,
     lease_seconds: int = LEASE_SECONDS,
     fixture_fetcher=None,
     clubelo_ingestor=None,
@@ -47,7 +49,8 @@ def run_maintenance(
 ) -> dict:
     """Capture due odds buckets with at most one bulk provider call.
 
-    ``force`` is deliberately a public no-op.  Manual/public refreshes cannot
+    ``manual`` is reserved for the separately authenticated admin route.
+    ``force`` is deliberately a public no-op. Public refreshes cannot
     spend provider credits or write a snapshot; only the authenticated route
     should invoke normal maintenance.
     """
@@ -59,6 +62,9 @@ def run_maintenance(
         return result
     cache_collection = collection_for(cache_collections, comp)
     current = parse_time(now or datetime.now(timezone.utc))
+    def observation_time():
+        # Explicit now is the deterministic test clock; production deadlines use wall time.
+        return parse_time(now) if now is not None else datetime.now(timezone.utc)
     lease_id = competition_document_id(comp, "maintenance_lease")
     lease_token = uuid4().hex
     lease = {
@@ -101,16 +107,33 @@ def run_maintenance(
             result["team_form_status"] = {"status": "skipped", "reason": "lease_held"}
         return result
 
-    fixture_status = {"status": "fresh", "source": "cache", "observed_at": current.isoformat()}
+    cached_fixtures = find_competition_document(cache_collection, comp, "matches_cache") or {}
+    fixture_status = {"status": "unavailable" if manual else "fresh", "source": "cache",
+                      "observed_at": cached_fixtures.get("observed_at")}
     clubelo_status = None
     team_form_status = None
     match_intelligence_status = None
     try:
+        if manual:
+            cooldown_id = competition_document_id(comp, "manual_refresh_state")
+            previous = cache_collection.find_one({"_id": cooldown_id}) or {}
+            try:
+                elapsed = (current - parse_time(previous.get("started_at"))).total_seconds()
+            except (TypeError, ValueError):
+                elapsed = MANUAL_REFRESH_COOLDOWN
+            if elapsed < MANUAL_REFRESH_COOLDOWN:
+                return {"status": "skipped", "reason": "cooldown", "provider_calls": 0,
+                        "mutated": False, "retry_after": max(1, math.ceil(MANUAL_REFRESH_COOLDOWN - elapsed))}
+            # The competition lease serializes this claim across processes.
+            # Failed provider attempts also consume this cooldown, but never bypass budgets.
+            cache_collection.update_one({"_id": cooldown_id}, {"$set": {
+                "competition": comp.id, "started_at": current.isoformat(),
+            }}, upsert=True)
         def capture_evaluation():
             if archive_collections is None or math_engine is None:
                 return 0
             return capture_archive_forecasts(cache_collection, collection_for(archive_collections, comp),
-                PredictionService(math_engine), competition=comp, now=current)
+                PredictionService(math_engine), competition=comp, now=observation_time())
         if force:
             captured = capture_evaluation()
             return {"status": "noop", "reason": "force_disabled", "provider_calls": 0,
@@ -126,12 +149,12 @@ def run_maintenance(
                     team_form_status = {"status": "stale", "source": "api_football", "error": str(exc), "observed_at": current.isoformat()}
         standings_status = None
         if comp.id == "epl2026" and standings_fetcher is not None:
-            standings_status = _refresh_standings(cache_collection, comp, standings_fetcher, current)
+            standings_status = _refresh_standings(cache_collection, comp, standings_fetcher, current, manual=manual, observed_at_fn=observation_time if manual else None)
         if fixture_fetcher is not None:
-            cached_fixture_status = _recent_club_fixtures(cache_collection, comp, current)
-            fixture_status = cached_fixture_status or _refresh_fixtures(cache_collection, comp, fixture_fetcher, current)
+            cached_fixture_status = None if manual else _recent_club_fixtures(cache_collection, comp, current)
+            fixture_status = cached_fixture_status or _refresh_fixtures(cache_collection, comp, fixture_fetcher, current, manual=manual, observed_at_fn=observation_time if manual else None)
         if comp.is_club_competition and clubelo_ingestor is not None:
-            cached_ratings = _recent_club_ratings(cache_collection, comp, current)
+            cached_ratings = None if manual else _recent_club_ratings(cache_collection, comp, current)
             if comp.id == "ucl2026" and fixture_status.get("changed"):
                 cached_ratings = None
             elif comp.id == "epl2026" and cached_ratings:
@@ -139,7 +162,7 @@ def run_maintenance(
                 if not coverage or coverage.get("missing") or coverage.get("required") != coverage.get("available"):
                     cached_ratings = None
             clubelo_status = cached_ratings or clubelo_ingestor(
-                cache_collection, competition=comp, observed_at=current,
+                cache_collection, competition=comp, observed_at=None if manual and now is None else current,
             )
         fixtures = _fixtures(cache_collection, comp)
         if comp.id == "epl2026" and team_form_service is not None and fixture_status.get("status") == "fresh":
@@ -169,7 +192,7 @@ def run_maintenance(
         if comp.is_club_competition and match_intelligence_refresher is not None:
             try:
                 match_intelligence_status = match_intelligence_refresher(
-                    cache_collection, fixtures, now=current, competition=comp,
+                    cache_collection, fixtures, now=None if manual and now is None else current, competition=comp, **({"manual": True} if manual else {}),
                 )
             except Exception as exc:
                 match_intelligence_status = {
@@ -219,7 +242,7 @@ def run_maintenance(
                 due_by_event[event_id] = (fixture, due)
                 all_due.extend(due)
         discovery_due = _discovery_due(cache_collection, comp, current)
-        if not due_by_event and not discovery_due:
+        if not manual and not due_by_event and not discovery_due:
             predictions_updated = _persist_club_predictions(cache_collection, comp, math_engine, clubelo_status)
             forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
             evaluation_captured = capture_evaluation()
@@ -285,6 +308,8 @@ def run_maintenance(
                 **({"standings_status": standings_status} if standings_status is not None else {}),
             }
 
+        if manual:
+            current = observation_time()
         lookup = _quote_lookup(quotes)
         if comp.is_club_competition:
             _record_discovery(cache_collection, comp, current, "fresh", events=len(quotes))
@@ -297,6 +322,17 @@ def run_maintenance(
                 available_by_event[event_id] = (match, odds)
             if event_id and odds:
                 _store_fixture_odds(cache_collection, comp, event_id, odds, match, current)
+        if manual:
+            for fixture in fixtures:
+                event_id = str(fixture.get("id") or fixture.get("event_id") or "")
+                kickoff = fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")
+                if not event_id or not kickoff or fixture.get("completed") or parse_time(kickoff) <= current:
+                    continue
+                quote, odds = available_by_event.get(event_id, (None, {}))
+                # Missing provider events do not become invented observations.
+                if quote is not None:
+                    append_odds_snapshot(cache_collection, comp, event_id, "manual", current, odds,
+                                         status="fresh" if odds else "unavailable")
         for event_id, (fixture, due) in due_by_event.items():
             # Missing historical windows become explicit missed buckets; only
             # the current (closest-to-kickoff) observation is recorded.
@@ -325,6 +361,9 @@ def run_maintenance(
             "mutated": True,
             "buckets": sorted(set(all_due), key=lambda item: list(_bucket_order()).index(item)),
             "events": len(due_by_event),
+            "odds_status": {"status": "fresh" if any(odds for _, odds in available_by_event.values()) else "unavailable",
+                            "source": "odds_api", "observed_at": current.isoformat(),
+                            "events": sum(bool(odds) for _, odds in available_by_event.values())},
             "fixture_status": fixture_status,
             "clubelo_status": clubelo_status,
             **({"match_intelligence_status": match_intelligence_status} if comp.is_club_competition else {}),
@@ -355,7 +394,7 @@ def _fixtures(cache_collection, competition) -> list[dict]:
     return document.get("data") or []
 
 
-def _refresh_standings(cache_collection, competition, fetcher, current):
+def _refresh_standings(cache_collection, competition, fetcher, current, *, manual=False, observed_at_fn=None):
     """Refresh a cached ESPN table once per day without erasing a good table."""
     comp = get_competition(competition)
     document = find_competition_document(cache_collection, comp, "standings_cache") or {}
@@ -367,7 +406,7 @@ def _refresh_standings(cache_collection, competition, fetcher, current):
         )
     except (TypeError, ValueError, OverflowError):
         last_attempt = None
-    if last_attempt and timedelta(0) <= current - last_attempt < DISCOVERY_INTERVAL:
+    if not manual and last_attempt and timedelta(0) <= current - last_attempt < DISCOVERY_INTERVAL:
         return {
             "status": document.get("last_attempt_status") or ("fresh" if rows else "failed"),
             "source": "cache",
@@ -382,6 +421,8 @@ def _refresh_standings(cache_collection, competition, fetcher, current):
             for table in data
         ):
             raise ValueError("ESPN returned no standings rows")
+        if observed_at_fn:
+            current = observed_at_fn()
         changed = data != rows
         cache_collection.update_one(
             {"_id": competition_document_id(comp, "standings_cache")},
@@ -580,7 +621,7 @@ def _record_discovery(cache_collection, competition, current: datetime, status: 
     )
 
 
-def _refresh_fixtures(cache_collection, competition, fetcher, current) -> dict:
+def _refresh_fixtures(cache_collection, competition, fetcher, current, *, manual=False, observed_at_fn=None) -> dict:
     """Refresh the fixture skeleton without collecting paid enrichment."""
     comp = get_competition(competition)
     fetch_now = current
@@ -600,10 +641,19 @@ def _refresh_fixtures(cache_collection, competition, fetcher, current) -> dict:
         "days_forward": days_forward,
         "chunk_days": 7,
     }
+    if manual:
+        kwargs["use_cache"] = False
+        kwargs["require_complete"] = True
     try:
         fixtures = fetcher(**kwargs) or []
+        if manual and not fixtures:
+            raise ValueError("ESPN returned no fixture rows")
     except Exception as exc:
-        return {"status": "failed", "source": "espn", "observed_at": current.isoformat(), "error": str(exc)}
+        previous = find_competition_document(cache_collection, comp, "matches_cache") or {}
+        return {"status": "stale" if previous.get("data") else "failed", "source": "espn",
+                "observed_at": previous.get("observed_at"), "error": str(exc)}
+    if observed_at_fn:
+        current = observed_at_fn()
     existing_document = find_competition_document(cache_collection, comp, "matches_cache") or {}
     previous_data = existing_document.get("data") or []
     existing = {

@@ -164,6 +164,7 @@ def get_scoreboard(
     chunk_days: int = 7,
     request_get=None,
     use_cache: bool = True,
+    require_complete: bool = False,
 ) -> list[dict]:
     """
     ALL WC events (played + upcoming) normalized to fixture dicts:
@@ -215,7 +216,7 @@ def get_scoreboard(
             if event_id:
                 events_by_id[event_id] = event
 
-    if not successful_windows and last_request_error is not None:
+    if last_request_error is not None and (require_complete or not successful_windows):
         raise last_request_error
 
     out = []

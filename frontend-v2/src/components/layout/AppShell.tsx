@@ -52,7 +52,7 @@ export function AppShell() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); setMoreOpen(false) }
       if (event.key !== 'Tab') return
-      const controls = [...moreMenuRef.current!.querySelectorAll<HTMLElement>('a,button,select')].filter(el => !el.hasAttribute('disabled'))
+      const controls = [...moreMenuRef.current!.querySelectorAll<HTMLElement>('a,button,select,input')].filter(el => !el.hasAttribute('disabled'))
       const first = controls[0], last = controls.at(-1)
       if (event.shiftKey && (document.activeElement === first || document.activeElement === moreMenuRef.current)) { event.preventDefault(); last?.focus() }
       else if (!event.shiftKey && (document.activeElement === last || document.activeElement === moreMenuRef.current)) { event.preventDefault(); first?.focus() }

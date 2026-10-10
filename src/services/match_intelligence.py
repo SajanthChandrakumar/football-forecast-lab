@@ -166,7 +166,7 @@ def _due_bucket(fixture: dict, current: datetime, document: dict) -> str | None:
     return None
 
 
-def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fetcher=None, api_football_client=None, competition="ucl2026") -> dict:
+def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fetcher=None, api_football_client=None, competition="ucl2026", manual=False) -> dict:
     """Refresh only due events. This function is called by authenticated maintenance."""
     comp = get_competition(competition)
     current = parse_time(now or datetime.now(timezone.utc))
@@ -174,20 +174,35 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
     calls = 0
     api_calls = 0
     updated = 0
+    confirmed_events = set()
+    failed_calls = 0
     fallback_due = []
     backfill_id = competition_document_id(comp, "match_intelligence_backfill")
     backfill_state = (cache_collection.find_one({"_id": backfill_id}) or {}) if comp.id == "epl2026" else {}
     day = current.date().isoformat()
     backfill_count = int(backfill_state.get("calls", 0)) if backfill_state.get("date") == day else 0
+    if manual:
+        eligible = []
+        for fixture in fixtures:
+            try:
+                kickoff = parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time"))
+                if current - timedelta(hours=3) <= kickoff <= current + timedelta(hours=24):
+                    eligible.append((fixture, kickoff))
+            except (TypeError, ValueError, OverflowError):
+                continue
+        fixtures = [fixture for fixture, _ in sorted(eligible, key=lambda item: (
+            bool(item[0].get("completed")), abs((item[1] - current).total_seconds()),
+        ))]
     if comp.id == "epl2026":
         # Current-season paid availability is not assumed. Start with ESPN,
         # prioritize kickoff windows, and trickle old results into the archive.
         api_football_client = None
         fixtures = [fixture for fixture in fixtures if fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")]
-        fixtures = sorted(fixtures, key=lambda fixture: (
-            bool(fixture.get("completed")),
-            -parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")).timestamp(),
-        ))
+        if not manual:
+            fixtures = sorted(fixtures, key=lambda fixture: (
+                bool(fixture.get("completed")),
+                -parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")).timestamp(),
+            ))
     event_ids = {
         str(fixture.get("id") or fixture.get("event_id"))
         for fixture in fixtures if fixture.get("id") or fixture.get("event_id")
@@ -204,7 +219,13 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
             continue
         document_id = document_ids[event_id]
         document = documents_by_id.get(document_id) or {}
-        bucket = _due_bucket(fixture, current, document)
+        if manual:
+            kickoff = parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time"))
+            if not current - timedelta(hours=3) <= kickoff <= current + timedelta(hours=24):
+                continue
+            bucket = "post_match" if fixture.get("completed") else "manual"
+        else:
+            bucket = _due_bucket(fixture, current, document)
         if bucket is None:
             continue
         historical = bool(fixture.get("historical"))
@@ -233,8 +254,11 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
             )
         calls += 1
         try:
-            data = normalize_espn_summary(fetcher(event_id), observed_at=current)
+            payload = fetcher(event_id)
+            observed = datetime.now(timezone.utc) if manual and now is None else current
+            data = normalize_espn_summary(payload, observed_at=observed)
         except Exception as exc:
+            failed_calls += 1
             failure = {
                 "status": "failed",
                 "source": "espn",
@@ -261,14 +285,16 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
                     "reason": "incomplete_post_match_payload", "bucket": bucket,
                 }
             else:
-                attempt = {"status": "fresh", "source": "espn", "observed_at": current.isoformat(), "bucket": bucket}
+                attempt = {"status": "fresh", "source": "espn", "observed_at": observed.isoformat(), "bucket": bucket}
+        if attempt.get("status") == "fresh" and _has_complete_lineups(data):
+            confirmed_events.add(event_id)
         cache_collection.update_one(
             {"_id": document_id},
             {"$set": {
                 "competition": comp.id,
                 "event_id": event_id,
                 "data": data,
-                "updated_at": current.isoformat(),
+                "updated_at": attempt["observed_at"],
                 "last_attempt": attempt,
             }, "$addToSet": {"attempted_buckets": bucket}},
             upsert=True,
@@ -345,9 +371,11 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
                 ))
                 if not match:
                     continue
-                data = normalize_api_football_fixture(match, observed_at=current)
+                data = normalize_api_football_fixture(match, observed_at=datetime.now(timezone.utc) if manual and now is None else current)
                 if not data.get("lineups"):
                     continue
+                if _has_complete_lineups(data):
+                    confirmed_events.add(event_id)
                 cache_collection.update_one(
                     {"_id": document_id},
                     {"$set": {
@@ -366,6 +394,9 @@ def refresh_match_intelligence(cache_collection, fixtures, *, now=None, espn_fet
         "espn_calls": calls,
         "api_football_calls": api_calls,
         "updated": updated,
+        "confirmed": len(confirmed_events),
+        "failed_calls": failed_calls,
+        "observed_at": (datetime.now(timezone.utc) if manual and now is None else current).isoformat() if calls > failed_calls or confirmed_events else None,
         **({"historical_calls_today": backfill_count, "historical_daily_limit": MAX_PL_BACKFILL_PER_DAY} if comp.id == "epl2026" else {}),
     }
 

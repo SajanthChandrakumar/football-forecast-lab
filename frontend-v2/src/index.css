@@ -57,7 +57,7 @@ button:disabled { cursor: default; }
 .app-sidebar { width: 248px; background: #15221c; color: #f1f5ed; border-right: 1px solid #2d3c32; }
 .app-sidebar .competition-select { color: #91a493; }
 .app-sidebar select { color-scheme: dark; border-color: #3a4d40; background: #1c2c23; color: #f1f5ed; }
-.app-sidebar .settings { --text-1: #f1f5ed; --text-2: #b0c0b1; --text-3: #8fa292; --border: #3a4d40; --surface-2: #24372a; }
+.app-sidebar .settings { --text-1: #f1f5ed; --text-2: #b0c0b1; --text-3: #8fa292; --border: #3a4d40; --surface-2: #24372a; --cobalt: #c9ed83; --emerald: #c9ed83; --red: #f2a59e; --on-action: #17211b; }
 .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 4px; background: #c9ed83; color: #15221c; }
 .brand-name { font-family: var(--font-display); font-size: 18px; font-weight: 800; line-height: 1; letter-spacing: -0.045em; }

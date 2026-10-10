@@ -1,7 +1,7 @@
 import type {
   Archive, BotSimulation, CompetitionId, CompetitionInfo, CustomBot, CustomBotParams, EloHistory,
   EloRatings, EloRatingsStatus, KnockoutSimulation, MatchIntelligence, MatchesResponse, PoolContext, Prediction, Quota, RawMatch,
-  StandingsGroup, UclSimulation, ModelEvaluation,
+  StandingsGroup, UclSimulation, ModelEvaluation, ManualRefreshResult,
 } from './types'
 import { competitionPath } from './competition.mjs'
 import { DEFAULT_UCL_SIMULATION_RUNS, uclSimulationPath } from './simulation.mjs'
@@ -18,7 +18,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export class ManualRefreshError extends Error {
+  retryAfter: number
+  constructor(message: string, retryAfter = 0) {
+    super(message)
+    this.retryAfter = retryAfter
+  }
+}
+
 export const api = {
+  manualRefresh: async (competition: CompetitionId, token: string): Promise<ManualRefreshResult> => {
+    let res: Response
+    try {
+      res = await fetch(`/api${competitionPath('/internal/manual-refresh', competition)}`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch {
+      throw new ManualRefreshError('Verbindung fehlgeschlagen. Bitte erneut versuchen.')
+    }
+    if (!res.ok) {
+      const messages: Record<number, string> = {
+        401: 'Admin-Schlüssel ist ungültig.',
+        429: 'Bitte warte kurz vor dem nächsten Abruf.',
+        503: 'API-Aktualisierung ist nicht eingerichtet oder derzeit nicht verfügbar.',
+      }
+      const body = await res.json().catch(() => null)
+      const detail = typeof body?.detail === 'string' ? body.detail : undefined
+      const retryAfter = Number(res.headers.get('Retry-After'))
+      throw new ManualRefreshError(detail ?? messages[res.status] ?? 'Aktualisierung fehlgeschlagen.',
+        res.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : 0)
+    }
+    return res.json() as Promise<ManualRefreshResult>
+  },
   competitions: () => request<CompetitionInfo[]>('/competitions'),
   quota: (competition: CompetitionId) => request<Quota>(competitionPath('/quota', competition)),
   matches: (competition: CompetitionId, force = false) =>

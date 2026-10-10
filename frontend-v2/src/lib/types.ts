@@ -415,3 +415,17 @@ export interface ModelEvaluation {
   metrics: Record<'model' | 'market' | 'elo', { brier_score: number | null; log_loss: number | null }>
   metric_definitions: { brier_score: string; brier_range: [number, number]; log_loss: string; probability_floor: number }
 }
+
+export interface ManualRefreshResult {
+  competition: CompetitionId
+  status: 'success' | 'partial' | 'failed'
+  requested_at: string
+  cooldown_seconds: number
+  sources: {
+    id: string
+    label: string
+    status: 'fresh' | 'stale' | 'partial' | 'failed' | 'unavailable'
+    observed_at: string | null
+    message?: string | null
+  }[]
+}

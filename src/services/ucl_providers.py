@@ -246,6 +246,11 @@ def ingest_clubelo(
                 present.add(team)
             except Exception as exc:
                 page_errors[team] = str(exc)
+        if observed_at is None:
+            observed = datetime.now(timezone.utc).isoformat()
+            for row in rows:
+                if row.get("provenance"):
+                    row["provenance"]["observed_at"] = observed
         present = _rating_teams(rows)
         missing = sorted(required - present)
         coverage = {

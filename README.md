@@ -91,6 +91,8 @@ ODDS_API_KEY=<the-odds-api-key>
 # API_FOOTBALL_KEY=<api-football-key>
 # Für authentifizierte Wartungsläufe
 # CRON_SECRET=<secret>
+# Separater Admin-Schlüssel für den manuellen Sofortabruf
+# ADMIN_REFRESH_TOKEN=<different-random-secret>
 ```
 
 Dann das Frontend bauen und den Backend-Server starten:
@@ -101,6 +103,14 @@ uvicorn src.api:app --reload
 ```
 
 Die App ist anschliessend unter <http://127.0.0.1:8000> erreichbar. Für Frontend-Entwicklung mit Vite-Hot-Reload starte zusätzlich `npm --prefix frontend-v2 run dev`; der Vite-Server leitet `/api` an `http://localhost:8000` weiter.
+
+### API-Daten sofort aktualisieren
+
+Unter **Einstellungen → API-Daten aktualisieren** kannst du für PL und UCL die Anbieter sofort abrufen. Setze dazu serverseitig `ADMIN_REFRESH_TOKEN` auf einen eigenen zufälligen Schlüssel (zum Beispiel mit `openssl rand -hex 32` erzeugt), lokal in `.env` beziehungsweise bei Render unter Environment, und starte den Server neu. Verwende dafür weder Provider-API-Keys noch `CRON_SECRET`. Ohne diesen Wert bleibt der Endpunkt deaktiviert.
+
+Gib den Admin-Schlüssel im Passwortfeld ein und klicke **Aktuelle API-Daten holen**. Die App leert das Feld nach jedem Versuch und speichert den Schlüssel nicht. Der geschützte POST-Aufruf `/api/internal/manual-refresh?competition=epl2026` umgeht die normalen Cache- und Zeitfenster für Spiele, Elo, Tabelle und Quoten; Aufstellungen werden für Spiele zwischen drei Stunden vor und 24 Stunden nach dem Abruf geprüft (höchstens zwölf ESPN-Abrufe). Anbieterbudgets gelten weiterhin, und pro Wettbewerb gibt es mindestens 60 Sekunden Pause zwischen manuellen Versuchen. Ein laufender Wartungsjob sperrt parallele Abrufe.
+
+Die Rückmeldung nennt den tatsächlichen Stand jeder Quelle, fehlende Aufstellungen und Abruffehler. Veröffentlichte Anbieterwerte können trotz neuem Abruf älter sein. Eigene Tipps und eingefrorene Prognosen bleiben erhalten; neue manuelle Quoten erscheinen mit dem Zeitpunkt des Abrufs im Quotenverlauf. **Gespeicherte Daten neu laden** liest weiterhin nur den Datenbankstand. Der Sofortabruf ersetzt keinen laufenden Scheduler.
 
 ## Tests und Auswertung
 
