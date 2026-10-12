@@ -229,3 +229,42 @@ def test_archive_id_alias_with_wrong_fixture_date_still_returns_404():
 
     assert error.value.status_code == 404
     assert archive.update_calls == []
+
+
+def test_public_archive_reads_a_tip_saved_by_another_worker(monkeypatch):
+    from copy import deepcopy
+    from src.services.archive import load_archive_from_db, invalidate_archive_mem_cache
+    monkeypatch.setenv('MONGO_URI', 'mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=50')
+    monkeypatch.setenv('ODDS_API_KEY', 'test-only-key')
+    from src import api
+    class ReadCollection(MemoryCollection):
+        def find(self, query=None):
+            return list(deepcopy(self.documents).values())
+    archive = ReadCollection([{'_id': 'fixture-1', 'prediction': {'user_tip': '1:0'}}])
+    invalidate_archive_mem_cache(archive)
+    assert load_archive_from_db(archive)['fixture-1']['prediction']['user_tip'] == '1:0'
+    # A different process wrote Mongo; this process's RAM cache was not invalidated.
+    archive.documents['fixture-1']['prediction']['user_tip'] = '2:1'
+    monkeypatch.setattr(api, 'archive_collections', {'epl2026': archive})
+    assert api.get_archive(competition='epl2026')['fixture-1']['prediction']['user_tip'] == '2:1'
+
+
+def test_public_archive_reports_database_failure_instead_of_old_tip(monkeypatch):
+    from src.services.archive import load_archive_from_db, invalidate_archive_mem_cache
+    monkeypatch.setenv('MONGO_URI', 'mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=50')
+    monkeypatch.setenv('ODDS_API_KEY', 'test-only-key')
+    from src import api
+    class ReadCollection:
+        failed = False
+        def find(self):
+            if self.failed:
+                raise RuntimeError('database unavailable')
+            return [{'_id': 'fixture-1', 'prediction': {'user_tip': '1:0'}}]
+    archive = ReadCollection()
+    invalidate_archive_mem_cache(archive)
+    assert load_archive_from_db(archive)['fixture-1']['prediction']['user_tip'] == '1:0'
+    archive.failed = True
+    monkeypatch.setattr(api, 'archive_collections', {'epl2026': archive})
+    with pytest.raises(HTTPException) as error:
+        api.get_archive(competition='epl2026')
+    assert error.value.status_code == 503

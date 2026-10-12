@@ -1,3 +1,8 @@
+import { useEffect, useState } from 'react'
+import { useMatches } from '../../hooks/queries'
+import { useAppState } from '../../state/AppState'
+import { MatchdayAssistant } from '../dashboard/MatchdayAssistant'
+import { SavedTips } from './SavedTips'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { PerformanceSkeleton } from '../../components/shared/Skeleton'
@@ -11,6 +16,13 @@ import { ModelComparison } from './ModelComparison'
 import { ForecastEvaluation } from './ForecastEvaluation'
 
 export function PerformanceView() {
+  const { competition } = useAppState()
+  const matches = useMatches()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const clock = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(clock)
+  }, [])
   const {
     archive, completed, totals, botStats, comparison, extraBots, customBot, simulate,
     isLoading, isError, retryArchive,
@@ -49,6 +61,9 @@ export function PerformanceView() {
       <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
 
       <div className="space-y-5">
+        {matches.data && <MatchdayAssistant key={competition} matches={matches.data} now={now} />}
+        {matches.error && <QueryState title="Spiele konnten nicht geladen werden" message="Gespeicherte Tipps bleiben unten sichtbar." onRetry={() => { void matches.refetch() }} />}
+        <SavedTips key={competition} archive={archive ?? {}} now={now} />
         {isError && archive && (
           <QueryState
             title="Aktualisierung fehlgeschlagen"
@@ -60,8 +75,8 @@ export function PerformanceView() {
           <SectionTitle className="mb-4">Übersicht</SectionTitle>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Kpi label="Abgeschlossene Spiele" value={String(totals.completed)} />
-            <Kpi label="Gemeinsame Tipps" value={String(totals.userCount)} />
-            <Kpi label="Anteil mit gemeinsamem Tipp" value={commonTipRate} />
+            <Kpi label="Gemeinsame Tipps" value={String(Object.values(archive ?? {}).filter(entry => entry.prediction?.user_tip?.trim()).length)} />
+            <Kpi label="Abgeschlossene Spiele mit Tipp" value={commonTipRate} />
           </div>
           {totals.userCount > 0 && (
             <p className="mt-4 border-t border-line pt-4 text-sm text-fg-2">

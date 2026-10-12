@@ -5,10 +5,9 @@ export function openUnsubmittedTips(matches, archive, now = Date.now()) {
   return matches.filter((match) => {
     const saved = archive[match.id]
     const kickoff = match.raw_match?.commence_time
-    return Boolean(saved)
-      && !match.completed
+    return !match.completed
       && !match.actual_score
       && sharedTipIsOpen(kickoff, now)
-      && !(typeof saved.prediction?.user_tip === 'string' && saved.prediction.user_tip.trim())
+      && !(typeof saved?.prediction?.user_tip === 'string' && saved.prediction.user_tip.trim())
   })
 }

@@ -78,6 +78,10 @@ export async function installApi(page: Page) {
       state.saves.push(tip)
       await state.saveGate
       if (state.failSave) return respond({ detail: 'Save rejected' }, state.failSave)
+      if (!archive[competition][tip.match_id]) {
+        const match = matches[competition].find(item => item.id === tip.match_id)!
+        archive[competition][tip.match_id] = archiveFor([match])[tip.match_id]
+      }
       archive[competition][tip.match_id].prediction.user_tip = tip.user_tip
       return respond({ ok: true })
     }

@@ -422,8 +422,7 @@ export function DetailView() {
               <p className="mt-1">Lade die gespeicherten Tipps erneut, bevor du einen Tipp abgibst.</p>
               <button type="button" onClick={() => { void archive.refetch() }} disabled={archive.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Tipps erneut laden</button>
             </div>}
-            {archive.data?.[match.id] && <SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={archive.data[match.id].prediction.user_tip} now={now} unavailableReason={archive.error ? 'Tipps sind gerade nicht erreichbar. Deine Eingabe bleibt erhalten.' : undefined} />}
-            {!archive.isLoading && !archive.error && archive.data && !archive.data[match.id] && <p className="rounded-lg border border-line p-4 text-sm text-fg-2">Dieses Spiel ist noch nicht im Tipp-Archiv gespeichert. Ein gemeinsamer Tipp ist deshalb noch nicht verfügbar.</p>}
+            {archive.data && <SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={archive.data[match.id]?.prediction?.user_tip} now={now} unavailableReason={archive.error ? 'Tipps sind gerade nicht erreichbar. Deine Eingabe bleibt erhalten.' : undefined} />}
           </div>
         </div>
 

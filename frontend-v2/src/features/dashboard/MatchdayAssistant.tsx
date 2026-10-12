@@ -45,7 +45,7 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
   )
   const candidates = getSaveCandidates(rows)
   const invalidCount = rows.filter((row) => row.editable && row.changed && row.value && !isValidScoreTip(row.value)).length
-  const archiveReady = Boolean(archive) || (!archiveLoading && !archiveError)
+  const archiveReady = !archiveError && (Boolean(archive) || !archiveLoading)
   const savedCount = rows.filter((row) => isValidScoreTip(row.savedTip)).length
   const deadline = rows
     .filter((row) => row.status !== 'played')

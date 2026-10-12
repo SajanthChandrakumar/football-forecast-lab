@@ -83,7 +83,7 @@ def _archive_cache_key(archive_collection) -> str:
     return f"collection:{id(archive_collection)}"
 
 
-def load_archive_from_db(archive_collection, force: bool = False) -> dict:
+def load_archive_from_db(archive_collection, force: bool = False, *, strict: bool = False) -> dict:
     global _archive_mem, _archive_mem_ts
     if not isinstance(_archive_mem, dict):
         _archive_mem = {}
@@ -106,6 +106,8 @@ def load_archive_from_db(archive_collection, force: bool = False) -> dict:
         _archive_mem_ts[cache_key] = now
     except Exception as e:
         logger.error(f"Failed to load archive from MongoDB: {e}")
+        if strict:
+            raise
         if cache_key in _archive_mem:  # return stale cache on error rather than empty dict
             return _archive_mem[cache_key]
     return result

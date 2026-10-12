@@ -11,7 +11,7 @@ const match = (id, kickoff, overrides = {}) => ({
 })
 const entry = (userTip = null) => ({ prediction: { user_tip: userTip } })
 
-test('lists only archived, upcoming matches with no saved shared tip before the T-5 cutoff', () => {
+test('lists upcoming matches including unarchived fixtures with no saved shared tip before the T-5 cutoff', () => {
   const matches = [
     match('open', '2026-10-10T13:00:00Z'),
     match('saved', '2026-10-10T13:00:00Z'),
@@ -26,7 +26,7 @@ test('lists only archived, upcoming matches with no saved shared tip before the 
     closed: entry(),
     played: entry(),
   }
-  assert.deepEqual(openUnsubmittedTips(matches, archive, now).map(({ id }) => id), ['open'])
+  assert.deepEqual(openUnsubmittedTips(matches, archive, now).map(({ id }) => id), ['open', 'missing-archive'])
 })
 
 test('accepts the exact instant five minutes before kickoff as closed', () => {

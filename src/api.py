@@ -288,7 +288,11 @@ def set_user_tip(request: Request, payload: dict, competition: str | None = None
 @app.get("/api/archive")
 def get_archive(competition: str | None = None):
     comp = require_competition(competition)
-    return load_archive_from_db(collection_for(archive_collections, comp))
+    # Shared tips may have been saved by a different worker. Always read Mongo here.
+    try:
+        return load_archive_from_db(collection_for(archive_collections, comp), force=True, strict=True)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Gespeicherte Tipps sind derzeit nicht erreichbar.") from None
 
 @app.get("/api/standings")
 def get_standings(competition: str | None = None):

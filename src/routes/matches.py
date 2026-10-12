@@ -292,7 +292,7 @@ def _present_cached_matches(
     if comp.is_club_competition:
         presented_data = _apply_cached_club_forms(presented_data, team_form_service)
         presented_data = attach_cached_match_intelligence(presented_data, cache_store, comp)
-    archive = load_archive_from_db(archive_store)
+    archive = load_archive_from_db(archive_store, force=True)
     return _sync_archive_tips(
         presented_data,
         archive,
@@ -504,7 +504,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
                             ]
                             # Elo reload is cheap here thanks to the debounce guard.
                             math_engine.reload_elo_data()
-                            archive = load_archive_from_db(archive_store)
+                            archive = load_archive_from_db(archive_store, force=True)
                             return _sync_archive_tips(
                                 _enrich_edge(data, math_engine, odds_engine, comp, cache_store),
                                 archive, archive_store
@@ -513,7 +513,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
                 pass
 
         # ── Slow path: cache miss or force refresh ──
-        archive = load_archive_from_db(archive_store)
+        archive = load_archive_from_db(archive_store, force=True)
         math_engine.reload_elo_data(archive=archive, force=True)
 
         # Fixture skeleton comes from ESPN (only source with played + upcoming).
