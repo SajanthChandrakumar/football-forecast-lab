@@ -205,3 +205,62 @@ def save_shared_tip(
 
     invalidate_archive_mem_cache(archive_store)
     return {"ok": True, "points_earned": None}
+
+
+def archive_cached_model_tips(archive_store, cache_store, competition, *, now=None, recover_event_ids=()) -> int:
+    """Keep existing EPL model values; recovery never creates a verified forecast."""
+    comp = require_competition(competition)
+    if comp.id != "epl2026":
+        return 0
+    archive_store = collection_for(archive_store, comp)
+    cache_store = collection_for(cache_store, comp)
+    current = parse_time(now or datetime.now(timezone.utc))
+    document = find_competition_document(cache_store, comp, "matches_cache") or {}
+    recover_ids = set(map(str, recover_event_ids))
+    created = 0
+    for fixture in document.get("data") or []:
+        event_id = str(fixture.get("id") or fixture.get("event_id") or "")
+        if recover_ids and event_id not in recover_ids:
+            continue
+        raw = fixture.get("raw_match") or {}
+        kickoff_value = fixture.get("commence_time") or raw.get("commence_time")
+        try:
+            kickoff = parse_time(kickoff_value)
+            tip = bounded_score(fixture.get("model_tip") or fixture.get("top_tip"))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not event_id or fixture.get("source_mode") == "unavailable" or fixture.get("status") in {"failed", "unavailable"}:
+            continue
+        recovering = not user_tip_is_open(kickoff, current, competition=comp) or _completed(fixture)
+        if recovering:
+            if event_id not in recover_ids:
+                continue
+            try:
+                cache_observed = parse_time(document.get("observed_at"))
+                prediction_observed = parse_time(fixture.get("observed_at"))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if cache_observed >= kickoff or prediction_observed >= kickoff:
+                continue
+        fields = _archive_insert_fields(fixture, str(kickoff_value))
+        fields.update({
+            "competition": comp.id,
+            "prediction.top_tip": tip,
+            "prediction.model_tip": tip,
+            "prediction.user_tip": None,
+            "prediction.tip_archive_source": "cache_recovery" if recovering else "maintenance",
+            "prediction.tip_archived_at": current.isoformat(),
+        })
+        # A cache value is useful history, but does not prove an immutable T-15 capture.
+        fields.pop("prediction.frozen_at", None)
+        fields.setdefault("pre_match_snapshot", {})["timestamp_recorded"] = current.isoformat()
+        if recovering:
+            fields["prediction.cached_fixture_observed_at"] = document["observed_at"]
+        try:
+            result = archive_store.update_one({"_id": event_id}, {"$setOnInsert": fields}, upsert=True)
+        except DuplicateKeyError:
+            continue  # Another writer's user tip or frozen forecast remains authoritative.
+        created += int(getattr(result, "upserted_id", None) is not None)
+    if created:
+        invalidate_archive_mem_cache(archive_store)
+    return created

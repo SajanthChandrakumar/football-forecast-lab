@@ -17,6 +17,7 @@ from src.services.archive import (
 from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
+from src.services.user_tips import archive_cached_model_tips
 from src.services.model_evaluation import freeze_due_comparisons
 from src.services.forecast_evaluation import capture_archive_forecasts
 from src.quota_store import ProviderBudgetExceeded
@@ -383,9 +384,10 @@ def run_maintenance(
 def _freeze_due_forecasts(cache_collection, archive_collections, math_engine, competition, now) -> int:
     if archive_collections is None or math_engine is None:
         return 0
+    archive = collection_for(archive_collections, competition)
+    archive_cached_model_tips(archive, cache_collection, competition, now=now)
     return freeze_due_comparisons(
-        PredictionService(math_engine), cache_collection,
-        collection_for(archive_collections, competition), competition, now,
+        PredictionService(math_engine), cache_collection, archive, competition, now,
     )
 
 
