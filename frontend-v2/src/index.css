@@ -202,3 +202,12 @@ button:disabled { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Calendar days stay inside their existing matchweek. */
+.fixture-day-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 12px 21px; border-bottom: 1px solid var(--border); background: var(--surface); font-size: 11px; color: var(--text-3); }
+.fixture-day-heading > span:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fixture-day-heading strong { font-size: 12px; color: var(--text-1); }
+.fixture-day + .fixture-day { border-top: 1px solid var(--border); }
+.fixture-day-today .fixture-day-heading { background: var(--emerald-dim); border-left: 3px solid var(--emerald); padding-left: 18px; }
+.fixture-day-today .fixture-day-heading strong { color: var(--emerald); }
+@media (max-width: 640px) { .fixture-day-heading { padding-right: 14px; padding-left: 14px; } .fixture-day-today .fixture-day-heading { padding-left: 11px; } }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useArchive, useMatches } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import type { Match } from '../../lib/types'
-import { kickoffTime, shortDate } from '../../lib/format'
+import { dayKey, kickoffTime, shortDate } from '../../lib/format'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { FixtureListSkeleton } from '../../components/shared/Skeleton'
 import { FixtureRow } from './FixtureRow'
@@ -10,7 +10,7 @@ import { QueryState } from '../../components/shared/QueryState'
 import { MatchdayRadar } from './MatchdayRadar'
 import { MatchdayAssistant } from './MatchdayAssistant'
 import { fixtureStatus, preferredFixtureTab } from '../../lib/fixture-status.mjs'
-import { groupFixturesByRound } from '../../lib/fixture-rounds.mjs'
+import { groupFixturesByDay, groupFixturesByRound } from '../../lib/fixture-rounds.mjs'
 import { openUnsubmittedTips } from '../../lib/shared-tips.mjs'
 
 type Tab = 'upcoming' | 'pending' | 'played' | 'unscheduled' | 'tips'
@@ -173,7 +173,7 @@ export function DashboardView() {
 
       <div key={activeTab} className="space-y-3">
         {visibleRounds.map((round, index) => (
-          <details key={`${competition}:${activeTab}:${round.key}`} open={openRounds[`${competition}:${activeTab}:${round.key}`] ?? index === 0} onToggle={e => {
+          <details key={`${competition}:${activeTab}:${round.key}`} open={openRounds[`${competition}:${activeTab}:${round.key}`] ?? (round.matches.some(match => match.raw_match?.commence_time && dayKey(match.raw_match.commence_time) === dayKey(new Date(now).toISOString())) || index === 0)} onToggle={e => {
             const key = `${competition}:${activeTab}:${round.key}`
             const open = e.currentTarget.open
             setOpenRounds(prev => {
@@ -199,24 +199,34 @@ export function DashboardView() {
             </summary>
             <div className="round-fixtures">
               <div className="fixture-column-labels" aria-hidden="true"><span>Anpfiff</span><span>Begegnung</span><span>Datenbasis</span><span>Modelltipp</span><span /></div>
-              {(activeTab === 'upcoming' || activeTab === 'tips' ? round.matches : [...round.matches].reverse()).map((match) => {
-                const nextMatchId = nextTipById.get(match.id)
-                return <FixtureRow
-                  key={`${competition}:${match.id}`}
-                  match={match}
-                  pendingResult={activeTab === 'pending'}
-                  now={now}
-                  compact
-                  sharedTipMode={activeTab === 'tips'}
-                  competition={competition}
-                  savedTip={archiveQuery.data?.[match.id]?.prediction.user_tip}
-                  autoFocusTip={focusTipId === match.id}
-                  onTipAutoFocus={() => setFocusTipId((current) => current === match.id ? null : current)}
-                  onSaveAndNext={nextMatchId ? () => focusNextTip(nextMatchId) : undefined}
-                  onSaveStart={() => setTipSaveNotice('')}
-                  onTipSaved={(tip) => setTipSaveNotice(`Gemeinsamer Tipp ${tip} für ${match.home_team} gegen ${match.away_team} gespeichert.`)}
-                />
-              })}
+              {(() => {
+                const days = groupFixturesByDay(round.matches, now)
+                if (activeTab !== 'upcoming' && activeTab !== 'tips') days.reverse()
+                return days.map(day => <section key={day.key} className={`fixture-day${day.relativeLabel === 'Heute' ? ' fixture-day-today' : ''}`} aria-label={day.relativeLabel ? `${day.relativeLabel}, ${day.dateLabel}` : day.dateLabel}>
+                  <h3 className="fixture-day-heading">
+                    <span>{day.relativeLabel && <strong>{day.relativeLabel}</strong>}<span>{day.dateLabel}</span></span>
+                    <span>{day.matches.length} {day.matches.length === 1 ? 'Spiel' : 'Spiele'}</span>
+                  </h3>
+                  {day.matches.map((match) => {
+                    const nextMatchId = nextTipById.get(match.id)
+                    return <FixtureRow
+                      key={`${competition}:${match.id}`}
+                      match={match}
+                      pendingResult={activeTab === 'pending'}
+                      now={now}
+                      compact
+                      sharedTipMode={activeTab === 'tips'}
+                      competition={competition}
+                      savedTip={archiveQuery.data?.[match.id]?.prediction.user_tip}
+                      autoFocusTip={focusTipId === match.id}
+                      onTipAutoFocus={() => setFocusTipId((current) => current === match.id ? null : current)}
+                      onSaveAndNext={nextMatchId ? () => focusNextTip(nextMatchId) : undefined}
+                      onSaveStart={() => setTipSaveNotice('')}
+                      onTipSaved={(tip) => setTipSaveNotice(`Gemeinsamer Tipp ${tip} für ${match.home_team} gegen ${match.away_team} gespeichert.`)}
+                    />
+                  })}
+                </section>)
+              })()}
             </div>
           </details>
         ))}

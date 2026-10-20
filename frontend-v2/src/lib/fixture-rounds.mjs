@@ -38,3 +38,24 @@ export function groupFixturesByRound(matches) {
   }
   return sorted
 }
+
+
+export function groupFixturesByDay(matches, now = Date.now()) {
+  const localDay = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Zurich' })
+  const today = localDay.format(now)
+  const tomorrow = localDay.format(Date.parse(`${today}T12:00:00Z`) + 86_400_000)
+  const groups = new Map()
+  const sorted = [...matches].sort((a, b) => (Date.parse(a.raw_match?.commence_time ?? '') || Infinity) - (Date.parse(b.raw_match?.commence_time ?? '') || Infinity))
+  for (const match of sorted) {
+    const kickoff = Date.parse(match.raw_match?.commence_time ?? '')
+    const key = Number.isFinite(kickoff) ? localDay.format(kickoff) : 'undated'
+    if (!groups.has(key)) groups.set(key, {
+      key,
+      relativeLabel: key === today ? 'Heute' : key === tomorrow ? 'Morgen' : null,
+      dateLabel: Number.isFinite(kickoff) ? new Date(kickoff).toLocaleDateString('de-CH', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Zurich' }) : 'Anstoß offen',
+      matches: [],
+    })
+    groups.get(key).matches.push(match)
+  }
+  return [...groups.values()]
+}

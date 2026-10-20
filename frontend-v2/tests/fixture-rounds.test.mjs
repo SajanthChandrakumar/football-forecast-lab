@@ -41,3 +41,27 @@ test('keeps a named knockout round together and puts undated games in their own 
     ['Anstoß offen', ['3']],
   ])
 })
+
+test('groups days in Zurich time, labels today and tomorrow, and sorts kickoff times', async () => {
+  const { groupFixturesByDay } = await import('../src/lib/fixture-rounds.mjs')
+  assert.equal(typeof groupFixturesByDay, 'function')
+  const groups = groupFixturesByDay([
+    match('late', '2026-10-20T19:00:00Z'),
+    match('tomorrow', '2026-10-20T22:30:00Z'),
+    match('early', '2026-10-20T16:45:00Z'),
+    match('unknown', undefined),
+  ], Date.parse('2026-10-20T12:00:00Z'))
+  assert.deepEqual(groups.map(day => [day.key, day.relativeLabel, day.matches.map(m => m.id)]), [
+    ['2026-10-20', 'Heute', ['early', 'late']],
+    ['2026-10-21', 'Morgen', ['tomorrow']],
+    ['undated', null, ['unknown']],
+  ])
+})
+
+test('tomorrow remains the next Zurich calendar day across the autumn clock change', async () => {
+  const { groupFixturesByDay } = await import('../src/lib/fixture-rounds.mjs')
+  assert.equal(typeof groupFixturesByDay, 'function')
+  const groups = groupFixturesByDay([match('next', '2026-10-25T23:30:00Z')], Date.parse('2026-10-24T22:30:00Z'))
+  assert.equal(groups[0].relativeLabel, 'Morgen')
+  assert.equal(groups[0].key, '2026-10-26')
+})
