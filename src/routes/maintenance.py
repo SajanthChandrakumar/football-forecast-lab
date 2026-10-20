@@ -79,6 +79,8 @@ def init_router(cache_collections, odds_provider, *, archive_collections=None, m
                             "message": "Abruf fehlgeschlagen; letzter gespeicherter Stand bleibt erhalten." if status in {"failed", "stale"} else None})
         source("fixtures", "Spiele & Ergebnisse", result.get("fixture_status"))
         source("elo", "Elo-Werte", result.get("clubelo_status"))
+        if comp.id == "ucl2026" or result.get("team_form_status") is not None:
+            source("team_form", "Teamform", result.get("team_form_status"))
         if comp.id == "epl2026":
             source("standings", "Tabelle", result.get("standings_status"))
         odds = result.get("odds_status") or {"status": "failed" if result.get("source") == "odds_api" else "unavailable"}

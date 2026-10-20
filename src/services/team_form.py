@@ -46,6 +46,9 @@ class ApiFootballClient:
             return self._send(path, params)
 
     def _send(self, path, params):
+        # /fixtures rejects page=1; it is only the daily reader's first-page marker.
+        if path.strip("/") == "fixtures" and params and params.get("page") == 1:
+            params = {key: value for key, value in params.items() if key != "page"}
         delay = quota_store.reserve_request("football", now=self.wall_time_fn())
         if delay:
             self.sleep_fn(delay)
@@ -467,8 +470,9 @@ class TeamFormService:
         )
         return normalized
 
-    def parse_fixtures(self, team_id, payload):
+    def parse_fixtures(self, team_id, payload, *, team_name=None):
         team_id = str(team_id)
+        canonical_name = TEAM_MAPPING.get(team_name, team_name).casefold() if team_name else None
         matches = []
         for item in payload.get("response", []) or []:
             fixture = item.get("fixture") or {}
@@ -485,10 +489,15 @@ class TeamFormService:
                 continue
             if "friendl" in competition_name.casefold() or "friendl" in league_type.casefold():
                 continue
-            if str(home.get("id")) == team_id:
+            # Daily bulk results can come from a different provider than the roster.
+            home_matches = (TEAM_MAPPING.get(home.get("name"), home.get("name") or "").casefold() == canonical_name
+                            if canonical_name else str(home.get("id")) == team_id)
+            away_matches = (TEAM_MAPPING.get(away.get("name"), away.get("name") or "").casefold() == canonical_name
+                            if canonical_name else str(away.get("id")) == team_id)
+            if home_matches:
                 opponent, venue = away, "home"
                 goals_for, goals_against = goals.get("home"), goals.get("away")
-            elif str(away.get("id")) == team_id:
+            elif away_matches:
                 opponent, venue = home, "away"
                 goals_for, goals_against = goals.get("away"), goals.get("home")
             else:
@@ -1036,9 +1045,18 @@ class TeamFormService:
         state = self.get_sync_state()
         last_date = state.get("last_successful_date")
         try:
-            next_date = date.fromisoformat(last_date) + timedelta(days=1) if last_date else yesterday
-        except ValueError:
+            if last_date:
+                next_date = date.fromisoformat(last_date) + timedelta(days=1)
+            else:
+                bootstrap = self.cache_collection.find_one({"_id": self._id("team_form_bootstrap")}) or {}
+                bootstrap_at = datetime.fromisoformat(str(bootstrap.get("last_successful_at")).replace("Z", "+00:00"))
+                if bootstrap_at.tzinfo is None:
+                    bootstrap_at = bootstrap_at.replace(tzinfo=timezone.utc)
+                # The bootstrap day itself was not necessarily complete yet.
+                next_date = min(bootstrap_at.astimezone(ZoneInfo("Europe/Zurich")).date(), yesterday)
+        except (TypeError, ValueError):
             next_date = yesterday
+        team_names = {str(team.get("team_id")): team.get("name") for team in roster.get("teams", [])}
         pending = []
         while next_date <= yesterday and len(pending) < max_catchup_days:
             pending.append(next_date)
@@ -1067,7 +1085,9 @@ class TeamFormService:
                     page = current_page + 1
 
                 for team_id in sorted(team_ids):
-                    self.merge_matches(team_id, self.parse_fixtures(team_id, {"response": fixtures}), observed_at)
+                    self.merge_matches(team_id, self.parse_fixtures(
+                        team_id, {"response": fixtures}, team_name=team_names.get(team_id),
+                    ), observed_at)
                 provider = self._provider()
                 self.store_sync_state({
                     "last_successful_date": day.isoformat(), "status": "fresh",

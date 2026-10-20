@@ -8,6 +8,8 @@ TEAM_MAPPING = {
     "Bosnia & Herzegovina": "Bosnia and Herzegovina",
     "Bosnia and Herzegovina": "Bosnia and Herzegovina",
     # Club-name aliases shared by ESPN, The Odds API and ClubElo.
+    "Bayern München": "Bayern Munich",
+    "Bayern Munchen": "Bayern Munich",
     "Club Brugge": "Brugge",
     "Manchester City": "Man City",
     "FC Porto": "Porto",
