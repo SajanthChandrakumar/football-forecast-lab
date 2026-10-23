@@ -44,7 +44,7 @@ from src.services.archive import (
     seed_shared_historical_ucl_tips,
     upsert_archive_entry,
 )
-from src.services.auth import require_cron_secret
+from src.services.auth import require_cron_secret, shared_write_guard, client_ip
 from src.services.input_validation import bounded_match_id, bounded_score
 from src.services.elo_sync import perform_elo_sync
 from src.services.prediction import PredictionService, infer_stage, rebuild_prediction
@@ -113,20 +113,16 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Compress JSON payloads and static assets (the matches/archive responses
 # are several hundred KB uncompressed).
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-def _real_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return get_remote_address(request)
+app.middleware("http")(shared_write_guard)
 
-limiter = Limiter(key_func=_real_ip)
+limiter = Limiter(key_func=client_ip)
 app.state.limiter = limiter
 
 @app.middleware("http")

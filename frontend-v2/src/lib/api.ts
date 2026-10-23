@@ -6,11 +6,20 @@ import type {
 import { competitionPath } from './competition.mjs'
 import { DEFAULT_UCL_SIMULATION_RUNS, uclSimulationPath } from './simulation.mjs'
 
+let editorToken = ""
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
+  const headers = new Headers(init?.headers)
+  headers.set('Content-Type', 'application/json')
+  const sharedWrite = (init?.method === 'POST' || init?.method === 'PUT') &&
+    /^\/(archive\/(user_tip|historical_tip)|custom_bot|pool-context\/[^?]+)(\?|$)/.test(path)
+  if (sharedWrite) {
+    editorToken ||= window.prompt('Editor-Schlüssel zum Speichern eingeben:')?.trim() ?? ''
+    if (!editorToken) throw new Error('Speichern benötigt einen Editor-Schlüssel.')
+    headers.set('Authorization', `Bearer ${editorToken}`)
+  }
+  const res = await fetch(`/api${path}`, { ...init, headers })
+  if (sharedWrite && res.status === 401) editorToken = ''
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`)
