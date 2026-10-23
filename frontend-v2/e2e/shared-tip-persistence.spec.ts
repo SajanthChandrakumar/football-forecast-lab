@@ -1,4 +1,4 @@
-import { test, expect, chooseCompetition, NOW } from './fixtures'
+import { test, expect, chooseCompetition, fixture, NOW } from './fixtures'
 
 // Real production UI against deterministic API responses; no live shared tips are changed.
 test('a new EPL fixture accepts its first tip and keeps it visible after reload', async ({ page, api }, testInfo) => {
@@ -27,13 +27,14 @@ test('unarchived EPL fixtures appear among open tips and can be saved from the w
   delete api.archive.epl2026['pl-next']
   await page.goto('/#/')
   await chooseCompetition(page, 'epl2026')
-  await page.getByRole('button', { name: /Offene gemeinsame Tipps/ }).click()
+  await page.getByRole('combobox', { name: 'Spiele filtern' }).selectOption('tips')
   await expect(page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true })).toBeVisible()
+  const assistant = page.getByRole('region', {name:'Spieltag-Assistent'})
+  await page.getByRole('tab', { name: 'Tipp-Assistent', exact: true }).click()
+  await assistant.getByLabel('Tipp für Arsenal gegen Chelsea', { exact: true }).fill('0:0')
+  await assistant.getByRole('button', { name: /Tipp.*speichern/ }).click()
+  await expect(assistant.getByRole('status')).toContainText('1 gespeichert')
   await page.getByRole('link', { name: 'Gemeinsame Tipps', exact: true }).filter({ visible: true }).click()
-  await expect(page.getByRole('heading', { name: 'Tipps & Auswertung', exact: true })).toBeVisible()
-  await page.getByText('Tipps bearbeiten', { exact: false }).first().click()
-  await page.getByLabel('Tipp für Arsenal gegen Chelsea', { exact: true }).fill('0:0')
-  await page.getByRole('button', { name: /Tipp.*speichern/ }).click()
   await expect(page.getByRole('region', { name: 'Gespeicherte Tipps' }).getByText('0:0', { exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('region', { name: 'Gespeicherte Tipps' }).getByText('0:0', { exact: true })).toBeVisible()
@@ -48,26 +49,44 @@ test('a saved tip awaiting a result remains visible without being counted as com
   const saved = page.getByRole('region', { name: 'Gespeicherte Tipps' })
   await expect(saved.getByText('1:1', { exact: true })).toBeVisible()
   await expect(saved.getByText('Ergebnis ausstehend', { exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Abgeschlossene Spiele', exact: true })).toBeVisible()
   await expect(saved.getByText(/Punkte/)).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Punkte & Verlauf', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Abgeschlossene Spiele', exact: true })).toBeVisible()
 })
 
 
 test('a failed archive refresh retains a weekly draft and prevents blind saving', async ({ page, api }) => {
-  await page.goto('/#/performance')
+  await page.goto('/#/')
   await chooseCompetition(page, 'epl2026')
-  await expect(page.getByRole('heading', { name: 'Tipps & Auswertung', exact: true })).toBeVisible()
-  await page.getByText('Tipps bearbeiten', { exact: false }).first().click()
+  await page.getByRole('tab', { name: 'Tipp-Assistent', exact: true }).click()
   const draft = page.getByLabel('Tipp für Arsenal gegen Chelsea', { exact: true })
   await draft.fill('0:0')
   api.failArchive = true
   const mobile = (page.viewportSize()?.width ?? 1440) < 1024
   if (mobile) await page.getByRole('button', { name: 'Mehr', exact: true }).click()
-  else await page.getByText('Einstellungen', { exact: true }).click()
+  else await page.getByRole('button', { name: 'Einstellungen', exact: true }).click()
   await page.getByRole('button', { name: 'Gespeicherte Daten neu laden', exact: true }).filter({ visible: true }).click()
-  if (mobile) await page.getByRole('button', { name: 'Menü schliessen' }).click()
+  await page.getByRole('button', { name: 'Menü schliessen' }).click()
   await expect(page.getByText('Gespeicherte Tipps konnten nicht geladen werden. Speichern ist pausiert, damit vorhandene Tipps nicht überschrieben werden.', { exact: true })).toBeVisible({ timeout: 15000 })
   await expect(page.getByRole('button', { name: /Tipp.*speichern/ })).toBeDisabled()
   await expect(draft).toHaveValue('0:0')
   expect(api.saves).toHaveLength(0)
+})
+
+
+test('upcoming tips are editable immediately and closed games stay out of their way', async ({ page, api }) => {
+  api.matches.ucl2026.push(fixture('closed-today', 'Closed Home', 'Closed Away', -60 * 60_000))
+  await page.goto('/#/')
+  await page.getByRole('tab', { name: 'Tipp-Assistent', exact: true }).click()
+  await expect(page.getByLabel('Tipp für Bayern Munich gegen Arsenal', { exact: true })).toBeEditable()
+  await page.getByLabel('Tipp für Bayern Munich gegen Arsenal', { exact: true }).fill('0:0')
+  await expect(page.getByLabel('Tipp für Bayern Munich gegen Arsenal', { exact: true })).toHaveValue('0:0')
+  await expect(page.getByRole('textbox', { name: /Tipp für Closed Home gegen Closed Away/ })).not.toBeVisible()
+  await page.locator('summary').filter({ hasText: 'Bereits geschlossen' }).click()
+  await expect(page.getByRole('textbox', { name: /Tipp für Closed Home gegen Closed Away/ })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: /Tipp für Closed Home gegen Closed Away/ })).not.toBeEditable()
+  await page.goto('/#/performance')
+  await expect(page.getByRole('heading', {name:'Spieltag-Assistent',exact:true})).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Punkte & Verlauf', exact: true }).click()
+  await expect(page.getByRole('heading', {name:'Gesamter gespeicherter Punkteverlauf',exact:true})).toBeVisible()
 })

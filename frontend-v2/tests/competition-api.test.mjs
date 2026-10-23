@@ -51,16 +51,12 @@ test('validCompetition defaults invalid storage values to UCL', () => {
   assert.equal(validCompetition(null), 'ucl2026')
 })
 
-test('fallback competition registry includes Premier League in both selectors', () => {
+test('fallback competition registry includes Premier League', () => {
   assert.deepEqual(COMPETITIONS, ['wc2026', 'ucl2026', 'epl2026'])
   assert.deepEqual(FALLBACK_COMPETITIONS.find(({ id }) => id === 'epl2026'), {
     id: 'epl2026', short_name: 'PL 2026/27', display_name: 'Premier League 2026/27',
   })
-  const sidebar = readFileSync(new URL('../src/components/layout/Sidebar.tsx', import.meta.url), 'utf8')
-  const shell = readFileSync(new URL('../src/components/layout/AppShell.tsx', import.meta.url), 'utf8')
-  assert.match(sidebar, /FALLBACK_COMPETITIONS/)
-  assert.match(shell, /<CompetitionSelect/)
-  assert.match(sidebar, /export function CompetitionSelect/)
+
 })
 
 test('competition labels use new event metadata without presenting it as the World Cup', () => {

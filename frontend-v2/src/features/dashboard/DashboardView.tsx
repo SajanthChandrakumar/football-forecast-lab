@@ -12,11 +12,20 @@ import { MatchdayAssistant } from './MatchdayAssistant'
 import { fixtureStatus, preferredFixtureTab } from '../../lib/fixture-status.mjs'
 import { groupFixturesByDay, groupFixturesByRound } from '../../lib/fixture-rounds.mjs'
 import { openUnsubmittedTips } from '../../lib/shared-tips.mjs'
+import { useView } from '../../hooks/useView'
+import { ViewPanel, ViewTabs } from '../../components/shared/ViewTabs'
 
 type Tab = 'upcoming' | 'pending' | 'played' | 'unscheduled' | 'tips'
+type MatchcenterView = 'games' | 'radar' | 'assistant'
 const EMPTY_MATCHES: Match[] = []
+const MATCHCENTER_TABS = [
+  { value: 'games', label: 'Spiele' },
+  { value: 'radar', label: 'Radar' },
+  { value: 'assistant', label: 'Tipp-Assistent' },
+] as const
 
 export function DashboardView() {
+  const [view, setView] = useView<MatchcenterView>(['games', 'radar', 'assistant'], 'games')
   const { competition } = useAppState()
   const { data: matches, availability: matchData, isLoading, error, refetch } = useMatches()
   const archiveQuery = useArchive()
@@ -92,6 +101,9 @@ export function DashboardView() {
   }
   const nextRound = allRounds.find(round => round.matches.some(match => fixtureStatus(match, now) === 'upcoming'))
   const nextRoundMatches = nextRound?.matches.filter(match => fixtureStatus(match, now) === 'upcoming') ?? []
+  const roundSummary = nextRound
+    ? `${nextRound.label} · ${nextRoundMatches.length} ${nextRoundMatches.length === 1 ? 'Spiel' : 'Spiele'}${Number.isFinite(nextRound.firstKickoff) ? ` · ${shortDate(new Date(nextRound.firstKickoff).toISOString())}${nextRound.firstKickoff !== nextRound.lastKickoff ? ` – ${shortDate(new Date(nextRound.lastKickoff).toISOString())}` : ''}` : ''}`
+    : fixtureMatches.length ? 'Gespeicherte Ergebnisse und Modellauswertungen' : 'Spielplan und Tipps'
   const visibleRounds = allRounds
     .map((round) => {
       const matches = round.matches.filter((match) => activeIds.has(match.id) && `${match.home_team} ${match.away_team} ${match.home_disp ?? ''} ${match.away_disp ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()))
@@ -117,120 +129,128 @@ export function DashboardView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Spiele & Tipps">
-        {!isLoading && fixtureMatches.length > 0 && <aside className="matchday-brief" aria-label={nextRound ? 'Nächste Spielwoche' : 'Wettbewerbsarchiv'}>
-          <p className="brief-label">{nextRound ? 'Als Nächstes' : 'Im Rückblick'}</p>
-          <div className="flex items-end justify-between gap-5"><h2 className="brief-heading">{nextRound?.label ?? 'Abgeschlossene Spiele'}</h2><div className="text-right"><p className="brief-count">{nextRound ? nextRoundMatches.length : played.length}</p><p className="mt-1 text-[9px] text-[#c2cebe]">Spiele</p></div></div>
-          <p className="brief-date">{nextRound && Number.isFinite(nextRound.firstKickoff)
-            ? `${shortDate(new Date(nextRound.firstKickoff).toISOString())}${nextRound.firstKickoff !== nextRound.lastKickoff ? ` – ${shortDate(new Date(nextRound.lastKickoff).toISOString())}` : ''}`
-            : 'Gespeicherte Ergebnisse und Modellauswertungen'}</p>
-        </aside>}
-      </PageHeader>
+      <PageHeader title="Spiele & Tipps" subtitle={roundSummary} />
+      <ViewTabs id="matchcenter" label="Spielansicht" items={MATCHCENTER_TABS} value={view} onChange={setView} />
 
-      {!isLoading && !error && <MatchdayRadar matches={upcoming} />}
-      {!isLoading && !error && <MatchdayAssistant key={competition} matches={fixtureMatches} now={now} />}
+      <ViewPanel id="matchcenter" value="games" active={view}>
+        <div className="fixture-toolbar">
+          <label className="fixture-filter">
+            <span>Spiele filtern</span>
+            <select
+              aria-label="Spiele filtern"
+              value={activeTab}
+              onChange={(event) => {
+                const nextTab = event.target.value as Tab
+                setSelection({ competition, tab: nextTab })
+                try { sessionStorage.setItem('fixture-tab', JSON.stringify({ competition, tab: nextTab })) } catch { /* Keep the in-memory selection. */ }
+              }}
+            >
+              {tabs.map(({ key, label, count }) => <option key={key} value={key}>{label} ({count})</option>)}
+            </select>
+          </label>
 
-      {/* Tab switcher — keeps past results out of the way */}
-      <div className="fixture-toolbar">
-      <div className="fixture-tabs">
-        {tabs.map(({ key, label, count }) => (
-          <button
-            key={key}
-            onClick={() => { setSelection({ competition, tab: key }); try { sessionStorage.setItem('fixture-tab', JSON.stringify({competition,tab:key})) } catch { /* Keep the in-memory selection. */ } }}
-            aria-pressed={activeTab === key}
-            className="fixture-tab"
-          >
-            {label}<span className="fixture-tab-count">{count}</span>
-          </button>
-        ))}
-      </div>
-
-      {fixtureMatches.length > 0 && <label className="fixture-search"><span className="sr-only">Team suchen</span><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5 shrink-0"><circle cx="8.5" cy="8.5" r="5" /><path d="m12 12 4 4" /></svg>
-        <input type="search" value={search} onChange={e=>{ setSearch(e.target.value); try { sessionStorage.setItem(`fixture-search:${competition}`,e.target.value) } catch { /* Search remains available without storage. */ } }} placeholder="Team suchen" />
-      </label>}
-      </div>
-      {isLoading && <FixtureListSkeleton days={2} rowsPerDay={4} />}
-      {error && <QueryState title="Spieldaten konnten nicht geladen werden" message="Bitte versuche es erneut. Bereits gespeicherte Daten können vorübergehend veraltet sein." onRetry={()=>void refetch()} />}
-      {activeTab === 'tips' && archiveQuery.isLoading && <p role="status" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-fg-2">Gespeicherte gemeinsame Tipps werden geladen.</p>}
-      {activeTab === 'tips' && archiveQuery.error && <QueryState title="Tippstatus nicht verfügbar" message="Die gespeicherten gemeinsamen Tipps konnten nicht geladen werden. Lade sie erneut, bevor du einen Tipp abgibst." onRetry={() => { void archiveQuery.refetch() }} />}
-      {activeTab === 'tips' && tipSaveNotice && <p role="status" className="rounded-lg border border-emerald-a/30 bg-emerald-dim px-4 py-3 text-sm text-fg">{tipSaveNotice}</p>}
-      {activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && openTips.length === 0 && <p className="rounded-lg border border-line bg-surface px-4 py-5 text-sm text-fg-2">Aktuell gibt es keine archivierten Spiele mit offenem, noch nicht abgegebenem gemeinsamen Tipp.</p>}
-      {activeTab === 'tips' && openTips.length > 0 && <p className="mb-3 text-xs text-fg-2">Gemeinsame Tipps · Für alle sichtbar · Abgabe bis T−5</p>}
-      {!isLoading && !error && fixtureMatches.length === 0 && isUnavailable && (
-        <div role="status" className="rounded-2xl border border-amber-a/30 bg-amber-a/5 p-5">
-          <h2 className="text-base font-bold text-fg">Spieldaten gerade nicht verfügbar</h2>
-          <p className="mt-1 text-sm text-fg-2">Es konnten keine aktuellen Spiele geladen werden.</p><button type="button" onClick={()=>void refetch()} className="mt-3 min-h-11 rounded-lg border border-line-2 px-4 text-sm font-semibold text-fg">Erneut versuchen</button>
-          <p className="mt-2 text-xs text-fg-3">
-            {matchData?.source ? `Quelle: ${matchData.source}` : 'Quelle nicht verfügbar'}
-            {observedAt ? ` · Geprüft: ${observedAt}` : ''}
-          </p>
+          {fixtureMatches.length > 0 && <label className="fixture-search">
+            <span className="sr-only">Team suchen</span>
+            <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5 shrink-0"><circle cx="8.5" cy="8.5" r="5" /><path d="m12 12 4 4" /></svg>
+            <input type="search" value={search} onChange={e=>{ setSearch(e.target.value); try { sessionStorage.setItem(`fixture-search:${competition}`,e.target.value) } catch { /* Search remains available without storage. */ } }} placeholder="Team suchen" />
+          </label>}
         </div>
-      )}
-      {!isLoading && !error && fixtureMatches.length === 0 && !isUnavailable && (
-        <p className="text-fg-2">Für diesen Wettbewerb sind aktuell keine Spiele verfügbar.</p>
-      )}
-      {!isLoading && activeTab !== 'tips' && fixtureMatches.length > 0 && visibleRounds.length === 0 && <p className="text-fg-2">Keine Spiele für diese Auswahl. Ändere die Kategorie oder den Suchbegriff.</p>}
+        {isLoading && <FixtureListSkeleton days={2} rowsPerDay={4} />}
+        {error && <QueryState title="Spieldaten konnten nicht geladen werden" message="Bitte versuche es erneut. Bereits gespeicherte Daten können vorübergehend veraltet sein." onRetry={()=>void refetch()} />}
+        {activeTab === 'tips' && archiveQuery.isLoading && <p role="status" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-fg-2">Gespeicherte gemeinsame Tipps werden geladen.</p>}
+        {activeTab === 'tips' && archiveQuery.error && <QueryState title="Tippstatus nicht verfügbar" message="Die gespeicherten gemeinsamen Tipps konnten nicht geladen werden. Lade sie erneut, bevor du einen Tipp abgibst." onRetry={() => { void archiveQuery.refetch() }} />}
+        {activeTab === 'tips' && tipSaveNotice && <p role="status" className="rounded-lg border border-emerald-a/30 bg-emerald-dim px-4 py-3 text-sm text-fg">{tipSaveNotice}</p>}
+        {activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && openTips.length === 0 && <p className="rounded-lg border border-line bg-surface px-4 py-5 text-sm text-fg-2">Aktuell gibt es keine archivierten Spiele mit offenem, noch nicht abgegebenem gemeinsamen Tipp.</p>}
+        {activeTab === 'tips' && openTips.length > 0 && <p className="mb-3 text-xs text-fg-2">Gemeinsame Tipps · Für alle sichtbar · Abgabe bis T−5</p>}
+        {!isLoading && !error && fixtureMatches.length === 0 && isUnavailable && (
+          <div role="status" className="rounded-2xl border border-amber-a/30 bg-amber-a/5 p-5">
+            <h2 className="text-base font-bold text-fg">Spieldaten gerade nicht verfügbar</h2>
+            <p className="mt-1 text-sm text-fg-2">Es konnten keine aktuellen Spiele geladen werden.</p><button type="button" onClick={()=>void refetch()} className="mt-3 min-h-11 rounded-lg border border-line-2 px-4 text-sm font-semibold text-fg">Erneut versuchen</button>
+            <p className="mt-2 text-xs text-fg-3">
+              {matchData?.source ? `Quelle: ${matchData.source}` : 'Quelle nicht verfügbar'}
+              {observedAt ? ` · Geprüft: ${observedAt}` : ''}
+            </p>
+          </div>
+        )}
+        {!isLoading && !error && fixtureMatches.length === 0 && !isUnavailable && (
+          <p className="text-fg-2">Für diesen Wettbewerb sind aktuell keine Spiele verfügbar.</p>
+        )}
+        {!isLoading && activeTab !== 'tips' && fixtureMatches.length > 0 && visibleRounds.length === 0 && <p className="text-fg-2">Keine Spiele für diese Auswahl. Ändere die Kategorie oder den Suchbegriff.</p>}
 
-      <div key={activeTab} className="space-y-3">
-        {visibleRounds.map((round, index) => (
-          <details key={`${competition}:${activeTab}:${round.key}`} open={openRounds[`${competition}:${activeTab}:${round.key}`] ?? (round.matches.some(match => match.raw_match?.commence_time && dayKey(match.raw_match.commence_time) === dayKey(new Date(now).toISOString())) || index === 0)} onToggle={e => {
-            const key = `${competition}:${activeTab}:${round.key}`
-            const open = e.currentTarget.open
-            setOpenRounds(prev => {
-              if (prev[key] === open) return prev
-              const next = { ...prev, [key]: open }
-              try { sessionStorage.setItem('fixture-open-rounds', JSON.stringify(next)) } catch { /* Disclosure state remains in memory. */ }
-              return next
-            })
-          }} className="fixture-round">
-            <summary className="round-summary">
-              <span className="min-w-0">
-                <span className="round-title">{round.label}</span>
-                {Number.isFinite(round.firstKickoff) && (
-                  <span className="round-date block">
-                    {shortDate(new Date(round.firstKickoff).toISOString())}
-                    {round.firstKickoff !== round.lastKickoff && ` – ${shortDate(new Date(round.lastKickoff).toISOString())}`}
-                  </span>
-                )}
-              </span>
-              <span className="round-count shrink-0">
-                {round.matches.length} {round.matches.length === 1 ? 'Spiel' : 'Spiele'} <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="round-chevron"><path d="m5 8 5 5 5-5" /></svg>
-              </span>
-            </summary>
-            <div className="round-fixtures">
-              <div className="fixture-column-labels" aria-hidden="true"><span>Anpfiff</span><span>Begegnung</span><span>Datenbasis</span><span>Modelltipp</span><span /></div>
-              {(() => {
-                const days = groupFixturesByDay(round.matches, now)
-                if (activeTab !== 'upcoming' && activeTab !== 'tips') days.reverse()
-                return days.map(day => <section key={day.key} className={`fixture-day${day.relativeLabel === 'Heute' ? ' fixture-day-today' : ''}`} aria-label={day.relativeLabel ? `${day.relativeLabel}, ${day.dateLabel}` : day.dateLabel}>
-                  <h3 className="fixture-day-heading">
-                    <span>{day.relativeLabel && <strong>{day.relativeLabel}</strong>}<span>{day.dateLabel}</span></span>
-                    <span>{day.matches.length} {day.matches.length === 1 ? 'Spiel' : 'Spiele'}</span>
-                  </h3>
-                  {day.matches.map((match) => {
-                    const nextMatchId = nextTipById.get(match.id)
-                    return <FixtureRow
-                      key={`${competition}:${match.id}`}
-                      match={match}
-                      pendingResult={activeTab === 'pending'}
-                      now={now}
-                      compact
-                      sharedTipMode={activeTab === 'tips'}
-                      competition={competition}
-                      savedTip={archiveQuery.data?.[match.id]?.prediction.user_tip}
-                      autoFocusTip={focusTipId === match.id}
-                      onTipAutoFocus={() => setFocusTipId((current) => current === match.id ? null : current)}
-                      onSaveAndNext={nextMatchId ? () => focusNextTip(nextMatchId) : undefined}
-                      onSaveStart={() => setTipSaveNotice('')}
-                      onTipSaved={(tip) => setTipSaveNotice(`Gemeinsamer Tipp ${tip} für ${match.home_team} gegen ${match.away_team} gespeichert.`)}
-                    />
-                  })}
-                </section>)
-              })()}
-            </div>
-          </details>
-        ))}
-      </div>
+        <div key={activeTab} className="space-y-3">
+          {visibleRounds.map((round, index) => (
+            <details key={`${competition}:${activeTab}:${round.key}`} open={openRounds[`${competition}:${activeTab}:${round.key}`] ?? (round.matches.some(match => match.raw_match?.commence_time && dayKey(match.raw_match.commence_time) === dayKey(new Date(now).toISOString())) || index === 0)} onToggle={e => {
+              const key = `${competition}:${activeTab}:${round.key}`
+              const open = e.currentTarget.open
+              setOpenRounds(prev => {
+                if (prev[key] === open) return prev
+                const next = { ...prev, [key]: open }
+                try { sessionStorage.setItem('fixture-open-rounds', JSON.stringify(next)) } catch { /* Disclosure state remains in memory. */ }
+                return next
+              })
+            }} className="fixture-round">
+              <summary className="round-summary">
+                <span className="min-w-0">
+                  <span className="round-title">{round.label}</span>
+                  {Number.isFinite(round.firstKickoff) && (
+                    <span className="round-date block">
+                      {shortDate(new Date(round.firstKickoff).toISOString())}
+                      {round.firstKickoff !== round.lastKickoff && ` – ${shortDate(new Date(round.lastKickoff).toISOString())}`}
+                    </span>
+                  )}
+                </span>
+                <span className="round-count shrink-0">
+                  {round.matches.length} {round.matches.length === 1 ? 'Spiel' : 'Spiele'} <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="round-chevron"><path d="m5 8 5 5 5-5" /></svg>
+                </span>
+              </summary>
+              <div className="round-fixtures">
+                {(() => {
+                  const days = groupFixturesByDay(round.matches, now)
+                  if (activeTab !== 'upcoming' && activeTab !== 'tips') days.reverse()
+                  return days.map(day => <section key={day.key} className={`fixture-day${day.relativeLabel === 'Heute' ? ' fixture-day-today' : ''}`} aria-label={day.relativeLabel ? `${day.relativeLabel}, ${day.dateLabel}` : day.dateLabel}>
+                    <h3 className="fixture-day-heading">
+                      <span>{day.relativeLabel && <strong>{day.relativeLabel}</strong>}<span>{day.dateLabel}</span></span>
+                      <span>{day.matches.length} {day.matches.length === 1 ? 'Spiel' : 'Spiele'}</span>
+                    </h3>
+                    <div className="match-grid">
+                      {day.matches.map((match) => {
+                        const nextMatchId = nextTipById.get(match.id)
+                        return <FixtureRow
+                          key={`${competition}:${match.id}`}
+                          match={match}
+                          pendingResult={activeTab === 'pending'}
+                          now={now}
+                          compact
+                          sharedTipMode={activeTab === 'tips'}
+                          competition={competition}
+                          savedTip={archiveQuery.data?.[match.id]?.prediction.user_tip}
+                          autoFocusTip={focusTipId === match.id}
+                          onTipAutoFocus={() => setFocusTipId((current) => current === match.id ? null : current)}
+                          onSaveAndNext={nextMatchId ? () => focusNextTip(nextMatchId) : undefined}
+                          onSaveStart={() => setTipSaveNotice('')}
+                          onTipSaved={(tip) => setTipSaveNotice(`Gemeinsamer Tipp ${tip} für ${match.home_team} gegen ${match.away_team} gespeichert.`)}
+                        />
+                      })}
+                    </div>
+                  </section>)
+                })()}
+              </div>
+            </details>
+          ))}
+        </div>
+      </ViewPanel>
+
+      <ViewPanel id="matchcenter" value="radar" active={view}>
+        {isLoading && <FixtureListSkeleton days={1} rowsPerDay={3} />}
+        {(error || isUnavailable) && <QueryState title="Spieldaten konnten nicht geladen werden" message="Bitte versuche es erneut. Bereits gespeicherte Daten können vorübergehend veraltet sein." onRetry={()=>void refetch()} />}
+        {!isLoading && !error && !isUnavailable && (upcoming.length ? <MatchdayRadar matches={upcoming} /> : <p className="text-fg-2">Für das Radar gibt es aktuell keine kommenden Spiele.</p>)}
+      </ViewPanel>
+
+      <ViewPanel id="matchcenter" value="assistant" active={view}>
+        {isLoading && <FixtureListSkeleton days={1} rowsPerDay={3} />}
+        {(error || isUnavailable) && <QueryState title="Spieldaten konnten nicht geladen werden" message="Bitte versuche es erneut. Bereits gespeicherte Daten können vorübergehend veraltet sein." onRetry={()=>void refetch()} />}
+        {!isLoading && !error && !isUnavailable && (upcoming.length ? <MatchdayAssistant key={competition} matches={fixtureMatches} now={now} expanded /> : <p className="text-fg-2">Es gibt aktuell keine offenen gemeinsamen Tipps für kommende Spiele.</p>)}
+      </ViewPanel>
     </PageTransition>
   )
 }

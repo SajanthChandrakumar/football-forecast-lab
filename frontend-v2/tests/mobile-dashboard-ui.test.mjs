@@ -4,31 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
-test('mobile shell exposes the clear primary navigation', () => {
-  const shell = read('src/components/layout/AppShell.tsx') + read('src/components/layout/Sidebar.tsx')
-  assert.match(shell, /Spiele/)
-  assert.match(shell, /Gemeinsame Tipps/)
-  assert.match(shell, /Mehr/)
-  assert.match(shell, /to: '\/'/)
-  assert.match(shell, /to: '\/performance'/)
-  assert.match(shell, /lg:hidden/)
-
-  const mehrTriggers = shell.match(/<button[\s\S]*?(?:aria-expanded=\{moreOpen\}|aria-label="Mehr öffnen")[\s\S]*?Mehr[\s\S]*?<\/button>/g) ?? []
-  assert.equal(mehrTriggers.length, 1, 'the shell must expose one mobile Mehr trigger')
-})
-
-test('mobile Mehr menu has dialog, focus, Escape, and close contracts', () => {
-  const shell = read('src/components/layout/AppShell.tsx')
-  assert.match(shell, /aria-controls="mobile-more-menu"/)
-  assert.match(shell, /id="mobile-more-menu"/)
-  assert.match(shell, /role="dialog"/)
-  assert.match(shell, /aria-modal="true"/)
-  assert.match(shell, /useRef/)
-  assert.match(shell, /\.focus\(\)/)
-  assert.match(shell, /event\.key [!=]+ 'Escape'/)
-  assert.match(shell, /content.inert = true/)
-  assert.match(shell, /event.shiftKey/)
-})
+// Navigation, dialog focus and Escape are exercised against the browser in e2e/navigation.spec.ts.
 
 test('dashboard uses plain-language mobile prediction cards', () => {
   const row = read('src/features/dashboard/FixtureRow.tsx')
@@ -37,25 +13,7 @@ test('dashboard uses plain-language mobile prediction cards', () => {
   assert.match(row, /trailing != null/)
 })
 
-test('shared match hints expose source-aware outcome probabilities and separate extra context', () => {
-  const card = read('src/components/shared/MatchHintCard.tsx')
-  const dashboard = read('src/features/dashboard/FixtureRow.tsx')
-  const detail = read('src/features/detail/DetailView.tsx')
-
-  assert.match(card, /buildMatchHint/)
-  assert.match(card, /hint\.probabilities/)
-  assert.match(card, /formatObservedAt\(hint\.observedAt\)/)
-  assert.match(card, /hint\.reasons/)
-  assert.match(dashboard, /<MatchHintCard match=\{match\}/)
-  assert.match(detail, /<MatchHintCard match=\{match\}/)
-})
-
-test('fixture cards show the model tip, a short reason and an explicit detail action', () => {
-  const row = read('src/features/dashboard/FixtureRow.tsx')
-  assert.match(row, /Modelltipp/)
-  assert.match(row, /<MatchHintCard match=\{match\} compact/)
-  assert.match(row, /Tipp ansehen/)
-})
+// Source-aware chances and preserved detail context are verified in e2e/data-status and matchcenter specs.
 
 test('detail exposes local copy first and discloses that the saved tip is shared', () => {
   const detail = read('src/features/detail/DetailView.tsx')

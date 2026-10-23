@@ -34,6 +34,7 @@ test('source warnings stay visible while explanatory notes open on demand', asyn
   await data.locator('summary').filter({ hasText: 'Was bedeutet die Datenlage?' }).click()
   await expect(note).toBeVisible()
   await expect(data.getByText(/Ihre Anzeige bestätigt nicht/)).toBeVisible()
+  await page.getByRole('tab', { name: 'Modelldaten', exact: true }).click()
   await page.locator('summary').filter({ hasText: 'Wie wird der Tipp gewählt?' }).click()
   await expect(page.getByText(/Erwartete Punkte sind der Durchschnitt/)).toBeVisible()
 })

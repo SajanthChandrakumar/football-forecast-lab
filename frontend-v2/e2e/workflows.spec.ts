@@ -72,7 +72,7 @@ test('an unavailable archive cannot silently overwrite an existing tip', async (
 test('a failed historical lineup request is distinct from missing data and can retry', async ({ page, api }) => {
   api.failHistory = true
   await page.goto('/#/match/ucl-next')
-  await page.locator('summary').filter({ hasText: 'Weitere Daten zur Analyse' }).click()
+  await page.getByRole('tab', { name: 'Aufstellungen', exact: true }).click()
   await page.getByRole('button', { name: 'Aufstellung ansehen', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'Aufstellung konnte nicht geladen werden' })).toBeVisible()
   api.failHistory = false
@@ -134,10 +134,10 @@ test('an unavailable refresh keeps known fixtures and reports the failure', asyn
   await expect(page.getByText('Bayern Munich', { exact: true }).first()).toBeVisible()
   api.unavailableRefresh = true
   if ((page.viewportSize()?.width ?? 1440) < 1024) await page.getByRole('button', { name: 'Mehr', exact: true }).click()
-  else await page.getByText('Einstellungen', { exact: true }).click()
+  else await page.getByRole('button', { name: 'Einstellungen', exact: true }).click()
   await page.getByRole('button', { name: 'Gespeicherte Daten neu laden', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'Daten konnten nicht neu geladen werden' })).toBeVisible()
-  if ((page.viewportSize()?.width ?? 1440) < 1024) await page.getByRole('button', { name: 'Menü schliessen' }).click()
+  await page.getByRole('button', { name: 'Menü schliessen' }).click()
   await expect(page.getByText('Bayern Munich', { exact: true }).first()).toBeVisible()
 })
 
@@ -152,13 +152,13 @@ test('a pending refresh cannot replace another competition’s cached fixtures',
   api.matchesGate = new Promise<void>(resolve => { finishLoad = resolve })
   const mobile = (page.viewportSize()?.width ?? 1440) < 1024
   if (mobile) await page.getByRole('button', { name: 'Mehr', exact: true }).click()
-  else await page.getByText('Einstellungen', { exact: true }).click()
+  else await page.getByRole('button', { name: 'Einstellungen', exact: true }).click()
   await page.getByRole('button', { name: 'Gespeicherte Daten neu laden', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Wird geladen…', exact: true })).toBeDisabled()
-  await page.getByLabel('Wettbewerb', { exact: true }).filter({ visible: true }).selectOption('epl2026')
+  await page.getByRole('dialog').getByRole('combobox', { name: 'Wettbewerb', exact: true }).selectOption('epl2026')
   finishLoad()
   await expect(page.getByRole('status').filter({ hasText: 'Gespeicherte Daten für UCL 2026/27 geladen.' })).toBeVisible()
-  if (mobile) await page.getByRole('button', { name: 'Menü schliessen' }).click()
+  await page.getByRole('button', { name: 'Menü schliessen' }).click()
   await expect(page.getByText('Chelsea', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Bayern Munich', { exact: true })).toHaveCount(0)
   await chooseCompetition(page, 'ucl2026')

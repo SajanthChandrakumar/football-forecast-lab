@@ -32,28 +32,7 @@ test('compact fixture cards identify both teams and prioritise the model tip', (
   assert.match(row, /min-h-11/)
 })
 
-test('match detail lists the ten newest competitive matches in a mobile stack', () => {
-  const detail = read('src/features/detail/DetailView.tsx')
-  assert.match(detail, /Letzte Pflichtspiele/)
-  assert.match(detail, /form\?\.matches/)
-  assert.match(detail, /slice\(0, 10\)/)
-  assert.match(detail, /opponent_name/)
-  assert.match(detail, /competition_name/)
-  assert.match(detail, /shortDate\(item\.played_at\)/)
-  assert.match(detail, /lg:grid-cols-2/)
-  assert.match(detail, /Form nicht verfügbar/)
-  assert.match(detail, /Quelle:/)
-  assert.match(detail, /ESPN \+ FotMob/)
-  assert.match(detail, /Die Form beschreibt separat zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe/)
-})
-
-test('league-scoped history states its Premier League scope and reads the shared lineup archive', () => {
-  const detail = read('src/features/detail/DetailView.tsx')
-  assert.match(detail, /form\?\.scope === 'league'/)
-  assert.match(detail, /nur zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe/)
-  assert.match(detail, /<HistoricalMatchRow key=\{item.fixture_id\} item=\{item\} \/>/)
-  assert.match(detail, /useMatchHistory\(item.fixture_id, open\)/)
-})
+// Last-ten history and league scope are exercised through the detail tabs in e2e/matchcenter-redesign.spec.ts.
 
 test('Premier League detail does not promise unsupported player or lineup updates', () => {
   const detail = read('src/features/detail/DetailView.tsx')

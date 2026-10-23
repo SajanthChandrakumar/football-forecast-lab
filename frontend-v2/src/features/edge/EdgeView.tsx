@@ -69,8 +69,11 @@ export function EdgeView() {
       <details className="info-disclosure mb-3"><summary>Was wird hier verglichen?</summary><p className="info-content">
         Beide Werte teilen Sieg und Niederlage auf 100 % auf und lassen ein mögliches Remis heraus. Sie sind daher keine absoluten 1/X/2-Siegwahrscheinlichkeiten. „Prozentpunkte“ zeigen den Abstand zwischen den beiden Anteilen.
       </p></details>
+      <details className="info-disclosure mb-4"><summary>Wie werden gespielte Spiele bewertet?</summary><p className="info-content">
+        Ein Spiel gilt als Treffer, wenn Elo und das tatsächliche Ergebnis auf dieselbe Seite zeigen. Bei Remis oder einer Kante unter zwei Prozentpunkten wird es als knapp oder Remis gewertet; alle übrigen auswertbaren Spiele gelten als verfehlt.
+      </p></details>
 
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="analysis-section mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Spiele auswählen">
           <button type="button" aria-pressed={tab === 'upcoming'} onClick={() => setTab('upcoming')} className={tabButtonClass(tab === 'upcoming')}>
             Kommende Spiele ({upcoming.length})
@@ -81,7 +84,7 @@ export function EdgeView() {
         </div>
 
         {tab === 'history' && historical.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-2">
+          <div className="metric-strip flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-2">
             <span>Trefferquote bei klarer Modellkante: <b className="tabular-nums text-fg">{stats.hitRate.toFixed(0)}%</b></span>
             <span><b className="font-medium text-fg">{stats.hits}</b> Treffer · <b className="font-medium text-fg">{stats.closes}</b> knapp/Remis · <b className="font-medium text-fg">{stats.misses}</b> verfehlt</span>
           </div>
@@ -98,7 +101,7 @@ export function EdgeView() {
         </div>
       )}
 
-      {!isLoading && !error && !unavailable && activeCards.length > 0 && <div className="grid gap-3 md:grid-cols-2">
+      {!isLoading && !error && !unavailable && activeCards.length > 0 && <div className="match-grid analysis-section grid gap-3 md:grid-cols-2">
         {activeCards.map(({ match, edgePp, grade }) => {
           const market = match.market_home_share! * 100
           const elo = match.elo_home_share! * 100
@@ -111,7 +114,7 @@ export function EdgeView() {
           const kickoff = match.raw_match?.commence_time
 
           return (
-            <button key={match.id} type="button" onClick={() => navigate(`/match/${match.id}`)} className="rounded-xl border border-line bg-surface p-4 text-left transition hover:border-line-2 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue)]">
+            <button key={match.id} type="button" onClick={() => navigate(`/match/${match.id}`)} className="match-card surface-panel rounded-xl border border-line bg-surface p-4 text-left transition hover:border-line-2 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue)]">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold text-fg">

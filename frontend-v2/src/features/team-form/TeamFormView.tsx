@@ -56,7 +56,7 @@ export function TeamFormView() {
       {isLoading && <div className="space-y-4"><ChartSkeleton /><CardGridSkeleton count={1} cols="grid-cols-1" /></div>}
       {!isLoading && error && <QueryState title="Teamdaten konnten nicht geladen werden" message="Elo-Verlauf, Ratings oder Archivdaten sind derzeit nicht erreichbar." onRetry={() => void retry()} />}
 
-      <div className={cn('space-y-4', (isLoading || error) && 'hidden')}>
+      <div className={cn('analysis-section space-y-4', (isLoading || error) && 'hidden')}>
         {incompleteUclRatings ? (
           <div role="alert" className="rounded-xl border border-amber-a/30 bg-amber-a/5 px-4 py-3 text-sm text-fg-2">
             {!coverage.standingsValid ? (
@@ -87,9 +87,9 @@ export function TeamFormView() {
         )}
 
         {!incompleteUclRatings && rows.length > 0 && <>
-          <GlassCard>
+          <GlassCard className="surface-panel">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <SectionTitle>Teams vergleichen</SectionTitle>
+              <SectionTitle className="section-heading">Teams vergleichen</SectionTitle>
               <span className="text-xs text-fg-2">{selectedTeams.length} von 4 ausgewählt</span>
             </div>
 
@@ -128,12 +128,12 @@ export function TeamFormView() {
               </div>
             </div>
 
-            {selectedTeams.length > 0 && <div className={cn('mb-5 grid gap-2 sm:grid-cols-2', selectedTeams.length === 1 ? 'lg:grid-cols-1' : selectedTeams.length === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-4')}>
+            {selectedTeams.length > 0 && <div className={cn('metric-strip team-comparison-metrics mb-5 grid gap-2 sm:grid-cols-2', selectedTeams.length === 1 ? 'lg:grid-cols-1' : selectedTeams.length === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-4')}>
               {selectedTeams.map((team) => {
                 const row = rows.find((item) => item.team === team)
                 if (!row) return null
-                return <div key={team} className="min-w-0 rounded-lg border border-line bg-surface-2 px-3 py-3">
-                  <div className="flex items-center gap-2 truncate text-sm font-medium text-fg"><TeamLogo name={team} /><span className="truncate">{team}</span></div>
+                return <div key={team} className="surface-panel min-w-0 rounded-lg border border-line bg-surface-2 px-3 py-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-fg"><TeamLogo name={team} /><span className="min-w-0 break-words">{team}</span></div>
                   <div className="mt-2 text-2xl font-semibold tabular-nums text-fg">{Math.round(row.elo)} <span className="text-xs font-normal text-fg-3">Elo</span></div>
                   <dl className="mt-3 grid grid-cols-3 gap-2 text-xs text-fg-3">{[['Siege', row.w], ['Remis', row.d], ['Niederlagen', row.l]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="mt-1 text-base font-semibold tabular-nums text-fg">{value}</dd></div>)}</dl>
                   {row.w + row.d + row.l < 5 && <p className="mt-1 text-xs text-fg-3">Kleine Stichprobe: {row.w + row.d + row.l} {row.w + row.d + row.l === 1 ? 'abgeschlossenes Spiel' : 'abgeschlossene Spiele'}.</p>}
@@ -149,7 +149,7 @@ export function TeamFormView() {
           </GlassCard>
 
           <details className="overflow-hidden rounded-xl border border-line bg-surface">
-            <summary className="cursor-pointer border-b border-line px-5 py-4 text-base font-medium text-fg">
+            <summary className="section-heading cursor-pointer border-b border-line px-5 py-4 text-base font-semibold text-fg">
               Elo-Rangliste <span className="ml-1 text-sm font-normal text-fg-2">({rows.length} Teams)</span>
             </summary>
             <div className="px-5 py-3 text-xs leading-relaxed text-fg-2">

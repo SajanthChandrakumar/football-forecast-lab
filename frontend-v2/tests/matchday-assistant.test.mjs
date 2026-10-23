@@ -100,3 +100,15 @@ test('limits one save action to 18 tips, runs at most three requests, and report
   assert.equal(results.filter((result) => !result.ok).length, 1)
   assert.equal(attempts.filter((id) => id === '4').length, 1)
 })
+
+test('separates open tip fields from games whose deadline has passed', async () => {
+  const { assistantRowGroups } = await import('../src/lib/matchday-assistant.mjs')
+  assert.equal(typeof assistantRowGroups, 'function')
+  const rows = buildAssistantRows([
+    match('closed', { raw_match: { commence_time: '2026-10-01T17:00:00Z' } }),
+    match('open', { raw_match: { commence_time: '2026-10-01T19:00:00Z' } }),
+  ], {}, {}, {}, Date.parse('2026-10-01T18:00:00Z'))
+  const groups = assistantRowGroups(rows)
+  assert.deepEqual(groups.open.map(row => row.match.id), ['open'])
+  assert.deepEqual(groups.closed.map(row => row.match.id), ['closed'])
+})

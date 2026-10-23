@@ -42,20 +42,24 @@ export function MatchdayRadar({ matches }: { matches: Match[] }) {
   }
 
   return (
-    <section className="glass mb-7 overflow-hidden" aria-labelledby="matchday-radar-title">
-      <div className="border-b border-line bg-[linear-gradient(135deg,var(--surface),var(--surface-2))] p-4 sm:p-5">
+    <section className="analysis-section matchday-radar" aria-labelledby="matchday-radar-title">
+      <div className="section-heading">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="kicker">Nächster Spieltag</p>
-            <h2 id="matchday-radar-title" className="mt-1 font-display text-3xl font-black uppercase tracking-wide text-fg">Spieltag-Radar</h2>
+            <h2 id="matchday-radar-title" className="mt-1 font-sans text-3xl font-black tracking-tight text-fg">Spieltag-Radar</h2>
             {firstTime && <p className="mt-1 text-sm font-semibold text-fg-2">{dayHeading(String(firstTime))}</p>}
           </div>
           <button type="button" onClick={() => { setShowTipCard((open) => !open); setCopyState('idle') }} aria-expanded={showTipCard} aria-controls="matchday-tip-card" className="min-h-11 shrink-0 rounded-xl bg-emerald-a px-3 text-sm font-bold text-white transition hover:brightness-110">Tippkarte</button>
         </div>
-        <p className="mt-4 text-base font-semibold text-fg">{radar.counts.safe} klar · {radar.counts.open} offen · {radar.counts.surprise} Alarm</p>
+        <div className="metric-strip" aria-label="Spiele nach Radar-Kategorie">
+          <p><strong>{radar.counts.safe}</strong> klare Tipps</p>
+          <p><strong>{radar.counts.open}</strong> offene Spiele</p>
+          <p><strong>{radar.counts.surprise}</strong> Überraschungsalarm</p>
+        </div>
       </div>
 
-      <div className="p-4 sm:p-5">
+      <div className="surface-panel">
         <div className="grid grid-cols-3 gap-2" role="group" aria-label="Radar-Kategorie">
           {categories.map((category) => (
             <button key={category.key} type="button" onClick={() => setSelected(category.key)} disabled={!radar.counts[category.key]} aria-pressed={active === category.key} className={cn('min-h-14 rounded-xl border px-2 py-2 text-center transition disabled:cursor-not-allowed disabled:opacity-50', active === category.key ? categoryStyle[category.key] : 'border-line bg-surface text-fg-3 hover:bg-surface-2')}>

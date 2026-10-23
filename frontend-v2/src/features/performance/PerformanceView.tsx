@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useMatches } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
-import { MatchdayAssistant } from '../dashboard/MatchdayAssistant'
 import { SavedTips } from './SavedTips'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
@@ -14,10 +12,21 @@ import { BuildABot } from './BuildABot'
 import { MatchHistory } from './MatchHistory'
 import { ModelComparison } from './ModelComparison'
 import { ForecastEvaluation } from './ForecastEvaluation'
+import { ViewTabs, ViewPanel } from '../../components/shared/ViewTabs'
+import { useView } from '../../hooks/useView'
+
+const PERFORMANCE_VIEWS = ['tips', 'points', 'comparison', 'bots'] as const
+
+const PERFORMANCE_TABS = [
+  { value: 'tips', label: 'Gespeicherte Tipps' },
+  { value: 'points', label: 'Punkte & Verlauf' },
+  { value: 'comparison', label: 'Modellvergleich' },
+  { value: 'bots', label: 'Bots & Rücktests' },
+] as const
 
 export function PerformanceView() {
   const { competition } = useAppState()
-  const matches = useMatches()
+  const [view, setView] = useView(PERFORMANCE_VIEWS, 'tips')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const clock = window.setInterval(() => setNow(Date.now()), 15_000)
@@ -28,138 +37,135 @@ export function PerformanceView() {
     isLoading, isError, retryArchive,
   } = usePerformanceData()
 
-  if (isError && !archive) {
-    return (
-      <PageTransition>
-        <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
-        <QueryState
-          title="Auswertung nicht verfügbar"
-          message="Die gespeicherten Spieldaten konnten nicht geladen werden. Prüfe die Verbindung und versuche es erneut."
-          onRetry={() => { void retryArchive() }}
-        />
-        <div className="mt-5"><ForecastEvaluation /></div>
-      </PageTransition>
-    )
-  }
-
-  if (isLoading) {
-    return (
-      <PageTransition>
-        <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
-        <PerformanceSkeleton />
-        <div className="mt-5"><ForecastEvaluation /></div>
-      </PageTransition>
-    )
-  }
-
   const commonTipRate = totals.userCount > 0 ? `${((totals.userCount / Math.max(totals.completed, 1)) * 100).toFixed(0)}%` : '—'
   const sharedPointsPerGame = comparison.matches > 0 ? formatAverage(comparison.userPoints, comparison.matches) : '—'
   const modelPointsPerGame = comparison.matches > 0 ? formatAverage(comparison.algoPoints, comparison.matches) : '—'
+  const archiveUnavailable = isError && !archive
 
   return (
     <PageTransition>
       <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
+      <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} />
 
-      <div className="space-y-5">
-        {matches.data && <MatchdayAssistant key={competition} matches={matches.data} now={now} />}
-        {matches.error && <QueryState title="Spiele konnten nicht geladen werden" message="Gespeicherte Tipps bleiben unten sichtbar." onRetry={() => { void matches.refetch() }} />}
-        <SavedTips key={competition} archive={archive ?? {}} now={now} />
-        {isError && archive && (
-          <QueryState
+      <ViewPanel id="performance" value="tips" active={view}>
+        <div className="analysis-section space-y-4">
+          {isLoading && !archive ? <PerformanceSkeleton /> : !archiveUnavailable && <SavedTips key={competition} archive={archive ?? {}} now={now} />}
+          {archiveUnavailable && <QueryState
+            title="Auswertung nicht verfügbar"
+            message="Die gespeicherten Spieldaten konnten nicht geladen werden. Prüfe die Verbindung und versuche es erneut."
+            onRetry={() => { void retryArchive() }}
+          />}
+          {isError && archive && <QueryState
             title="Aktualisierung fehlgeschlagen"
             message="Die zuletzt gespeicherte Auswertung wird angezeigt. Neue Spieldaten konnten nicht geladen werden."
             onRetry={() => { void retryArchive() }}
-          />
-        )}
-        <GlassCard>
-          <SectionTitle className="mb-4">Übersicht</SectionTitle>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Kpi label="Abgeschlossene Spiele" value={String(totals.completed)} />
-            <Kpi label="Gemeinsame Tipps" value={String(Object.values(archive ?? {}).filter(entry => entry.prediction?.user_tip?.trim()).length)} />
-            <Kpi label="Abgeschlossene Spiele mit Tipp" value={commonTipRate} />
-          </div>
-          {totals.userCount > 0 && (
-            <p className="mt-4 border-t border-line pt-4 text-sm text-fg-2">
-              Gesamtpunkte aus allen gespeicherten gemeinsamen Tipps: <b className="tabular-nums text-fg">{totals.totalPoints}</b>
-            </p>
-          )}
-          {totals.completed === 0 && (
-            <p className="mt-2 text-sm text-fg-2">Noch keine abgeschlossenen Spiele. Ergebnisse erscheinen hier nach der Auswertung.</p>
-          )}
-        </GlassCard>
+          />}
+        </div>
+      </ViewPanel>
 
-        <GlassCard>
-          <SectionTitle className="mb-2">Gemeinsame Tipps vs. Modell</SectionTitle>
-          <details className="info-disclosure mb-3"><summary>Vergleichsgrundlage · gemeinsame Vorabspiele</summary><p className="info-content">
-            Gezählt werden nur abgeschlossene Spiele mit gemeinsamem Tipp und gespeichertem Vorab-Modelltipp.
-            Nachträglich rekonstruierte Elo-Tipps bleiben ausgeschlossen.
-          </p></details>
-
-          {comparison.matches > 0 ? (
-            <>
-              <p className="mb-4 text-sm font-semibold text-fg">
-                {comparison.matches} gemeinsame {comparison.matches === 1 ? 'Spiel' : 'Spiele'}
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <ComparisonStat
-                  label="Gemeinsame Tipps"
-                  points={comparison.userPoints}
-                  average={sharedPointsPerGame}
-                  tendency={comparison.userTendency}
-                  matches={comparison.matches}
-                  tone="text-fg"
-                />
-                <ComparisonStat
-                  label="Modell"
-                  points={comparison.algoPoints}
-                  average={modelPointsPerGame}
-                  tendency={comparison.algoTendency}
-                  matches={comparison.matches}
-                  tone="text-blue-a"
-                />
+      <ViewPanel id="performance" value="points" active={view}>
+        <div className="analysis-section space-y-4">
+          {isLoading && !archive ? <PerformanceSkeleton /> : archiveUnavailable ? <QueryState
+            title="Punkteverlauf nicht verfügbar"
+            message="Die gespeicherten Spieldaten konnten nicht geladen werden. Versuche es erneut."
+            onRetry={() => { void retryArchive() }}
+          /> : <>
+            {isError && archive && <QueryState
+              title="Aktualisierung fehlgeschlagen"
+              message="Die zuletzt gespeicherte Auswertung wird angezeigt. Neue Spieldaten konnten nicht geladen werden."
+              onRetry={() => { void retryArchive() }}
+            />}
+            <GlassCard className="surface-panel">
+              <SectionTitle className="mb-4">Übersicht</SectionTitle>
+              <div className="metric-strip grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <Kpi label="Abgeschlossene Spiele" value={String(totals.completed)} />
+                <Kpi label="Gemeinsame Tipps" value={String(Object.values(archive ?? {}).filter(entry => entry.prediction?.user_tip?.trim()).length)} />
+                <Kpi label="Abgeschlossene Spiele mit Tipp" value={commonTipRate} />
               </div>
-            </>
-          ) : (
-            <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg-2">
-              Für einen gemeinsamen Vergleich fehlen noch abgeschlossene Spiele mit beiden gespeicherten Tipps und ausgewerteten Punkten.
-            </p>
-          )}
-
-          {totals.reconstructedCount > 0 && (
-            <p className="mt-4 text-xs leading-relaxed text-fg-3">
-              {totals.reconstructedCount} nachträglich aus Elo-Ratings rekonstruierte Modelltipps sind ausgeschlossen.
-            </p>
-          )}
-        </GlassCard>
-
-        <ForecastEvaluation />
-
-        <MatchHistory completed={completed} hasReconstructed={totals.hasReconstructed} />
-
-        <details className="group rounded-xl border border-line bg-surface">
-          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-fg marker:hidden">
-            <span>Weitere Auswertungen und Rücktests</span>
-            <span aria-hidden="true" className="text-fg-3 transition group-open:rotate-180">⌄</span>
-          </summary>
-          <div className="space-y-4 border-t border-line p-4">
-            <GlassCard>
-              <SectionTitle>Gesamte gespeicherte Modellhistorie</SectionTitle>
-              <p className="mt-3 text-sm text-fg-2">Modell · {totals.algoAllCount} Tipps gesamt: <b className="tabular-nums text-fg">{totals.algoAllTotal}</b> Punkte.</p>
-              <p className="mt-2 text-xs text-fg-3">{totals.algoCount} belegte Vorabspiele · {totals.legacyCount} ältere, nicht belegbare Tipps ({totals.legacyPoints} Punkte) · {totals.reconstructedCount} rekonstruierte Tipps ({totals.reconstructedPoints} Punkte). Diese Gesamtsumme verwendet andere Spiele als der faire Vergleich.</p>
+              {totals.userCount > 0 && (
+                <p className="mt-4 border-t border-line pt-4 text-sm text-fg-2">
+                  Gesamtpunkte aus allen gespeicherten gemeinsamen Tipps: <b className="tabular-nums text-fg">{totals.totalPoints}</b>
+                </p>
+              )}
+              {totals.completed === 0 && (
+                <p className="mt-2 text-sm text-fg-2">Noch keine abgeschlossenen Spiele. Ergebnisse erscheinen hier nach der Auswertung.</p>
+              )}
             </GlassCard>
-            <ModelComparison />
-            <BotScoreboard totals={totals} botStats={botStats} extraBots={extraBots} />
-            <BuildABot
-              customBot={customBot}
-              simulate={simulate}
-              completed={completed}
-              commonMatchIds={comparison.matchIds}
-            />
-            <PointsRaceChart completed={completed} commonMatchIds={comparison.matchIds} />
+
             <PointsRaceChart completed={completed} extraBots={extraBots} />
-          </div>
-        </details>
-      </div>
+            <MatchHistory completed={completed} hasReconstructed={totals.hasReconstructed} />
+          </>}
+        </div>
+      </ViewPanel>
+
+      <ViewPanel id="performance" value="comparison" active={view}>
+        <div className="analysis-section space-y-4">
+          <GlassCard className="surface-panel">
+            <SectionTitle className="mb-2">Gemeinsame Tipps vs. Modell</SectionTitle>
+            <details className="info-disclosure mb-3"><summary>Vergleichsgrundlage · gemeinsame Vorabspiele</summary><p className="info-content">
+              Gezählt werden nur abgeschlossene Spiele mit gemeinsamem Tipp und gespeichertem Vorab-Modelltipp.
+              Nachträglich rekonstruierte Elo-Tipps bleiben ausgeschlossen.
+            </p></details>
+
+            {comparison.matches > 0 ? (
+              <>
+                <p className="mb-4 text-sm font-semibold text-fg">
+                  {comparison.matches} gemeinsame {comparison.matches === 1 ? 'Spiel' : 'Spiele'}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ComparisonStat
+                    label="Gemeinsame Tipps"
+                    points={comparison.userPoints}
+                    average={sharedPointsPerGame}
+                    tendency={comparison.userTendency}
+                    matches={comparison.matches}
+                    tone="text-fg"
+                  />
+                  <ComparisonStat
+                    label="Modell"
+                    points={comparison.algoPoints}
+                    average={modelPointsPerGame}
+                    tendency={comparison.algoTendency}
+                    matches={comparison.matches}
+                    tone="text-blue-a"
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg-2">
+                Für einen gemeinsamen Vergleich fehlen noch abgeschlossene Spiele mit beiden gespeicherten Tipps und ausgewerteten Punkten.
+              </p>
+            )}
+
+            {totals.reconstructedCount > 0 && (
+              <p className="mt-4 text-xs leading-relaxed text-fg-3">
+                {totals.reconstructedCount} nachträglich aus Elo-Ratings rekonstruierte Modelltipps sind ausgeschlossen.
+              </p>
+            )}
+          </GlassCard>
+
+          <ForecastEvaluation />
+          <ModelComparison />
+          <GlassCard>
+            <SectionTitle>Gesamte gespeicherte Modellhistorie</SectionTitle>
+            <p className="mt-3 text-sm text-fg-2">Modell · {totals.algoAllCount} Tipps gesamt: <b className="tabular-nums text-fg">{totals.algoAllTotal}</b> Punkte.</p>
+            <p className="mt-2 text-xs text-fg-3">{totals.algoCount} belegte Vorabspiele · {totals.legacyCount} ältere, nicht belegbare Tipps ({totals.legacyPoints} Punkte) · {totals.reconstructedCount} rekonstruierte Tipps ({totals.reconstructedPoints} Punkte). Diese Gesamtsumme verwendet andere Spiele als der faire Vergleich.</p>
+          </GlassCard>
+        </div>
+      </ViewPanel>
+
+      <ViewPanel id="performance" value="bots" active={view}>
+        <div className="analysis-section space-y-4">
+          <BotScoreboard totals={totals} botStats={botStats} extraBots={extraBots} />
+          <BuildABot
+            customBot={customBot}
+            simulate={simulate}
+            completed={completed}
+            commonMatchIds={comparison.matchIds}
+          />
+          <PointsRaceChart completed={completed} commonMatchIds={comparison.matchIds} />
+        </div>
+      </ViewPanel>
     </PageTransition>
   )
 }

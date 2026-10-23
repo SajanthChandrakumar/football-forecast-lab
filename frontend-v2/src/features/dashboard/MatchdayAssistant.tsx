@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import { buildAssistantRows, getSaveCandidates, isValidScoreTip, saveTipBatch, TIP_BATCH_LIMIT } from '../../lib/matchday-assistant.mjs'
+import { assistantRowGroups, buildAssistantRows, getSaveCandidates, isValidScoreTip, saveTipBatch, TIP_BATCH_LIMIT } from '../../lib/matchday-assistant.mjs'
 import { fixtureStatus, sharedTipIsOpen } from '../../lib/fixture-status.mjs'
 import { groupFixturesByRound } from '../../lib/fixture-rounds.mjs'
 import { kickoffTime, shortDate } from '../../lib/format'
+import type { AssistantRow } from '../../lib/matchday-assistant.mjs'
 import type { Match } from '../../lib/types'
 import { useArchive } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
@@ -14,14 +15,14 @@ type RoundStateMap = Record<string, StringMap>
 const EMPTY_STRING_MAP: StringMap = {}
 const EMPTY_MATCHES: Match[] = []
 
-export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: number }) {
+export function MatchdayAssistant({ matches, now, expanded = false }: { matches: Match[]; now: number; expanded?: boolean }) {
   const { competition } = useAppState()
   const { data: archive, isLoading: archiveLoading, error: archiveError } = useArchive()
   const queryClient = useQueryClient()
   const rounds = useMemo(() => groupFixturesByRound(matches), [matches])
   const selectableRounds = rounds.filter((round) => round.matches.some((match) => {
     const kickoff = Date.parse(match.raw_match?.commence_time ?? '')
-    return Number.isFinite(kickoff) && !match.completed && !match.actual_score
+    return Number.isFinite(kickoff) && fixtureStatus(match, now) === 'upcoming' && sharedTipIsOpen(match.raw_match?.commence_time, now)
   }))
   const defaultRound = selectableRounds.find((round) => round.matches.some((match) =>
     fixtureStatus(match, now) === 'upcoming' && sharedTipIsOpen(match.raw_match?.commence_time, now),
@@ -43,10 +44,11 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
   const rows = buildAssistantRows(
     selectedRound?.matches ?? EMPTY_MATCHES, archive, drafts, savedOverrides, now,
   )
+  const rowGroups = assistantRowGroups(rows)
   const candidates = getSaveCandidates(rows)
   const invalidCount = rows.filter((row) => row.editable && row.changed && row.value && !isValidScoreTip(row.value)).length
   const archiveReady = !archiveError && (Boolean(archive) || !archiveLoading)
-  const savedCount = rows.filter((row) => isValidScoreTip(row.savedTip)).length
+  const savedCount = rowGroups.open.filter((row) => isValidScoreTip(row.savedTip)).length
   const deadline = rows
     .filter((row) => row.status !== 'played')
     .map((row) => row.kickoff - 5 * 60_000)
@@ -123,12 +125,75 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
     }
   }
 
+  const EditorContainer = expanded ? 'div' : 'details'
+  const EditorHeading = expanded ? 'h3' : 'summary'
+
+  const renderRow = (row: AssistantRow) => {
+    const { match } = row
+    const error = rowErrors[match.id]
+    const invalid = Boolean(row.value) && !isValidScoreTip(row.value)
+    const statusLabel = row.saved ? 'Gespeichert' : row.touched && row.value ? 'Dein Entwurf' : row.value ? 'Vorschlag' : 'Tipp fehlt'
+    const kickoff = Number.isFinite(row.kickoff)
+      ? `${shortDate(new Date(row.kickoff).toISOString())} · ${kickoffTime(match.raw_match?.commence_time)}`
+      : 'Anstoß offen'
+    return (
+      <li key={match.id} className="rounded-xl border border-line bg-surface-2 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <span className="min-w-0 flex-1 text-sm font-bold leading-snug text-fg">{match.home_disp || match.home_team} – {match.away_disp || match.away_team}</span>
+          <span className="shrink-0 text-xs font-semibold text-fg-3">{kickoff}</span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          {row.status === 'played' ? (
+            <span className="display-num min-w-20 rounded-lg border border-line bg-surface px-3 py-2 text-center text-lg font-bold text-fg">{row.value || '–'}</span>
+          ) : (
+            <label className="flex min-h-11 min-w-0 flex-1 items-center gap-2">
+              <span className="sr-only">Tipp für {match.home_team} gegen {match.away_team}</span>
+              <input
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                maxLength={5}
+                value={row.value}
+                readOnly={!row.editable || saving}
+                onChange={(event) => {
+                  setSelection({ competition, key: selectedRound.key })
+                  updateRoundMap(setDraftsByRound, { [match.id]: event.target.value })
+                  setErrorsByRound((state) => {
+                    const next = { ...state[stateKey] }
+                    delete next[match.id]
+                    return { ...state, [stateKey]: next }
+                  })
+                  setSaveMessage('')
+                }}
+                placeholder="z. B. 2:1"
+                aria-invalid={invalid}
+                className="min-h-11 w-24 rounded-lg border border-line-2 bg-surface px-3 text-center font-mono text-lg font-bold text-fg outline-none focus:border-emerald-a focus:ring-2 focus:ring-emerald-a/20 read-only:opacity-75"
+              />
+              <span className="text-xs font-semibold text-fg-3">{row.status === 'pending' ? 'Anstoß vorbei' : !row.editable ? 'Abgabe geschlossen (T-5)' : ''}</span>
+            </label>
+          )}
+          <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${row.saved ? 'border-emerald-a/30 bg-emerald-dim text-emerald-a' : 'border-line text-fg-2'}`}>
+            {row.status === 'played' ? (row.saved ? 'Gespeichert' : 'Gespielt') : statusLabel}
+          </span>
+        </div>
+        {row.suggestion && <p className="mt-2 text-xs text-fg-3">
+          Vorschlag: {row.sourceLabel}
+          {row.observedAt && <> · Datenstand {shortDate(row.observedAt)} {kickoffTime(row.observedAt)}</>}
+          {row.stale && <> · Stand möglicherweise veraltet</>}
+        </p>}
+        {invalid && row.editable && <p className="mt-2 text-xs font-semibold text-red-a">Bitte Heim:Auswärts im Format 0:0 bis 20:20 eingeben.</p>}
+        {row.status !== 'played' && !row.value && row.editable && <p className="mt-2 text-xs text-fg-3">Kein gültiger Vorschlag vorhanden. Tipp manuell eingeben.</p>}
+        {error && <p role="alert" className="mt-2 text-xs font-semibold text-red-a">{error}</p>}
+      </li>
+    )
+  }
+
   return (
-    <section className="glass mb-7 overflow-hidden" aria-labelledby="matchday-assistant-title">
-      <div className="border-b border-line bg-[linear-gradient(135deg,var(--surface),var(--surface-2))] p-4 sm:p-5">
+    <section className="analysis-section matchday-assistant" aria-labelledby="matchday-assistant-title">
+      <div className="section-heading">
         <p className="kicker">Tipps für die ganze Runde</p>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="matchday-assistant-title" className="text-lg font-semibold text-fg">Spieltag-Assistent</h2>
+          <h2 id="matchday-assistant-title" className="font-sans text-2xl font-black tracking-tight text-fg">Spieltag-Assistent</h2>
           <label className="flex min-h-11 items-center gap-2 text-sm font-semibold text-fg-2">
             <span className="sr-only">Spielwoche oder Runde auswählen</span>
             <select
@@ -145,8 +210,8 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
             </select>
           </label>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-fg-2">
-          <span className="font-semibold">{archiveReady ? `${savedCount}/${rows.length} Tipps gespeichert` : 'Gespeicherte Tipps werden geladen'}</span>
+        <div className="metric-strip mt-3">
+          <span className="font-semibold">{archiveReady ? `${savedCount}/${rowGroups.open.length} kommende Tipps gespeichert` : 'Gespeicherte Tipps werden geladen'}</span>
           {deadline
             ? <span>Nächste T-5-Frist: {shortDate(new Date(deadline).toISOString())} · {kickoffTime(new Date(deadline).toISOString())}</span>
             : <span>Keine weitere T-5-Frist in dieser Runde.</span>}
@@ -154,76 +219,23 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
         <p className="mt-2 text-xs text-fg-3">Gemeinsam · Für alle sichtbar</p>
       </div>
 
-      <details className="group">
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a sm:px-5 [&::-webkit-details-marker]:hidden">
-          <span>Tipps bearbeiten <span className="ml-1 text-sm font-semibold text-fg-3">({rows.length} Spiele)</span></span>
-          <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#193b2b] text-lg text-[#f8f7f2] transition-transform group-open:rotate-180">⌄</span>
-        </summary>
-        <div className="border-t border-line p-3 sm:p-4">
+      <EditorContainer className="surface-panel group">
+        <EditorHeading className={expanded ? 'section-heading px-4 py-3 font-bold text-fg sm:px-5' : 'flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a sm:px-5 [&::-webkit-details-marker]:hidden'}>
+          <span>Kommende Spiele tippen <span className="ml-1 text-sm font-semibold text-fg-3">({rowGroups.open.length} Spiele)</span></span>
+          {!expanded && <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#193b2b] text-lg text-[#f8f7f2] transition-transform group-open:rotate-180">⌄</span>}
+        </EditorHeading>
+        <div className="p-3 sm:p-4">
+          <p className="mb-3 text-sm text-fg-2">Trage deinen Tipp im Format 2:1 ein und bestätige unten mit „Tipps speichern“.</p>
           <ul className="space-y-2">
-            {rows.map((row) => {
-              const { match } = row
-              const error = rowErrors[match.id]
-              const invalid = Boolean(row.value) && !isValidScoreTip(row.value)
-              const statusLabel = row.saved ? 'Gespeichert' : row.touched && row.value ? 'Dein Entwurf' : row.value ? 'Vorschlag' : 'Tipp fehlt'
-              const kickoff = Number.isFinite(row.kickoff)
-                ? `${shortDate(new Date(row.kickoff).toISOString())} · ${kickoffTime(match.raw_match?.commence_time)}`
-                : 'Anstoß offen'
-              return (
-                <li key={match.id} className="rounded-xl border border-line bg-surface-2 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <span className="min-w-0 flex-1 text-sm font-bold leading-snug text-fg">{match.home_disp || match.home_team} – {match.away_disp || match.away_team}</span>
-                    <span className="shrink-0 text-xs font-semibold text-fg-3">{kickoff}</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    {row.status === 'played' ? (
-                      <span className="display-num min-w-20 rounded-lg border border-line bg-surface px-3 py-2 text-center text-lg font-bold text-fg">{row.value || '–'}</span>
-                    ) : (
-                      <label className="flex min-h-11 min-w-0 flex-1 items-center gap-2">
-                        <span className="sr-only">Tipp für {match.home_team} gegen {match.away_team}</span>
-                        <input
-                          type="text"
-                          inputMode="text"
-                          autoComplete="off"
-                          maxLength={5}
-                          value={row.value}
-                          readOnly={!row.editable || saving}
-                          onChange={(event) => {
-                            setSelection({ competition, key: selectedRound.key })
-                            updateRoundMap(setDraftsByRound, { [match.id]: event.target.value })
-                            setErrorsByRound((state) => {
-                              const next = { ...state[stateKey] }
-                              delete next[match.id]
-                              return { ...state, [stateKey]: next }
-                            })
-                            setSaveMessage('')
-                          }}
-                          placeholder="z. B. 2:1"
-                          aria-invalid={invalid}
-                          className="min-h-11 w-24 rounded-lg border border-line-2 bg-surface px-3 text-center font-mono text-lg font-bold text-fg outline-none focus:border-emerald-a focus:ring-2 focus:ring-emerald-a/20 read-only:opacity-75"
-                        />
-                        <span className="text-xs font-semibold text-fg-3">{row.status === 'pending' ? 'Anstoß vorbei' : !row.editable ? 'Abgabe geschlossen (T-5)' : ''}</span>
-                      </label>
-                    )}
-                    <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${row.saved ? 'border-emerald-a/30 bg-emerald-dim text-emerald-a' : 'border-line text-fg-2'}`}>
-                      {row.status === 'played' ? (row.saved ? 'Gespeichert' : 'Gespielt') : statusLabel}
-                    </span>
-                  </div>
-                  {row.suggestion && <p className="mt-2 text-xs text-fg-3">
-                    Vorschlag: {row.sourceLabel}
-                    {row.observedAt && <> · Datenstand {shortDate(row.observedAt)} {kickoffTime(row.observedAt)}</>}
-                    {row.stale && <> · Stand möglicherweise veraltet</>}
-                  </p>}
-                  {invalid && row.editable && <p className="mt-2 text-xs font-semibold text-red-a">Bitte Heim:Auswärts im Format 0:0 bis 20:20 eingeben.</p>}
-                  {row.status !== 'played' && !row.value && row.editable && <p className="mt-2 text-xs text-fg-3">Kein gültiger Vorschlag vorhanden. Tipp manuell eingeben.</p>}
-                  {error && <p role="alert" className="mt-2 text-xs font-semibold text-red-a">{error}</p>}
-                </li>
-              )
-            })}
+            {rowGroups.open.map(renderRow)}
           </ul>
+          {rowGroups.closed.length > 0 && <details className="mt-4 border-t border-line pt-3">
+            <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-fg-2">Bereits geschlossen ({rowGroups.closed.length} Spiele)</summary>
+            <ul className="mt-2 space-y-2">{rowGroups.closed.map(renderRow)}</ul>
+          </details>}
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <button type="button" onClick={saveTips} disabled={saving || !archiveReady || !candidates.length} className="min-h-11 rounded-xl bg-emerald-a px-4 py-2 text-sm font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={saveTips} disabled={saving || !archiveReady || !candidates.length} className="min-h-11 rounded-xl bg-emerald-a px-4 py-2 text-sm font-bold text-on-action transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
               {saving ? 'Speichert …' : candidates.length ? `${Math.min(candidates.length, TIP_BATCH_LIMIT)} Tipp${Math.min(candidates.length, TIP_BATCH_LIMIT) === 1 ? '' : 's'} speichern` : 'Keine gültigen Änderungen'}
             </button>
             <button type="button" onClick={copyCard} className="min-h-11 rounded-xl border border-emerald-a/40 bg-emerald-dim px-4 py-2 text-sm font-bold text-emerald-a">Tippkarte kopieren</button>
@@ -233,7 +245,7 @@ export function MatchdayAssistant({ matches, now }: { matches: Match[]; now: num
           {saveMessage && <p role="status" className="mt-2 text-sm font-semibold text-fg-2">{saveMessage}</p>}
           {copyMessage && <p role="status" className="mt-2 text-sm text-fg-2">{copyMessage}</p>}
         </div>
-      </details>
+      </EditorContainer>
     </section>
   )
 }

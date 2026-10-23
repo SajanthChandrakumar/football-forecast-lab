@@ -95,19 +95,19 @@ export function GroupsView() {
       {archiveLoading && <CardGridSkeleton count={6} cols="md:grid-cols-2 xl:grid-cols-3" />}
       {!archiveLoading && archiveQuery.error && <QueryState title="Gruppendaten konnten nicht geladen werden" message="Die gespeicherten Spielergebnisse sind derzeit nicht erreichbar." onRetry={() => void archiveQuery.refetch()} />}
 
-      {!archiveLoading && !archiveQuery.error && <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {Object.entries(WC_GROUPS).map(([group, teams]) => <GlassCard key={group} className="min-w-0 !p-4">
-          <h2 className="mb-1 text-base font-medium text-fg">Gruppe {group}</h2>
+      {!archiveLoading && !archiveQuery.error && <div className="analysis-section grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Object.entries(WC_GROUPS).map(([group, teams]) => <GlassCard key={group} className="surface-panel min-w-0 !p-4">
+          <h2 className="section-heading mb-3 text-base font-semibold text-fg">Gruppe {group}</h2>
           <div className="min-w-0 overflow-x-auto rounded-lg border border-line" role="region" aria-label={`Tabelle Gruppe ${group}`} tabIndex={0}>
             <table className="w-full min-w-[440px] text-sm">
               <caption className="sr-only">Gruppe {group}: Spiele, Siege, Unentschieden, Niederlagen, Tore, Tordifferenz und Punkte</caption>
-              <thead><tr className="border-b border-line bg-surface-2 text-xs font-medium text-fg-2">
+              <thead><tr className="border-b border-line bg-surface-2 text-xs font-bold text-fg">
                 <th scope="col" className="px-3 py-2.5 text-left">Team</th><th scope="col" className="px-2 py-2.5 text-right">Sp.</th><th scope="col" className="px-2 py-2.5 text-right">S</th><th scope="col" className="px-2 py-2.5 text-right">U</th><th scope="col" className="px-2 py-2.5 text-right">N</th><th scope="col" className="px-2 py-2.5 text-right">Tore</th><th scope="col" className="px-2 py-2.5 text-right">TD</th><th scope="col" className="px-3 py-2.5 text-right">Pkt</th>
               </tr></thead>
-              <tbody>{sortRows(teams).map((row) => <tr key={row.team} className="border-t border-line">
-                <th scope="row" className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-fg"><span className="inline-flex items-center gap-2"><TeamLogo name={row.team} />{row.team}</span></th>
+              <tbody>{sortRows(teams).map((row, rank) => <tr key={row.team} className="border-t border-line">
+                <th scope="row" className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-fg"><span className="inline-flex items-center gap-2"><span className="ranking-position" aria-label={`Platz ${rank + 1}`}>#{rank + 1}</span><TeamLogo name={row.team} />{row.team}</span></th>
                 <td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.p}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.w}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.d}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.l}</td>
-                <td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.gf}:{row.ga}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.gf - row.ga > 0 ? '+' : ''}{row.gf - row.ga}</td><td className="px-3 py-2.5 text-right font-medium tabular-nums text-fg">{row.w * 3 + row.d}</td>
+                <td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.gf}:{row.ga}</td><td className="px-2 py-2.5 text-right tabular-nums text-fg-2">{row.gf - row.ga > 0 ? '+' : ''}{row.gf - row.ga}</td><td className="ranking-points px-3 py-2.5 text-right font-bold tabular-nums text-fg">{row.w * 3 + row.d}</td>
               </tr>)}</tbody>
             </table>
           </div>
@@ -125,14 +125,14 @@ function UclStandings({ premierLeague, rows, valid, isLoading, error, onRetry }:
       {isLoading && <p className="text-sm text-fg-2">Ligatabelle wird geladen…</p>}
       {!isLoading && Boolean(error) && <QueryState title="Ligatabelle konnte nicht geladen werden" message="Die Tabelle ist derzeit nicht erreichbar." onRetry={onRetry} />}
       {!isLoading && !error && !valid && <p className="rounded-xl border border-line bg-surface px-5 py-6 text-sm text-fg-2">Die Ligatabelle ist derzeit nicht vollständig verfügbar.</p>}
-      {!isLoading && !error && valid && <GlassCard className="!p-0">
+      {!isLoading && !error && valid && <GlassCard className="surface-panel !p-0">
         <p className="border-b border-line px-5 py-3 text-xs leading-relaxed text-fg-2">Sp. Spiele · S Siege · U Unentschieden · N Niederlagen · TD Tordifferenz · Pkt Punkte</p>
         <div className="min-w-0 overflow-x-auto" role="region" aria-label={premierLeague ? "Premier-League-Tabelle" : "UCL-Ligatabelle"} tabIndex={0}>
           <table className="w-full min-w-[600px] text-sm">
-            <thead><tr className="text-xs font-medium text-fg-2"><th scope="col" className="px-5 py-3 text-left">Pl.</th><th scope="col" className="px-3 py-3 text-left">Team</th><th scope="col" className="px-3 py-3 text-right">Sp.</th><th scope="col" className="px-3 py-3 text-right">S</th><th scope="col" className="px-3 py-3 text-right">U</th><th scope="col" className="px-3 py-3 text-right">N</th><th scope="col" className="px-3 py-3 text-right">TD</th><th scope="col" className="px-5 py-3 text-right">Pkt</th></tr></thead>
+            <thead><tr className="border-b border-line bg-surface-2 text-xs font-bold text-fg"><th scope="col" className="px-5 py-3 text-left">Pl.</th><th scope="col" className="px-3 py-3 text-left">Team</th><th scope="col" className="px-3 py-3 text-right">Sp.</th><th scope="col" className="px-3 py-3 text-right">S</th><th scope="col" className="px-3 py-3 text-right">U</th><th scope="col" className="px-3 py-3 text-right">N</th><th scope="col" className="px-3 py-3 text-right">TD</th><th scope="col" className="px-5 py-3 text-right">Pkt</th></tr></thead>
             <tbody>{sorted.map((row, index) => <tr key={row.team} className="border-t border-line">
-              <td className="px-5 py-3 tabular-nums text-fg-2">{row.pos ?? index + 1}</td><th scope="row" className="px-3 py-3 text-left font-medium text-fg"><span className="inline-flex items-center gap-2"><TeamLogo name={row.team} src={row.logo} />{row.team}</span></th>
-              <td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.p ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.w ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.d ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.l ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.gd ?? '–'}</td><td className="px-5 py-3 text-right font-medium tabular-nums text-fg">{row.pts ?? '–'}</td>
+              <td className="ranking-position px-5 py-3 font-bold tabular-nums text-fg">{row.pos ?? index + 1}</td><th scope="row" className="px-3 py-3 text-left font-medium text-fg"><span className="inline-flex items-center gap-2"><TeamLogo name={row.team} src={row.logo} />{row.team}</span></th>
+              <td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.p ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.w ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.d ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.l ?? '–'}</td><td className="px-3 py-3 text-right tabular-nums text-fg-2">{row.gd ?? '–'}</td><td className="ranking-points px-5 py-3 text-right font-bold tabular-nums text-fg">{row.pts ?? '–'}</td>
             </tr>)}</tbody>
           </table>
         </div>

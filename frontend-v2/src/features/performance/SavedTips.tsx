@@ -32,7 +32,7 @@ export function SavedTips({ archive, now }: { archive: Archive; now: number }) {
           })}
         </div>
         {pending.length > limit && <button type="button" onClick={() => setLimit(value => value + 12)} className="mt-3 min-h-11 rounded-lg border border-line px-3 text-sm text-fg-2">Weitere gespeicherte Tipps anzeigen ({pending.length - limit})</button>}
-      </> : <p className="text-sm text-fg-2">Noch keine gespeicherten Tipps für anstehende Spiele. Abgeschlossene Tipps findest du unten bei den Ergebnissen.</p>}
+      </> : <p className="text-sm text-fg-2">Noch keine gespeicherten Tipps für anstehende Spiele. Abgeschlossene Tipps findest du unter „Punkte & Verlauf“.</p>}
     </GlassCard>
   </section>
 }

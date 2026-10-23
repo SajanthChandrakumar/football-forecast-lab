@@ -8,7 +8,7 @@ test('overview and detail explain source age and missing lineup evidence', async
     elo: { status: 'fresh', source: 'clubelo', observed_at: NOW.toISOString() },
   }
   await page.goto('/#/')
-  const row = page.locator('article.fixture-row').filter({ hasText: match.home_team }).first()
+  const row = page.locator('article.match-card').filter({ hasText: match.home_team }).first()
   const summary = row.locator('summary').filter({ hasText: /^Datenlage:/ })
   await expect(summary).toContainText('Älterer Datenstand')
   await summary.click()

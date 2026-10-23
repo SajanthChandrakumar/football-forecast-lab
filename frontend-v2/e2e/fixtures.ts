@@ -128,8 +128,6 @@ export const test = base.extend<{ api: Awaited<ReturnType<typeof installApi>> }>
 export { expect }
 
 export async function chooseCompetition(page: Page, competition: CompetitionId) {
-  const mobile = (page.viewportSize()?.width ?? 1440) < 1024
-  if (mobile) await page.getByRole('button', { name: 'Mehr', exact: true }).click()
-  await page.getByLabel('Wettbewerb', { exact: true }).filter({ visible: true }).selectOption(competition)
-  if (mobile) await page.getByRole('button', { name: 'Menü schliessen' }).click()
+  if (await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Menü schliessen' }).click()
+  await page.getByRole('banner').getByRole('combobox', { name: 'Wettbewerb', exact: true }).selectOption(competition)
 }

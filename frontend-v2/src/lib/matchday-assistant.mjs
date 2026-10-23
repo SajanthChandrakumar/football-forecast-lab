@@ -77,3 +77,7 @@ export async function saveTipBatch(items, save) {
 
   return { results, remaining: items.length - batch.length }
 }
+
+export function assistantRowGroups(rows) {
+  return { open: rows.filter(row => row.editable), closed: rows.filter(row => !row.editable) }
+}

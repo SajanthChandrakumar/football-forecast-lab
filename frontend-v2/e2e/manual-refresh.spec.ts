@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 
 async function settings(page: Page) {
   if ((page.viewportSize()?.width ?? 1440) < 1024) await page.getByRole('button', { name: 'Mehr', exact: true }).click()
-  else await page.getByText('Einstellungen', { exact: true }).click()
+  else await page.getByRole('button', { name: 'Einstellungen', exact: true }).click()
 }
 const key = (page: Page) => page.getByLabel('Admin-Schlüssel', { exact: true }).filter({ visible: true })
 const button = (page: Page) => page.getByRole('button', { name: 'Aktuelle API-Daten holen', exact: true }).filter({ visible: true })
@@ -39,7 +39,7 @@ test('admin refresh authenticates, clears the key, updates data and reports part
   await page.screenshot({ path: testInfo.outputPath('manual-refresh.png') })
   expect(calls).toEqual(['Bearer wrong', 'Bearer test-admin-key'])
   expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain('test-admin-key')
-  if ((page.viewportSize()?.width ?? 1440) < 1024) await page.getByRole('button', { name: 'Menü schliessen' }).click()
+  await page.getByRole('button', { name: 'Menü schliessen' }).click()
   await expect(page.getByText('3:1', { exact: true }).first()).toBeVisible()
 })
 
@@ -70,10 +70,10 @@ test('a pending API refresh stays in the requested competition', async ({ page, 
   await key(page).fill('test-admin-key')
   await button(page).click()
   await expect.poll(() => requested).toBe('ucl2026')
-  await page.getByLabel('Wettbewerb', { exact: true }).filter({ visible: true }).selectOption('epl2026')
+  await page.getByRole('dialog').getByRole('combobox', { name: 'Wettbewerb', exact: true }).selectOption('epl2026')
   release()
   await expect(page.getByText('Teilweise aktualisiert · UCL 2026/27', { exact: true }).filter({ visible: true })).toBeVisible()
-  await expect(page.getByLabel('Wettbewerb', { exact: true }).filter({ visible: true })).toHaveValue('epl2026')
+  await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Wettbewerb', exact: true })).toHaveValue('epl2026')
 })
 
 
@@ -82,7 +82,7 @@ test('changing competition clears unsent admin credentials', async ({ page, api:
   await settings(page)
   await key(page).fill('unsent-admin-key')
   await expect(button(page)).toBeEnabled()
-  const competition = page.getByLabel('Wettbewerb', { exact: true }).filter({ visible: true })
+  const competition = page.getByRole('dialog').getByRole('combobox', { name: 'Wettbewerb', exact: true })
   await competition.selectOption('wc2026')
   await expect(button(page)).toHaveCount(0)
   await competition.selectOption('epl2026')

@@ -1,8 +1,6 @@
 import { competitionLabel, FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
-import { NavLink } from 'react-router-dom'
 import { useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
-import { cn } from '../../lib/util'
 import { ManualDataRefresh } from '../shared/ManualDataRefresh'
 
 export const PRIMARY_NAV = [
@@ -35,8 +33,8 @@ export function Brand() {
 export function CompetitionSelect() {
   const { competition, setCompetition, competitions } = useAppState()
   const options = competitions.length ? competitions : FALLBACK_COMPETITIONS
-  return <label className="competition-select block text-[9px] font-bold uppercase tracking-[0.14em] text-fg-3">Wettbewerb
-    <select aria-label="Wettbewerb" value={competition} onChange={e => setCompetition(e.target.value)} className="mt-2.5 min-h-11 w-full rounded border border-line-2 bg-surface px-3 text-xs font-semibold normal-case tracking-normal text-fg">
+  return <label className="competition-select block text-[10px] font-bold uppercase tracking-[0.12em] text-fg-3">Wettbewerb
+    <select aria-label="Wettbewerb" value={competition} onChange={e => setCompetition(e.target.value)} className="mt-1 min-h-11 w-full rounded border border-line-2 bg-surface px-3 text-sm font-semibold normal-case tracking-normal text-fg">
       {options.map(item => <option key={item.id} value={item.id}>{item.id === 'wc2026' ? 'WM 2026' : item.short_name}</option>)}
     </select>
   </label>
@@ -51,22 +49,4 @@ export function Settings() {
     {refresh.isError && <p role="alert" className="px-3 text-xs text-red-a">Daten konnten nicht neu geladen werden. Bitte erneut versuchen.</p>}
     {refresh.isSuccess && <p role="status" className="px-3 text-xs text-fg-3">Gespeicherte Daten für {competitionLabel(refresh.data.competition, competitions)} geladen.</p>}
   </div>
-}
-export function Sidebar() {
-  return <aside className="app-sidebar sticky top-0 hidden h-dvh shrink-0 flex-col lg:flex">
-    <div className="flex h-[85px] shrink-0 items-center px-6"><Brand /></div>
-    <div className="min-h-0 flex-1 overflow-y-auto px-4">
-      <div className="border-y border-[#304334] px-1 py-6"><CompetitionSelect /></div>
-      <nav aria-label="Hauptnavigation" className="space-y-1 pb-6 pt-5">
-        <p className="px-3 pb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#7f9885]">Spieltag</p>
-        {PRIMARY_NAV.map(({ to, label, icon }) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => cn('side-nav', isActive && 'active')}><NavIcon name={icon} />{label}</NavLink>)}
-        <p className="px-3 pb-2 pt-7 text-[9px] font-bold uppercase tracking-[0.15em] text-[#7f9885]">Analysen</p>
-        {MORE_NAV.map(({ to, label, icon }) => <NavLink key={to} to={to} className={({ isActive }) => cn('side-nav', isActive && 'active')}><NavIcon name={icon} />{label}</NavLink>)}
-      </nav>
-    </div>
-    <div className="max-h-[70dvh] shrink-0 overflow-y-auto border-t border-[#304334] p-4">
-      <details><summary className="min-h-11 px-3 py-3 text-xs font-medium text-[#b9c7ba]">Einstellungen</summary><Settings /></details>
-      <p className="px-3 pb-2 pt-5 text-[9px] leading-relaxed text-[#7f9885]">Football Forecast Lab<br />Von Sajanth Chandrakumar</p>
-    </div>
-  </aside>
 }

@@ -31,3 +31,5 @@ export function saveTipBatch<T>(
   items: T[],
   save: (item: T) => Promise<unknown>,
 ): Promise<{ results: { item: T; ok: true }[] | { item: T; ok: false; error: string }[]; remaining: number }>
+
+export function assistantRowGroups(rows: AssistantRow[]): { open: AssistantRow[]; closed: AssistantRow[] }

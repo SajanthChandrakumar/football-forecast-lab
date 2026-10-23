@@ -10,10 +10,13 @@ import { FormBadges, TeamLogo } from '../../components/shared/Badges'
 import { MatchHintCard } from '../../components/shared/MatchHintCard'
 import { MatchDataStatus } from '../../components/shared/MatchDataStatus'
 import { SharedTipEditor } from '../../components/shared/SharedTipEditor'
+import { OutcomeBar } from '../../components/shared/OutcomeBar'
 import { PageTransition } from '../../components/shared/PageTransition'
 import { QueryState } from '../../components/shared/QueryState'
 import { ChartSkeleton, Skeleton } from '../../components/shared/Skeleton'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
+import { ViewPanel, ViewTabs } from '../../components/shared/ViewTabs'
+import { useView } from '../../hooks/useView'
 import { OddsHistory } from './OddsHistory'
 import { lineupState } from '../../lib/match-intelligence.mjs'
 import { lineupRows } from '../../lib/lineup-layout.mjs'
@@ -53,6 +56,26 @@ const EMPTY_POOL_FORM: PoolForm = {
   tipRows: [{ tip: '', count: '' }],
 }
 
+const MATCH_VIEWS = [
+  { value: 'overview', label: 'Überblick' },
+  { value: 'form', label: 'Form' },
+  { value: 'lineups', label: 'Aufstellungen' },
+  { value: 'market', label: 'Markt' },
+  { value: 'model', label: 'Modelldaten' },
+] as const
+
+type MatchView = typeof MATCH_VIEWS[number]['value']
+
+function outcomeSourceLabel(sourceMode?: string | null, source?: string | null) {
+  if (sourceMode === 'odds+elo') return 'Buchmacherquoten + Elo-Modell'
+  if (sourceMode === 'odds-only') return 'Buchmacherquoten'
+  if (sourceMode === 'elo-only') return 'Elo-Modell'
+  if (source === 'odds_api') return 'The Odds API'
+  if (source === 'clubelo') return 'ClubElo'
+  if (source === 'api_football') return 'API-Football'
+  return 'Gespeicherte Modellwerte'
+}
+
 function stageLabel(stage?: string) {
   if (!stage) return 'Spiel'
   return stageLabels[stage] ?? stage.replaceAll('_', ' ')
@@ -74,7 +97,7 @@ function requestErrorMessage(error: unknown) {
   return 'Der Kontext konnte nicht gespeichert werden. Bitte prüfe die Eingaben und versuche es erneut.'
 }
 
-function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamForm; kickoff?: string }) {
+function TeamFormHistory({ team, form, kickoff, showHistoricalLineups = true }: { team: string; form?: TeamForm; kickoff?: string; showHistoricalLineups?: boolean }) {
   if (!form?.status && !form?.matches?.length) return null
   const items = form?.matches?.slice(0, 10) ?? []
   const load = matchLoadSummary(form, kickoff)
@@ -132,7 +155,7 @@ function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamFor
       </div>
       {items.length ? (
         <ul className="mt-3 space-y-2">
-          {items.map((item) => <HistoricalMatchRow key={item.fixture_id} item={item} />)}
+          {items.map((item) => <HistoricalMatchRow key={item.fixture_id} item={item} showLineup={showHistoricalLineups} />)}
         </ul>
       ) : (
         <p className="mt-3 text-sm font-semibold text-fg-2">Form nicht verfügbar</p>
@@ -141,9 +164,9 @@ function TeamFormHistory({ team, form, kickoff }: { team: string; form?: TeamFor
   )
 }
 
-function HistoricalMatchRow({ item }: { item: TeamFormMatch }) {
+function HistoricalMatchRow({ item, showLineup = true }: { item: TeamFormMatch; showLineup?: boolean }) {
   const [open, setOpen] = useState(false)
-  const history = useMatchHistory(item.fixture_id, open)
+  const history = useMatchHistory(item.fixture_id, open && showLineup)
   const lineups = Object.entries(history.data?.lineups ?? {})
   const hasCompleteLineups = lineups.length >= 2 && lineups.every(([, lineup]) => lineup.starters.length > 0)
   return (
@@ -156,9 +179,9 @@ function HistoricalMatchRow({ item }: { item: TeamFormMatch }) {
         <span>{item.competition_name} · {item.venue === 'home' ? 'Heim' : 'Auswärts'}</span>
         <span>{shortDate(item.played_at)}</span>
       </div>
-      <button type="button" onClick={() => setOpen((value) => !value)} className="mt-2 min-h-9 text-xs font-bold text-emerald-a underline underline-offset-4">
+      {showLineup && <button type="button" onClick={() => setOpen((value) => !value)} className="mt-2 min-h-9 text-xs font-bold text-emerald-a underline underline-offset-4">
         {open ? 'Aufstellung schließen' : 'Aufstellung ansehen'}
-      </button>
+      </button>}
       {open && (
         <div className="mt-3 border-t border-line pt-3">
           {history.isLoading ? <p className="text-xs text-fg-2">Aufstellung wird geladen…</p> : history.error ? (
@@ -233,7 +256,8 @@ export function DetailView() {
   const isPremierLeague = competition === 'epl2026'
   const [showOddsHistory, setShowOddsHistory] = useState(false)
   const location = useLocation()
-  const backToGames = () => location.state?.fromFixtureList ? navigate(-1) : navigate('/')
+  const [view, setView] = useView<MatchView>(MATCH_VIEWS.map((item) => item.value), 'overview')
+  const backToGames = () => location.state?.fromFixtureList ? navigate(-((location.state.viewDepth ?? 0) + 1)) : navigate('/')
   const matchQuery = useMatches()
   const { data: matches, isLoading: matchesLoading, error: matchesError, refetch: retryMatches } = matchQuery
   const archive = useArchive()
@@ -314,14 +338,12 @@ export function DetailView() {
   const fixtureState = fixtureStatus(match, now)
   const isUpcoming = fixtureState === 'upcoming'
   const canCopy = isUpcoming && Boolean(activeTip)
-  const probabilities = predict.data?.probabilities ?? match.probabilities
   const hasBookmakerOdds = Boolean(match.odds && [match.odds.home, match.odds.draw, match.odds.away].every((price) => Number.isFinite(price) && price > 1))
-  const probs = hasBookmakerOdds
-    ? computeImpliedProbs(match.odds)
-    : (probabilities ?? { home: 0, draw: 0, away: 0 })
-  const hasOutcomeProbabilities = probs.home + probs.draw + probs.away > 0
-  const quoteSource = hasBookmakerOdds ? 'Buchmacherquoten' : (probabilities ? 'Elo-Modell, keine Wettquote' : 'Keine Quoten oder Modellwerte')
-  const quoteObservedAt = hasBookmakerOdds ? match.odds_observed_at : (predict.data?.observed_at ?? match.observed_at)
+  const displayedPrediction = predict.data?.probabilities != null || predictionTip != null ? predict.data! : match
+  const displayedProbabilities = displayedPrediction.probabilities ?? null
+  const outcomeSource = outcomeSourceLabel(displayedPrediction.source_mode, displayedPrediction.source)
+  const outcomeObservedAt = displayedPrediction.observed_at ?? (displayedPrediction === match ? match.odds_observed_at : null)
+  const marketProbabilities = hasBookmakerOdds ? computeImpliedProbs(match.odds) : null
   const tipInsights = rankedTipInsights(predict.data?.xp_tips, predict.data?.matrix)
   const recommendedInsight = tipInsights.find(item => item.tip === activeTip)
   const expectedPoints = predictionTip != null ? (recommendedInsight?.expectedPoints ?? predict.data?.max_xp) : match.max_xp
@@ -374,38 +396,37 @@ export function DetailView() {
 
   return (
     <PageTransition>
-      <button type="button" onClick={backToGames} className="mb-2 min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
+      <div className="detail-actions">
+        <button type="button" onClick={backToGames} className="min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
+        <button type="button" aria-label="Diese Teams vergleichen" onClick={() => { setSelectedTeams([match.home_team, match.away_team]); navigate('/team-form') }} className="min-h-11 text-xs font-semibold text-blue-a hover:underline">Teams vergleichen</button>
+      </div>
       {matchesError && <div className="mb-4"><QueryState title="Spiele konnten nicht aktualisiert werden" message="Die zuletzt geladenen Spielinformationen werden angezeigt. Prüfe die Verbindung und lade die Liste erneut." onRetry={() => { void retryMatches() }} /></div>}
 
-      <header className="match-heading">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-fg-2">
-          <span>{stage}{match.is_ko_phase ? ' · K.-o.-Phase' : ''}</span>
-          <span aria-hidden="true">·</span>
-          <span>{kickoffLabel}</span>
-          <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium">{matchStatusLabel(match, now)}</span>
-        </div>
-        <h1 className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-xl font-semibold tracking-tight text-fg sm:gap-5 sm:text-3xl">
-          <span className="flex min-w-0 items-center gap-2"><TeamLogo name={match.home_team} src={match.home_logo} className="h-6 w-6 sm:h-8 sm:w-8" /><span className="min-w-0 break-words">{match.home_team}</span></span>
+      <header className="page-header match-heading">
+        <p className="page-description">{stage}{match.is_ko_phase ? ' · K.-o.-Phase' : ''} · {kickoffLabel} · {matchStatusLabel(match, now)}</p>
+        <h1 className="page-title mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-xl tracking-tight sm:gap-5 sm:text-3xl">
+          <span className="flex min-w-0 items-center gap-2"><TeamLogo name={match.home_team} src={match.home_logo} className="h-7 w-7 sm:h-9 sm:w-9" /><span className="min-w-0 break-words">{match.home_team}</span></span>
           <span className="text-xs font-medium text-fg-3 sm:text-sm">gegen</span>
-          <span className="flex min-w-0 items-center justify-end gap-2 text-right"><span className="min-w-0 break-words">{match.away_team}</span><TeamLogo name={match.away_team} src={match.away_logo} className="h-6 w-6 sm:h-8 sm:w-8" /></span>
+          <span className="flex min-w-0 items-center justify-end gap-2 text-right"><span className="min-w-0 break-words">{match.away_team}</span><TeamLogo name={match.away_team} src={match.away_logo} className="h-7 w-7 sm:h-9 sm:w-9" /></span>
         </h1>
-        <button type="button" onClick={() => { setSelectedTeams([match.home_team, match.away_team]); navigate('/team-form') }} className="mt-2 min-h-11 text-sm font-semibold text-blue-a hover:underline">
-          Diese Teams vergleichen
-        </button>
       </header>
 
-      <section aria-labelledby="recommendation-title" className="recommendation-panel">
-        <div className="recommendation-grid">
-          <div className="recommendation-main">
-            <div className="recommendation-label"><h2 id="recommendation-title" aria-label="Empfohlener Ergebnistipp">Modelltipp</h2><MatchDataStatus match={match} prediction={predictionTip != null ? predict.data : undefined} now={now} badge /></div>
-            <div className="recommendation-scoreline">
-              <p className="recommendation-score">{activeTip ?? '–'}</p>
-              <dl className="recommendation-metrics">
-                <div><dt>Ø Punkte</dt><dd title={expectedPoints == null ? 'Nicht verfügbar' : undefined}>{expectedPoints != null && Number.isFinite(expectedPoints) ? expectedPoints.toFixed(2) : '–'}</dd></div>
-                <div><dt>Exakter Treffer</dt><dd title={recommendedInsight?.exactChance == null ? 'Nicht verfügbar' : undefined}>{recommendedInsight?.exactChance != null ? pct(recommendedInsight.exactChance) : '–'}</dd></div>
-              </dl>
+      <ViewTabs id="match-analysis" label="Spielanalyse" items={MATCH_VIEWS} value={view} onChange={setView} />
+
+      <ViewPanel id="match-analysis" value="overview" active={view}>
+        <div className="match-grid">
+          <section className="match-card match-card-recommendation" aria-labelledby="recommendation-title">
+            <div className="section-heading">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Empfehlung</p>
+                <h2 id="recommendation-title" className="mt-1 text-lg font-bold text-fg" aria-label="Empfohlener Ergebnistipp">Modelltipp</h2>
+              </div>
+              <MatchDataStatus match={match} prediction={predictionTip != null ? predict.data : undefined} now={now} badge />
             </div>
-            <button type="button" onClick={() => { void copyTip() }} disabled={!canCopy} className="copy-tip-button">Tipp kopieren <span aria-hidden="true">↗</span></button>
+            <div className="mt-3 flex items-center justify-between gap-4">
+              <p className="display-num text-4xl text-fg">{activeTip ?? '–'}</p>
+              <button type="button" onClick={() => { void copyTip() }} disabled={!canCopy} className="copy-tip-button max-w-44">Tipp kopieren <span aria-hidden="true">↗</span></button>
+            </div>
             {copyStatus && <p role="status" className="mt-2 text-xs text-fg-2">{copyStatus}</p>}
             {predict.isPending && <p role="status" className="mt-3 text-xs text-fg-3">Die Spielanalyse wird aktualisiert. Der vorhandene Spieltipp bleibt sichtbar.</p>}
             {predict.isError && <div className="mt-3 rounded-lg border border-line bg-surface-2 p-3 text-sm text-fg-2" role="alert">
@@ -413,208 +434,172 @@ export function DetailView() {
               {predictionInput && <button type="button" onClick={() => predict.mutate(predictionInput)} className="mt-2 min-h-11 font-semibold text-blue-a underline">Analyse erneut laden</button>}
             </div>}
             {predict.isSuccess && !predict.data?.model_tip && !predict.data?.top_tip && !activeTip && <p className="mt-3 text-sm text-fg-2">Für dieses Spiel ist keine Ergebnismitteilung verfügbar.</p>}
-          </div>
+          </section>
 
-          <div className="space-y-4">
+          <section className="match-card match-card-tip" aria-label="Gemeinsamer Spieltipp">
             {archive.isLoading && <p role="status" className="rounded-lg border border-line p-4 text-sm text-fg-2">Gespeicherte gemeinsame Tipps werden geladen …</p>}
             {archive.error && <div role="alert" className="rounded-lg border border-line p-4 text-sm text-fg-2">
-              <h3 className="font-semibold text-fg">Gemeinsame Tipps konnten nicht geladen werden</h3>
+              <h2 className="font-semibold text-fg">Gemeinsame Tipps konnten nicht geladen werden</h2>
               <p className="mt-1">Lade die gespeicherten Tipps erneut, bevor du einen Tipp abgibst.</p>
               <button type="button" onClick={() => { void archive.refetch() }} disabled={archive.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Tipps erneut laden</button>
             </div>}
             {archive.data && <SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={archive.data[match.id]?.prediction?.user_tip} now={now} unavailableReason={archive.error ? 'Tipps sind gerade nicht erreichbar. Deine Eingabe bleibt erhalten.' : undefined} />}
-          </div>
+          </section>
         </div>
 
-        <details className="info-disclosure recommendation-info">
-          <summary>Wie wird der Tipp gewählt?</summary>
-          <div className="info-content">
-            <p>Das Modell wählt den Ergebnistipp mit den höchsten erwarteten Tippspielpunkten. Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Die Chance für den exakten Treffer ist eine separate Angabe. Torwerte beschreiben einen Modellschnitt und sind kein garantiertes Ergebnis.</p>
-            <p className="mt-2">Kopieren überträgt den Vorschlag nur in die Zwischenablage. Speichern legt einen gemeinsamen Tipp für das Spiel ab: nicht nutzergetrennt und für alle sichtbar. Die Abgabe schließt fünf Minuten vor Anpfiff.</p>
-          </div>
-        </details>
-      </section>
-      <MatchDataStatus match={match} prediction={predictionTip != null ? predict.data : undefined} now={now} />
-
-      {missing.length > 0 && (
-        <section className="mb-5 rounded-xl border border-line bg-surface p-4" aria-labelledby="lineup-title">
-          <h2 id="lineup-title" className="text-base font-semibold text-fg">Fehlende Spieler in der Aufstellung</h2>
-          {missing.map(([team, value]) => <p key={team} className="mt-2 text-sm text-fg-2"><b className="text-fg">{team}:</b> {value.missing.join(', ')}</p>)}
-        </section>
-      )}
-
-      <section className="mb-5 rounded-xl border border-line bg-surface" aria-labelledby="analysis-title">
-        <div className="border-b border-line px-5 py-4">
-          <h2 id="analysis-title" className="text-base font-semibold text-fg">Spielanalyse</h2>
+        <div className="match-grid analysis-section">
+          <section className="surface-panel" aria-labelledby="outcome-title">
+            <div className="section-heading">
+              <div><h2 id="outcome-title" className="text-base font-bold text-fg">Sieg, Remis, Niederlage</h2><p className="mt-1 text-xs text-fg-3">Einschätzung für den Spielausgang</p></div>
+            </div>
+            <OutcomeBar probabilities={displayedProbabilities} homeTeam={match.home_team} awayTeam={match.away_team} sourceLabel={outcomeSource} observedAt={outcomeObservedAt} compact />
+          </section>
+          <MatchDataStatus match={match} prediction={predictionTip != null ? predict.data : undefined} now={now} />
         </div>
-        <div className="grid lg:grid-cols-2">
-          <div className="p-5 lg:border-r lg:border-line">
-            <h3 className="text-sm font-semibold text-fg">Wer gewinnt?</h3>
-            <p className="mt-1 text-xs text-fg-3">Sieg / Remis / Niederlage</p>
-            {hasOutcomeProbabilities ? (
-              <>
-                <div className="mt-5 flex h-4 overflow-hidden rounded-full bg-surface-2" role="img" aria-label={`${match.home_team} Sieg ${pct(probs.home)}, Unentschieden ${pct(probs.draw)}, ${match.away_team} Sieg ${pct(probs.away)}`}>
-                  <span className="bg-blue-a" style={{ width: `${probs.home * 100}%` }} />
-                  <span className="bg-fg-3" style={{ width: `${probs.draw * 100}%` }} />
-                  <span className="bg-line-2" style={{ width: `${probs.away * 100}%` }} />
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-fg-2">
-                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-blue-a" /><b className="block text-3xl font-semibold tabular-nums text-fg">{pct(probs.home)}</b>{match.home_team}</div>
-                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-fg-3" /><b className="block text-3xl font-semibold tabular-nums text-fg">{pct(probs.draw)}</b>Unentschieden</div>
-                  <div><span className="mb-1 block h-1.5 w-5 rounded-full bg-line-2" /><b className="block text-3xl font-semibold tabular-nums text-fg">{pct(probs.away)}</b>{match.away_team}</div>
-                </div>
-                <p className="mt-4 text-xs text-fg-3">Quelle: {quoteSource} · {quoteObservedAt ? formatObservedAt(quoteObservedAt) : 'Zeitpunkt nicht verfügbar'}</p>
-              </>
-            ) : <p className="mt-4 text-sm text-fg-2">Für diese Einschätzung sind keine Daten verfügbar.</p>}
-          </div>
+      </ViewPanel>
 
-          <div className="border-t border-line p-5 lg:border-t-0">
-            <h3 className="text-sm font-semibold text-fg">Ergebnis-Alternativen</h3>
-            <p className="mt-1 text-xs text-fg-3">Nach Ø Tippspielpunkten</p>
-            {tipInsights.length ? (
-              <div className="mt-3 divide-y divide-line">
-                {tipInsights.map((item, index) => (
-                  <div key={item.tip} className="flex items-center justify-between gap-4 py-3">
-                    <div className="flex items-center gap-3"><span className="text-xl font-semibold tabular-nums text-fg">{item.tip}</span>{index === 0 && <span className="rounded-full bg-blue-a/10 px-2 py-1 text-xs font-medium text-blue-a">Empfehlung</span>}</div>
-                    <div className="text-right"><div className="text-sm font-semibold tabular-nums text-fg">{item.expectedPoints.toFixed(2)} Punkte</div><div className="text-xs tabular-nums text-fg-3">{item.exactChance === null ? 'Trefferchance nicht verfügbar' : `${(item.exactChance * 100).toFixed(1)} % genau`}</div></div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-fg-2">{predict.isError ? 'Die Ergebnistipps konnten nicht berechnet werden.' : predict.isPending ? 'Die Ergebnistipps werden berechnet.' : 'Für dieses Spiel liegen keine weiteren Ergebnistipps vor.'}</p>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="mb-5 rounded-xl border border-line bg-surface p-5" aria-labelledby="context-title">
-        <h2 id="context-title" className="text-base font-semibold text-fg">Tore & Form</h2>
-        {xgHome != null && xgAway != null && xgTotal > 0 ? (
-          <div className="mt-3">
-            <h3 className="sr-only">Erwartete Tore</h3>
-            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+      <ViewPanel id="match-analysis" value="form" active={view}>
+        <section className="analysis-section match-card" aria-labelledby="form-title">
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Teamleistung</p><h2 id="form-title" className="mt-1 text-lg font-bold text-fg">Tore & Form</h2></div></div>
+          {xgHome != null && xgAway != null && xgTotal > 0 ? (
+            <div className="metric-strip mt-4">
               {[
                 { team: match.home_team, xg: xgHome, form: match.home_form },
                 { team: match.away_team, xg: xgAway, form: match.away_form },
               ].map(({ team, xg, form }) => (
-                <div key={team}>
-                  <div className="flex items-center justify-between gap-2 text-sm font-medium text-fg"><span>{team}</span><span className="text-2xl font-semibold tabular-nums">{xg.toFixed(2)} <span className="text-xs font-normal text-fg-3">xG</span></span></div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2"><div className="h-full rounded-full bg-blue-a" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
-                  <div className="mt-3" aria-label={`${team}: ${recentFormSummary(form)}`}><FormBadges form={form} /></div>{form?.status === 'stale' && <p className="mt-2 text-xs text-amber-a">Älterer Formstand</p>}
+                <div key={team} className="surface-panel">
+                  <div className="flex items-center justify-between gap-2 text-sm font-medium text-fg"><span>{team}</span><span className="display-num text-2xl">{xg.toFixed(2)} <span className="text-xs font-normal text-fg-3">xG</span></span></div>
+                  <div className="chance-track mt-2"><div className="chance-fill" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
+                  <div className="mt-3" aria-label={`${team}: ${recentFormSummary(form)}`}><FormBadges form={form} /></div>
+                  {form?.status === 'stale' && <p className="mt-2 text-xs text-amber-a">Älterer Formstand</p>}
+                  {form?.status === 'unavailable' && <p className="mt-2 text-xs text-fg-3">Formdaten nicht verfügbar.</p>}
                 </div>
               ))}
+              <p className="text-xs text-fg-3">xG = erwartete Tore im Modellschnitt</p>
             </div>
-            <p className="mt-3 text-xs text-fg-3">xG = erwartete Tore im Modellschnitt</p>
-          </div>
-        ) : <p className="mt-3 text-sm text-fg-2">Torprognose nicht verfügbar.</p>}
-      </section>
+          ) : <p className="mt-3 text-sm text-fg-2">Torprognose nicht verfügbar.</p>}
+        </section>
 
-      <details className="mb-4 rounded-2xl border border-line bg-surface px-5 py-4" onToggle={(event) => setShowOddsHistory(event.currentTarget.open)}>
-        <summary className="min-h-11 cursor-pointer text-sm font-bold text-fg">Wie haben sich die Quoten verändert?</summary>
-        <OddsHistory matchId={match.id} homeTeam={match.home_team} awayTeam={match.away_team} enabled={showOddsHistory} />
-      </details>
-
-      <details className="mb-5 overflow-hidden rounded-xl border border-line bg-surface">
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-5 py-4 text-base font-semibold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-a [&::-webkit-details-marker]:hidden">
-          Weitere Daten zur Analyse <span aria-hidden="true">⌄</span>
-        </summary>
-        <div className="space-y-4 border-t border-line p-4">
-          <section className="rounded-xl border border-line p-4"><h3 className="mb-3 text-sm font-semibold">Weitere Spielhinweise</h3><MatchHintCard match={match} /></section>
-      <GlassCard className="mb-5">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Kurz vor Anpfiff</p>
-            <SectionTitle className="mt-1">Aufstellungen & Spieler</SectionTitle>
-          </div>
-          {lineup.kind === 'confirmed' && <span className="rounded-full bg-emerald-a/10 px-3 py-1 text-xs font-bold text-emerald-a">Bestätigt · {lineup.source === 'api_football' ? 'API-Football' : 'ESPN'}</span>}
-        </div>
-        {lineup.kind === 'confirmed' ? (
-          <div className="mt-5 grid gap-7 lg:grid-cols-2">
-            <TeamLineup team={match.home_team} lineup={lineup.home} />
-            <TeamLineup team={match.away_team} lineup={lineup.away} />
-          </div>
-        ) : (
-          <div className="mt-4 rounded-xl bg-surface-2 px-4 py-4">
-            <p className="font-semibold text-fg">{lineup.message}</p>
-            <p className="mt-1 text-sm leading-relaxed text-fg-2">{isPremierLeague ? 'Der Wartungslauf prüft ESPN etwa 35 und 15 Minuten vor dem Anpfiff, sofern Aufstellungen verfügbar sind. Diese Seite liest nur gespeicherte Daten.' : 'Wir prüfen automatisch etwa 35 und 15 Minuten vor dem Anpfiff. Bis dahin entstehen keine zusätzlichen API-Abfragen beim Öffnen dieser Seite.'}</p>
-          </div>
-        )}
-        {match.match_intelligence?.injuries?.status === 'unavailable' && (
-          <p className="mt-4 text-xs text-fg-3">Verletzungsdaten derzeit nicht zuverlässig verfügbar.</p>
-        )}
-      </GlassCard>
-
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-xl border border-line p-4">
-              <h3 className="text-base font-semibold text-fg">Letzte Pflichtspiele</h3>
-              <p className="mt-1 text-xs text-fg-3">{match.home_form?.scope === 'league' || match.away_form?.scope === 'league' ? 'Die Form beschreibt separat zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe.' : 'Die Form beschreibt separat die letzten erfassten Pflichtspiele aller Wettbewerbe.'}</p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div><div className="flex items-center gap-2 text-sm font-medium text-fg"><TeamLogo name={match.home_team} />{match.home_team}</div><div className="mt-2"><FormBadges form={match.home_form} /></div><TeamFormHistory team={match.home_team} form={match.home_form} kickoff={kickoff} /></div>
-                <div><div className="flex items-center gap-2 text-sm font-medium text-fg"><TeamLogo name={match.away_team} />{match.away_team}</div><div className="mt-2"><FormBadges form={match.away_form} /></div><TeamFormHistory team={match.away_team} form={match.away_form} kickoff={kickoff} /></div>
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-line p-4">
-              <h3 className="text-base font-semibold text-fg">Sieg, Remis, Niederlage</h3>
-              <p className="mt-1 text-xs text-fg-2">{quoteSource}{quoteObservedAt ? ` · ${formatObservedAt(quoteObservedAt)}` : ''}</p>
-              {hasOutcomeProbabilities ? (
-                <div className="mt-4 space-y-3">
-                  {[
-                    { label: `${match.home_team} gewinnt`, price: hasBookmakerOdds ? match.odds?.home : (probs.home > 0 ? 1 / probs.home : undefined), probability: probs.home, color: 'var(--blue)' },
-                    { label: 'Unentschieden', price: hasBookmakerOdds ? match.odds?.draw : (probs.draw > 0 ? 1 / probs.draw : undefined), probability: probs.draw, color: 'var(--text-3)' },
-                    { label: `${match.away_team} gewinnt`, price: hasBookmakerOdds ? match.odds?.away : (probs.away > 0 ? 1 / probs.away : undefined), probability: probs.away, color: 'var(--border-2)' },
-                  ].map(({ label, price, probability, color }) => (
-                    <div key={label}>
-                      <div className="flex items-baseline justify-between gap-3 text-sm"><span className="font-medium text-fg">{label}</span><span className="tabular-nums text-fg-2">{pct(probability)}{price ? ` · Quote ${price.toFixed(2)}` : ''}</span></div>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2"><div className="h-full" style={{ width: `${probability * 100}%`, background: color }} /></div>
-                    </div>
-                  ))}
-                </div>
-              ) : <p className="mt-3 text-sm text-fg-2">Keine Werte verfügbar.</p>}
-            </section>
-
-            <section className="rounded-xl border border-line p-4">
-              <h3 className="text-base font-semibold text-fg">Wahrscheinlichkeit je Ergebnis</h3>
-              <div className="mt-4">
-                {predict.data?.matrix ? <ScoreHeatmap modelTip={activeTip} calc={predict.data} homeDisp={match.home_disp || match.home_team} awayDisp={match.away_disp || match.away_team} /> : <p className="text-sm text-fg-2">Für die Ergebnistabelle sind keine Daten verfügbar.</p>}
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-line p-4">
-              <h3 className="text-base font-semibold text-fg">Weitere Modelltipps</h3>
-              {predict.data?.xp_tips?.length ? (
-                <ol className="mt-3 divide-y divide-line">
-                  {predict.data.xp_tips.slice(0, 5).map((item, index) => <li key={item.Tipp} className="flex items-center justify-between gap-3 py-2 text-sm"><span className="text-fg-2">{index + 1}. <b className="ml-1 tabular-nums text-fg">{item.Tipp}</b></span><span className="tabular-nums text-fg-2">{item.xP.toFixed(2)} erwartete Punkte</span></li>)}
-                </ol>
-              ) : <p className="mt-3 text-sm text-fg-2">Keine weiteren Modelltipps verfügbar.</p>}
-            </section>
-
-            {match.bots && Object.keys(match.bots).length > 0 && (
-              <section className="rounded-xl border border-line p-4">
-                <h3 className="text-base font-semibold text-fg">Bot-Vorschläge</h3>
-                <ul className="mt-3 grid grid-cols-2 gap-2">
-                  {(Object.keys(BOT_LABELS) as BotKey[]).map((key) => {
-                    const tip = match.bots?.[key]?.tip
-                    return tip ? <li key={key} className="flex items-center justify-between gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm"><span className="text-fg-2">{BOT_LABELS[key]}</span><b className="tabular-nums text-fg">{tip}</b></li> : null
-                  })}
-                </ul>
+        <section className="analysis-section match-card" aria-labelledby="history-title">
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Vergangene Spiele</p><h2 id="history-title" className="mt-1 text-lg font-bold text-fg">Letzte Pflichtspiele</h2></div></div>
+          <p className="mt-2 text-xs text-fg-3">{match.home_form?.scope === 'league' || match.away_form?.scope === 'league' ? 'Die Form umfasst zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe.' : 'Die Form umfasst zuletzt erfasste Pflichtspiele aller Wettbewerbe.'}</p>
+          <div className="match-grid mt-4">
+            {[{ team: match.home_team, form: match.home_form }, { team: match.away_team, form: match.away_form }].map(({ team, form }) => (
+              <section key={team} className="surface-panel">
+                <div className="flex items-center gap-2 text-sm font-bold text-fg"><TeamLogo name={team} />{team}</div>
+                <div className="mt-2"><FormBadges form={form} /></div>
+                <TeamFormHistory team={team} form={form} kickoff={kickoff} showHistoricalLineups={false} />
               </section>
-            )}
-
-            <PoolContextEditor
-              pool={pool}
-              form={poolForm}
-              onFormChange={setPoolForm}
-              open={poolOpen}
-              onToggle={() => setPoolOpen((current) => !current)}
-              status={poolStatus}
-              onSave={savePoolContext}
-              saving={savePool.isPending}
-            />
+            ))}
           </div>
+        </section>
+      </ViewPanel>
+
+      <ViewPanel id="match-analysis" value="lineups" active={view}>
+        {missing.length > 0 && <section className="analysis-section match-card" aria-labelledby="missing-title">
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-a">Kaderhinweis</p><h2 id="missing-title" className="mt-1 text-lg font-bold text-fg">Fehlende Spieler in der Aufstellung</h2></div></div>
+          {missing.map(([team, value]) => <p key={team} className="mt-2 text-sm text-fg-2"><b className="text-fg">{team}:</b> {value.missing.join(', ')}</p>)}
+        </section>}
+
+        <GlassCard className="analysis-section match-card match-card-lineup">
+          <div className="section-heading">
+            <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Kurz vor Anpfiff</p><SectionTitle className="mt-1 text-lg">Aufstellungen & Spieler</SectionTitle></div>
+            {lineup.kind === 'confirmed' && <span className="rounded-full bg-emerald-a/10 px-3 py-1 text-xs font-bold text-emerald-a">Bestätigt · {lineup.source === 'api_football' ? 'API-Football' : 'ESPN'}</span>}
+          </div>
+          {lineup.kind === 'confirmed' ? (
+            <div className="mt-5 grid gap-7 lg:grid-cols-2">
+              <TeamLineup team={match.home_team} lineup={lineup.home} />
+              <TeamLineup team={match.away_team} lineup={lineup.away} />
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl bg-surface-2 px-4 py-4">
+              <p className="font-semibold text-fg">{lineup.message}</p>
+              <p className="mt-1 text-sm leading-relaxed text-fg-2">{isPremierLeague ? 'Der Wartungslauf prüft ESPN etwa 35 und 15 Minuten vor dem Anpfiff, sofern Aufstellungen verfügbar sind. Diese Seite liest nur gespeicherte Daten.' : 'Wir prüfen automatisch etwa 35 und 15 Minuten vor dem Anpfiff. Bis dahin entstehen keine zusätzlichen API-Abfragen beim Öffnen dieser Seite.'}</p>
+            </div>
+          )}
+          {match.match_intelligence?.injuries?.status === 'unavailable' && <p className="mt-4 text-xs text-fg-3">Verletzungsdaten derzeit nicht zuverlässig verfügbar.</p>}
+          {missing.length === 0 && <p className="mt-4 text-xs text-fg-3">Keine fehlenden Spieler für diese Aufstellung erfasst.</p>}
+        </GlassCard>
+
+        <section className="analysis-section match-card" aria-labelledby="historical-lineups-title">
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Archiv</p><h2 id="historical-lineups-title" className="mt-1 text-lg font-bold text-fg">Historische Aufstellungen</h2></div></div>
+          <div className="match-grid mt-4">
+            {[{ team: match.home_team, form: match.home_form }, { team: match.away_team, form: match.away_form }].map(({ team, form }) => {
+              const history = form?.matches?.slice(0, 10) ?? []
+              return <section key={team} className="surface-panel"><h3 className="font-bold text-fg">{team}</h3>
+                {history.length ? <ul className="mt-3 space-y-2">{history.map((item) => <HistoricalMatchRow key={item.fixture_id} item={item} />)}</ul> : <p className="mt-2 text-sm text-fg-2">Keine vergangenen Spiele für historische Aufstellungen verfügbar.</p>}
+              </section>
+            })}
+          </div>
+        </section>
+      </ViewPanel>
+
+      <ViewPanel id="match-analysis" value="market" active={view}>
+        <section className="analysis-section match-card" aria-labelledby="market-title">
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Buchmacher</p><h2 id="market-title" className="mt-1 text-lg font-bold text-fg">Aktuelle Quoten</h2></div></div>
+          {hasBookmakerOdds && marketProbabilities ? <>
+            <p className="mt-2 text-sm text-fg-2">Dezimalquoten für Sieg, Remis und Sieg. Die danebenstehenden Chancen werden aus diesen drei Quoten normalisiert und sind keine Modellprognose.</p>
+            <p className="mt-2 text-xs text-fg-3">Quelle: {match.odds_provenance?.source === 'odds_api' ? 'The Odds API' : String(match.odds_provenance?.source ?? 'Quelle nicht belegt')} · {match.odds_observed_at ? formatObservedAt(match.odds_observed_at) : 'Zeitpunkt nicht verfügbar'}</p>
+            <div className="ranking-list mt-4">
+              {[
+                { key: 'home', label: `${match.home_team} gewinnt` },
+                { key: 'draw', label: 'Unentschieden' },
+                { key: 'away', label: `${match.away_team} gewinnt` },
+              ].map(({ key, label }) => {
+                const price = match.odds?.[key as 'home' | 'draw' | 'away']
+                const probability = marketProbabilities[key as 'home' | 'draw' | 'away']
+                return <div key={key} className="ranking-row">
+                  <span className="font-semibold text-fg">{label}</span>
+                  <span className="text-right"><b className="block tabular-nums text-fg">{price?.toFixed(2) ?? '–'}</b><span className="text-xs text-fg-3">{pct(probability)} implizit</span></span>
+                </div>
+              })}
+            </div>
+          </> : <p className="mt-3 rounded-lg bg-surface-2 p-4 text-sm text-fg-2">Für dieses Spiel sind keine aktuellen Buchmacherquoten verfügbar.</p>}
+        </section>
+
+        <details className="analysis-section match-card rounded-2xl border border-line bg-surface px-5 py-4" onToggle={(event) => setShowOddsHistory(event.currentTarget.open)}>
+          <summary className="min-h-11 cursor-pointer text-sm font-bold text-fg">Wie haben sich die Quoten verändert?</summary>
+          <OddsHistory matchId={match.id} homeTeam={match.home_team} awayTeam={match.away_team} enabled={showOddsHistory} />
+        </details>
+      </ViewPanel>
+
+      <ViewPanel id="match-analysis" value="model" active={view}>
+        <section className="analysis-section match-card" aria-labelledby="model-title">
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Ergebnismodell</p><h2 id="model-title" className="mt-1 text-lg font-bold text-fg">Ergebnis-Alternativen</h2></div></div>
+          <p className="mt-2 text-xs text-fg-3">Nach erwarteten Tippspielpunkten. Die Chance für den exakten Treffer ist davon getrennt.</p>
+          {activeTip && <div className="metric-strip mt-4">
+            <div className="surface-panel"><span className="block text-xs text-fg-3">Modelltipp</span><strong className="mt-1 block display-num text-2xl text-fg">{activeTip}</strong></div>
+            <div className="surface-panel"><span className="block text-xs text-fg-3">Ø erwartete Punkte</span><strong className="mt-1 block display-num text-2xl text-fg">{expectedPoints != null && Number.isFinite(expectedPoints) ? expectedPoints.toFixed(2) : '–'}</strong></div>
+            <div className="surface-panel"><span className="block text-xs text-fg-3">Exakte Trefferchance</span><strong className="mt-1 block display-num text-2xl text-fg">{recommendedInsight?.exactChance != null ? pct(recommendedInsight.exactChance) : '–'}</strong></div>
+          </div>}
+          {tipInsights.length ? <ol className="ranking-list mt-4">{tipInsights.map((item, index) => (
+            <li key={item.tip} className="ranking-row"><span className="flex items-center gap-3"><b className="display-num text-xl text-fg">{item.tip}</b>{index === 0 && <span className="rounded-full bg-blue-a/10 px-2 py-1 text-xs font-medium text-blue-a">Empfehlung</span>}</span><span className="text-right"><b className="block tabular-nums text-fg">{item.expectedPoints.toFixed(2)} Punkte</b><span className="text-xs tabular-nums text-fg-3">{item.exactChance === null ? 'Trefferchance nicht verfügbar' : `${(item.exactChance * 100).toFixed(1)} % genau`}</span></span></li>
+          ))}</ol> : <p className="mt-4 text-sm text-fg-2">{predict.isError ? 'Die Ergebnistipps konnten nicht berechnet werden.' : predict.isPending ? 'Die Ergebnistipps werden berechnet.' : 'Für dieses Spiel liegen keine weiteren Ergebnistipps vor.'}</p>}
+        </section>
+
+        <div className="match-grid analysis-section">
+          <section className="match-card" aria-labelledby="matrix-title"><div className="section-heading"><div><h2 id="matrix-title" className="text-base font-bold text-fg">Wahrscheinlichkeit je Ergebnis</h2><p className="mt-1 text-xs text-fg-3">Einzelne Spielstände laut Score-Matrix</p></div></div><div className="mt-4">{predict.data?.matrix ? <ScoreHeatmap modelTip={activeTip} calc={predict.data} homeDisp={match.home_disp || match.home_team} awayDisp={match.away_disp || match.away_team} /> : <p className="text-sm text-fg-2">Für die Ergebnistabelle sind keine Daten verfügbar.</p>}</div></section>
+          <section className="match-card" aria-labelledby="other-tips-title"><div className="section-heading"><div><h2 id="other-tips-title" className="text-base font-bold text-fg">Weitere Modelltipps</h2><p className="mt-1 text-xs text-fg-3">Alternative Vorschläge nach erwarteten Punkten</p></div></div>
+            {predict.data?.xp_tips?.length ? <ol className="ranking-list mt-3">{predict.data.xp_tips.slice(0, 5).map((item, index) => <li key={item.Tipp} className="ranking-row"><span className="text-fg-2">{index + 1}. <b className="ml-1 display-num text-lg text-fg">{item.Tipp}</b></span><span className="tabular-nums text-fg-2">{item.xP.toFixed(2)} erwartete Punkte</span></li>)}</ol> : <p className="mt-3 text-sm text-fg-2">Keine weiteren Modelltipps verfügbar.</p>}
+          </section>
+          {match.bots && Object.keys(match.bots).length > 0 && <section className="match-card"><div className="section-heading"><h2 className="text-base font-bold text-fg">Bot-Vorschläge</h2></div><ul className="ranking-list mt-3">{(Object.keys(BOT_LABELS) as BotKey[]).map((key) => {
+            const tip = match.bots?.[key]?.tip
+            return tip ? <li key={key} className="ranking-row"><span className="text-fg-2">{BOT_LABELS[key]}</span><b className="display-num text-fg">{tip}</b></li> : null
+          })}</ul></section>}
         </div>
-      </details>
+
+        <section className="analysis-section match-card"><div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Zusätzlicher Kontext</p><h2 className="mt-1 text-lg font-bold text-fg">Spielhinweise</h2></div></div><div className="mt-3"><MatchHintCard match={match} /></div></section>
+
+        <section className="analysis-section match-card" aria-labelledby="pool-context-title">
+          <h2 id="pool-context-title" className="sr-only">Pool-Tipp und Rundendaten</h2>
+          <PoolContextEditor pool={pool} form={poolForm} onFormChange={setPoolForm} open={poolOpen} onToggle={() => setPoolOpen((current) => !current)} status={poolStatus} onSave={savePoolContext} saving={savePool.isPending} />
+        </section>
+
+        <details className="analysis-section match-card info-disclosure">
+          <summary>Wie wird der Tipp gewählt?</summary>
+          <div className="info-content"><p>Das Modell wählt den Ergebnistipp mit den höchsten erwarteten Tippspielpunkten. Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Torwerte beschreiben einen Modellschnitt und sind kein garantiertes Ergebnis.</p><p className="mt-2">Kopieren überträgt den Vorschlag nur in die Zwischenablage. Speichern legt einen gemeinsamen Tipp für das Spiel ab: nicht nutzergetrennt und für alle sichtbar. Die Abgabe schließt fünf Minuten vor Anpfiff.</p></div>
+        </details>
+      </ViewPanel>
     </PageTransition>
   )
 }

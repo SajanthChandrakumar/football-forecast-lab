@@ -15,24 +15,28 @@ for (const theme of ['dark', 'light']) test(`each view fits the viewport in ${th
         await page.getByRole('button', { name: 'Borussia Mönchengladbach', exact: true }).click()
         await page.getByRole('button', { name: 'Club Atlético de Madrid', exact: true }).click()
       }
-      if (route === 'match/ucl-long') {
-        await expect(page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })).toBeVisible()
-        await page.locator('summary').filter({ hasText: 'Weitere Daten zur Analyse' }).click()
-      }
-      if (route === 'performance') {
-        await expect(page.getByText('2 Spiele in der gemeinsamen Stichprobe')).toBeVisible()
-        await page.locator('summary').filter({ hasText: 'Weitere Auswertungen und Rücktests' }).click()
-      }
+      if (route === 'match/ucl-long') await expect(page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })).toBeVisible()
+      if (route === 'performance') await expect(page.getByRole('tab', { name: 'Gespeicherte Tipps', exact: true })).toBeVisible()
       if (route === '') await expect(page.getByText('Bayern Munich', { exact: true }).first()).toBeVisible()
-      const overflow = await page.evaluate(() => {
-        const width = document.documentElement.clientWidth
-        return [...document.querySelectorAll<HTMLElement>('body *')].filter(element => {
-          const box = element.getBoundingClientRect()
-          return box.width > 0 && box.right > width + 1 && getComputedStyle(element).position !== 'absolute' && !element.closest('.overflow-x-auto')
-        }).map(element => ({ tag: element.tagName, className: element.className, text: element.textContent?.slice(0, 90), right: Math.round(element.getBoundingClientRect().right) })).slice(0, 12)
-      })
-      expect(overflow, `${theme} /${route} must fit`).toEqual([])
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${route} page scroll width`).toBe(true)
+      const assertFits = async (view: string) => {
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+        const overflow = await page.evaluate(() => {
+          const width = document.documentElement.clientWidth
+          return [...document.querySelectorAll<HTMLElement>('body *')].filter(element => {
+            const box = element.getBoundingClientRect()
+            return box.width > 0 && box.right > width + 1 && getComputedStyle(element).position !== 'absolute' && !element.closest('.overflow-x-auto')
+          }).map(element => ({ tag: element.tagName, className: element.className, text: element.textContent?.slice(0, 90), right: Math.round(element.getBoundingClientRect().right) })).slice(0, 12)
+        })
+        expect(overflow, `${theme} /${route} ${view} must fit`).toEqual([])
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${route} ${view} page scroll width`).toBe(true)
+      }
+      await assertFits('default')
+      await page.screenshot({ path: testInfo.outputPath(`${route.replaceAll('/', '-') || 'games'}-default.png`), fullPage: true })
+      for (const tab of await page.getByRole('tab').all()) {
+        const name = await tab.innerText()
+        await tab.click()
+        await assertFits(name)
+      }
     }
   expect(errors).toEqual([])
   await page.goto('/#/team-form')
@@ -41,7 +45,7 @@ for (const theme of ['dark', 'light']) test(`each view fits the viewport in ${th
 })
 
 test('mobile menu contains focus, closes with Escape and returns focus', async ({ page, api: _api }) => {
-  test.skip((page.viewportSize()?.width ?? 1440) >= 1024, 'Desktop uses the sidebar')
+  test.skip((page.viewportSize()?.width ?? 1440) >= 1024, 'Desktop has separate analysis and settings menus')
   await page.goto('/#/')
   const more = page.getByRole('button', { name: 'Mehr', exact: true })
   await more.click()
@@ -83,7 +87,7 @@ test('blocked browser storage does not prevent navigation or theme changes', asy
   await chooseCompetition(page, 'epl2026')
   await expect(page.getByText('Chelsea', { exact: true }).first()).toBeVisible()
   if ((page.viewportSize()?.width ?? 1440) < 1024) await page.getByRole('button', { name: 'Mehr', exact: true }).click()
-  else await page.getByText('Einstellungen', { exact: true }).click()
+  else await page.getByRole('button', { name: 'Einstellungen', exact: true }).click()
   await page.getByRole('button', { name: 'Darstellung Hell', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   expect(errors).toEqual([])
