@@ -186,32 +186,13 @@ def perform_elo_sync(math_engine, odds_engine, cache_collection, archive_collect
         # Club ratings are owned by the competition-scoped ClubElo cache.
         # Never reuse the WC CSV/history/processed files for a club league.
         document = find_competition_document(cache_collection, competition, "clubelo_ratings") or {}
-        rows = document.get("rows") or []
-        if competition.id == "ucl2026" and rows:
-            try:
-                import pandas as pd
-                math_engine.elo_df = pd.DataFrame(rows)
-            except Exception:
-                pass
-        observed_at = document.get("observed_at") or datetime.now(timezone.utc).isoformat()
-        status = document.get("status") if document else "unavailable"
-        if status not in {"fresh", "stale", "unavailable", "failed"}:
-            status = "unavailable"
+        from src.services.source_freshness import source_status
+        observed_at = document.get("observed_at")
+        status = source_status(document.get("status", "unavailable"), observed_at)
         error = document.get("error") or ("ClubElo ratings cache is unavailable" if status == "unavailable" else None)
+        # Refreshing a club rating view never rewrites historic forecasts or
+        # replaces the shared World Cup engine's country ratings.
         reconstructed = snapshot_predictions = 0
-        if competition.id == "ucl2026":
-            archive = load_archive_from_db(archive_collection, force=True)
-            changed_entries = {}
-            reconstructed, snapshot_predictions = _reconstruct_completed_entries(
-                PredictionService(math_engine),
-                archive,
-                changed_entries,
-                MathEngine,
-                competition,
-                cache_collection=cache_collection,
-            )
-            for mid, entry in changed_entries.items():
-                upsert_archive_entry(archive_collection, mid, entry)
         return {
             "status": status,
             "source": document.get("source", "clubelo"),

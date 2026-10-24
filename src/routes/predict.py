@@ -1,4 +1,5 @@
 import logging
+from copy import deepcopy
 
 from fastapi import APIRouter, Request, HTTPException
 from src.services.input_validation import bounded_match_id
@@ -7,8 +8,25 @@ from src.constants import TOTALS_CACHE_TTL
 from src.competitions import collection_for, find_competition_document, require_competition
 from src.services.odds_helpers import extract_odds, fetch_or_cache_totals
 from src.services.prediction import PredictionService, freeze_prediction
+from src.services.prediction_cache import cached_prediction
 
 logger = logging.getLogger(__name__)
+
+
+def _archived_club_prediction(archive_store, match_id):
+    entry = archive_store.find_one({"_id": match_id}) if archive_store is not None else None
+    prediction = deepcopy((entry or {}).get("prediction") or {})
+    tip = prediction.get("model_tip") or prediction.get("top_tip")
+    if not tip and not prediction.get("probabilities"):
+        return {"status": "unavailable", "source_status": "unavailable", "historical": True,
+                "model_tip": None, "top_tip": None, "matrix": {}, "score_matrix": {}, "xp_tips": [],
+                "error": "Keine gespeicherte Vorabprognose für dieses abgeschlossene Spiel verfügbar."}
+    return {**prediction, "historical": True, "model_tip": tip,
+            "top_tip": prediction.get("top_tip") or tip,
+            "matrix": prediction.get("matrix") or prediction.get("score_matrix") or {},
+            "score_matrix": prediction.get("score_matrix") or prediction.get("matrix") or {},
+            "xp_tips": prediction.get("xp_tips") or [],
+            "context": prediction.get("context") or (entry or {}).get("metadata") or {}}
 
 
 def effective_is_ko(competition, payload: dict, match_data: dict) -> bool:
@@ -67,6 +85,11 @@ def init_router(math_engine, odds_engine, cache_collection, limiter, archive_col
                 (match for match in (cached or {}).get("data", []) if match.get("id") == event_id),
                 {},
             )
+            if comp.is_club_competition:
+                from src.routes.matches import _is_completed_match
+                if _is_completed_match(cached_match):
+                    archive_store = collection_for(archive_collection, comp) if archive_collection is not None else None
+                    return _archived_club_prediction(archive_store, event_id)
             try:
                 odds = extract_odds(match_data)
             except ValueError:
@@ -113,10 +136,9 @@ def init_router(math_engine, odds_engine, cache_collection, limiter, archive_col
                 "observed_at": odds_observed_at,
                 "provenance": cached_match.get("odds_provenance") or match_data.get("odds_provenance") or {},
             } if odds else None)
-            result = prediction_service.predict(
+            result = cached_prediction(prediction_service, comp,
                 odds=odds_input,
                 elo=elo_state,
-                competition=comp,
                 context=context,
                 field_counts=field_counts,
                 user_points=payload.get("user_points", pool_context.get("user_points", 0)),

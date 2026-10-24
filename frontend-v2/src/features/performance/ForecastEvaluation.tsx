@@ -1,3 +1,4 @@
+import { kickoffTime, shortDate } from '../../lib/format'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { QueryState } from '../../components/shared/QueryState'
 import { useModelEvaluation } from '../../hooks/queries'
@@ -32,13 +33,30 @@ export function ForecastEvaluation() {
       {isPending && <p role="status" className="mt-5 text-sm text-fg-2">Vorab-Prognosen werden geladen …</p>}
       {isError && <div className="mt-4"><QueryState title="Prognoseauswertung nicht verfügbar" message="Die gespeicherten Wahrscheinlichkeiten konnten nicht geladen werden." onRetry={() => { void refetch() }} /></div>}
       {data && <>
+        {data.capture_status && <p className="mt-3 text-xs text-fg-2" role="status">
+          {Date.now() - Date.parse(data.capture_status.last_run_at ?? '') <= 180_000 && Date.now() >= Date.parse(data.capture_status.last_run_at ?? '')
+            ? 'Scheduler für Vorab-Aufnahmen bestätigt.' : 'Scheduler für Vorab-Aufnahmen nicht bestätigt.'}
+          {data.capture_status.last_successful_at && <> Letzter Erfolg: {shortDate(data.capture_status.last_successful_at)} · {kickoffTime(data.capture_status.last_successful_at)}.</>}
+          {data.capture_status.next_capture_at && <> Nächster Lauf: {shortDate(data.capture_status.next_capture_at)} · {kickoffTime(data.capture_status.next_capture_at)}.</>}
+          {data.capture_status.error && <> Letzter Aufruf meldete einen Fehler.</>}
+        </p>}
+        {data.maintenance_status && <div className="mt-3 rounded-lg border border-line bg-surface p-3 text-xs text-fg-2" role="status" aria-label="Club-Datenpflege">
+          <p className="font-semibold text-fg">Club-Datenpflege: {Date.now() - Date.parse(data.maintenance_status.last_run_at ?? '') <= 180_000 && Date.now() >= Date.parse(data.maintenance_status.last_run_at ?? '')
+            ? data.maintenance_status.status === 'failed' ? 'Letzter Lauf fehlgeschlagen' : data.maintenance_status.status === 'partial' ? 'Letzter Lauf teilweise erfolgreich' : 'Letzter Lauf erfolgreich'
+            : 'Scheduler nicht bestätigt'}</p>
+          <p className="mt-1">
+            {data.maintenance_status.last_successful_at && <>Letzter Erfolg: {shortDate(data.maintenance_status.last_successful_at)} · {kickoffTime(data.maintenance_status.last_successful_at)}. </>}
+            {data.maintenance_status.next_due_at && <>Nächster Lauf fällig: {shortDate(data.maintenance_status.next_due_at)} · {kickoffTime(data.maintenance_status.next_due_at)}.</>}
+            {data.maintenance_status.error && <> Letzter Lauf meldete einen Fehler.</>}
+          </p>
+        </div>}
         <div className="mt-5 flex flex-wrap items-baseline justify-between gap-2 border-b border-line pb-4">
           <p className="text-sm font-semibold text-fg">{data.common_sample_count} {data.common_sample_count === 1 ? 'Spiel' : 'Spiele'} in der gemeinsamen Stichprobe</p>
           <p className="text-xs text-fg-3">{data.common_sample_count} von {data.completed_count} abgeschlossenen Spielen auswertbar</p>
         </div>
         {data.common_sample_count === 0 ? (
           <p role="status" className="mt-4 rounded-lg border border-line bg-surface p-4 text-sm leading-relaxed text-fg-2">
-            Noch keine auswertbaren Vorab-Prognosen. Künftige Aufnahmen entstehen bei der Wartung zwischen 15 und 5 Minuten vor Anstoß, wenn Quoten und Elo-Daten mit bekanntem Zeitpunkt vorliegen. Alte Spiele werden nicht nachträglich ergänzt.
+            Noch keine auswertbaren Vorab-Prognosen. Der Hintergrundlauf prüft gespeicherte Quoten und Elo-Daten jede Minute. Aufnahmen entstehen zwischen 15 und 5 Minuten vor Anstoß, wenn Quoten und Elo-Daten mit bekanntem Zeitpunkt vorliegen. Alte Spiele werden nicht nachträglich ergänzt.
           </p>
         ) : (
           <div className="mt-4 grid gap-3 sm:grid-cols-3">

@@ -42,7 +42,7 @@ export function MatchdayAssistant({ matches, now, expanded = false }: { matches:
   const savedOverrides = savedByRound[stateKey] ?? EMPTY_STRING_MAP
   const rowErrors = errorsByRound[stateKey] ?? EMPTY_STRING_MAP
   const rows = buildAssistantRows(
-    selectedRound?.matches ?? EMPTY_MATCHES, archive, drafts, savedOverrides, now,
+    selectedRound?.matches ?? EMPTY_MATCHES, archive, drafts, savedOverrides, now, competition,
   )
   const rowGroups = assistantRowGroups(rows)
   const candidates = getSaveCandidates(rows)
@@ -179,7 +179,7 @@ export function MatchdayAssistant({ matches, now, expanded = false }: { matches:
         {row.suggestion && <p className="mt-2 text-xs text-fg-3">
           Vorschlag: {row.sourceLabel}
           {row.observedAt && <> · Datenstand {shortDate(row.observedAt)} {kickoffTime(row.observedAt)}</>}
-          {row.stale && <> · Stand möglicherweise veraltet</>}
+          {row.freshnessMessage ? <> · {row.freshnessMessage}</> : row.stale && <> · Stand möglicherweise veraltet</>}
         </p>}
         {invalid && row.editable && <p className="mt-2 text-xs font-semibold text-red-a">Bitte Heim:Auswärts im Format 0:0 bis 20:20 eingeben.</p>}
         {row.status !== 'played' && !row.value && row.editable && <p className="mt-2 text-xs text-fg-3">Kein gültiger Vorschlag vorhanden. Tipp manuell eingeben.</p>}
@@ -216,7 +216,7 @@ export function MatchdayAssistant({ matches, now, expanded = false }: { matches:
             ? <span>Nächste T-5-Frist: {shortDate(new Date(deadline).toISOString())} · {kickoffTime(new Date(deadline).toISOString())}</span>
             : <span>Keine weitere T-5-Frist in dieser Runde.</span>}
         </div>
-        <p className="mt-2 text-xs text-fg-3">Gemeinsam · Für alle sichtbar</p>
+        <p className="mt-2 text-xs text-fg-3">{competition === 'epl2026' || competition === 'ucl2026' ? 'Gemeinsame Tipps · Für alle sichtbar · Abgabe bis T−5' : 'Gemeinsam · Für alle sichtbar'}</p>
       </div>
 
       <EditorContainer className="surface-panel group">

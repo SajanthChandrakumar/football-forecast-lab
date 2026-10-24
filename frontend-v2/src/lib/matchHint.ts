@@ -1,5 +1,6 @@
 import type { Match, Probabilities } from './types.ts'
 import { computeImpliedProbs } from './util.ts'
+import { modelInputFreshness } from './match-freshness.mjs'
 
 export type MatchHintConfidence = 'high' | 'medium' | 'low' | 'unavailable'
 export type MatchHintSource = 'bookmaker' | 'elo' | 'unavailable'
@@ -14,6 +15,7 @@ export interface MatchHint {
   probabilities: Probabilities | null
   observedAt: string | null
   reasons: string[]
+  freshnessWarning: string | null
 }
 
 type Outcome = 'home' | 'draw' | 'away'
@@ -28,6 +30,7 @@ const UNAVAILABLE_HINT: MatchHint = {
   probabilities: null,
   observedAt: null,
   reasons: [],
+  freshnessWarning: null,
 }
 
 const isFiniteNumber = (value: unknown): value is number =>
@@ -129,9 +132,10 @@ function reasonCandidates(match: Match, favorite: Outcome, homeName: string, awa
   return reasons
 }
 
-export function buildMatchHint(match: Match): MatchHint {
+export function buildMatchHint(match: Match, now = Date.now(), requireFreshInputs = false): MatchHint {
   const selected = selectedProbabilities(match)
   if (!selected) return { ...UNAVAILABLE_HINT, reasons: [] }
+  const freshness = requireFreshInputs ? modelInputFreshness(match, now) : { status: 'fresh' as const, message: '' }
 
   const outcomes: { outcome: Outcome; probability: number }[] = [
     { outcome: 'home', probability: selected.probabilities.home },
@@ -142,11 +146,12 @@ export function buildMatchHint(match: Match): MatchHint {
   const favorite = outcomes[0].outcome
   const top = outcomes[0].probability
   const gap = top - outcomes[1].probability
-  const confidence: Exclude<MatchHintConfidence, 'unavailable'> = top >= 0.55 && gap >= 0.15
+  const rawConfidence: Exclude<MatchHintConfidence, 'unavailable'> = top >= 0.55 && gap >= 0.15
     ? 'high'
     : top >= 0.43 && gap >= 0.08
       ? 'medium'
       : 'low'
+  const confidence = freshness.status !== 'fresh' && rawConfidence === 'high' ? 'medium' : rawConfidence
   const confidenceLabel = confidence === 'high' ? 'Hoch' : confidence === 'medium' ? 'Mittel' : 'Niedrig'
 
   const homeName = displayName(match.home_team, match.home_disp)
@@ -154,7 +159,10 @@ export function buildMatchHint(match: Match): MatchHint {
   const lead = favorite === 'draw'
     ? 'Die höchste Einzelwahrscheinlichkeit liegt beim Unentschieden.'
     : `Die höchste Einzelwahrscheinlichkeit entfällt auf ${favorite === 'home' ? homeName : awayName}.`
-  const reasons = reasonCandidates(match, favorite, homeName, awayName).slice(0, 2)
+  const reasons = [
+    ...(freshness.status === 'fresh' ? [] : [`Datenstand nicht bestätigt: ${freshness.message}`]),
+    ...reasonCandidates(match, favorite, homeName, awayName),
+  ].slice(0, 2)
 
   return {
     available: true,
@@ -166,5 +174,6 @@ export function buildMatchHint(match: Match): MatchHint {
     probabilities: selected.probabilities,
     observedAt: selected.observedAt,
     reasons,
+    freshnessWarning: freshness.status === 'fresh' ? null : `Datenstand nicht bestätigt: ${freshness.message}`,
   }
 }

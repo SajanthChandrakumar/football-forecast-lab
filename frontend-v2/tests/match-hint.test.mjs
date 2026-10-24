@@ -67,6 +67,7 @@ test('returns an explicit unavailable hint instead of guessing', () => {
     probabilities: null,
     observedAt: null,
     reasons: [],
+    freshnessWarning: null,
   })
 })
 
@@ -125,4 +126,16 @@ test('uses Elo, absences, and knockout context only when their exact conditions 
     'Beim Gegner sind mehr fehlende Spieler gemeldet.',
     'Das Hinspielergebnis kann den Spielverlauf stärker beeinflussen.',
   ])
+})
+
+test('club confidence is capped and visibly caveated when required input times are unknown or stale', () => {
+  const now = Date.parse('2026-10-24T12:00:00Z')
+  const hint = buildMatchHint(match({
+    source_mode: 'odds+elo', odds: { home: 1.5, draw: 4.5, away: 7 },
+    odds_observed_at: '2026-10-24T11:00:00Z', probabilities: { home: 0.6, draw: 0.25, away: 0.15 },
+    input_provenance: { odds: { observed_at: '2026-10-24T11:00:00Z' } },
+  }), now, true)
+  assert.equal(hint.confidence, 'medium')
+  assert.match(hint.freshnessWarning, /Elo-Zeitpunkt fehlt/)
+  assert.match(hint.reasons[0], /Datenstand nicht bestätigt/)
 })

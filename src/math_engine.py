@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 HOST_NATIONS = {"United States", "Canada", "Mexico"}
 HOST_ELO_BONUS = 80
 DEFAULT_ELO = 1500.0
+LEGACY_DC_POLICY = "legacy"
+CLUB_DC_POLICY = "clubs"
 
 
 class MathEngine:
@@ -227,12 +229,22 @@ class MathEngine:
             self.elo_df.to_csv(self.elo_csv_path, index=False)
 
     @staticmethod
-    def derive_xg_from_odds(prob_home: float, prob_draw: float, prob_away: float, prob_over25: float = None) -> tuple[float, float]:
+    def derive_xg_from_odds(
+        prob_home: float,
+        prob_draw: float,
+        prob_away: float,
+        prob_over25: float = None,
+        *,
+        dc_policy: str = LEGACY_DC_POLICY,
+    ) -> tuple[float, float]:
         """
         Derives Expected Goals (xG) for home and away teams by minimizing the difference
         between bookmaker probabilities and Poisson-derived probabilities.
         prob_over25 is optional — omit when totals market data is unavailable.
         """
+        if dc_policy not in {LEGACY_DC_POLICY, CLUB_DC_POLICY}:
+            raise ValueError(f"Unknown Dixon-Coles policy: {dc_policy}")
+
         def cost_function(lambdas):
             l_home, l_away = lambdas
 
@@ -244,8 +256,12 @@ class MathEngine:
 
             rho = -0.15
             prob_matrix[0, 0] *= 1 - (l_home * l_away * rho)
-            prob_matrix[1, 0] *= 1 + (l_home * rho)
-            prob_matrix[0, 1] *= 1 + (l_away * rho)
+            if dc_policy == CLUB_DC_POLICY:
+                prob_matrix[1, 0] *= 1 + (l_away * rho)
+                prob_matrix[0, 1] *= 1 + (l_home * rho)
+            else:
+                prob_matrix[1, 0] *= 1 + (l_home * rho)
+                prob_matrix[0, 1] *= 1 + (l_away * rho)
             prob_matrix[1, 1] *= 1 - rho
 
             prob_matrix = prob_matrix / np.sum(prob_matrix)
@@ -282,7 +298,14 @@ class MathEngine:
         return float(result.x[0]), float(result.x[1])
 
     @staticmethod
-    def generate_exact_score_matrix(lambda_home: float, lambda_away: float, max_goals: int = 5, rho: float = -0.15) -> pd.DataFrame:
+    def generate_exact_score_matrix(
+        lambda_home: float,
+        lambda_away: float,
+        max_goals: int = 5,
+        rho: float = -0.15,
+        *,
+        dc_policy: str = LEGACY_DC_POLICY,
+    ) -> pd.DataFrame:
         """
         Generates a matrix of exact score probabilities using independent Poisson distributions,
         adjusted with the Dixon-Coles method for low-scoring draws.
@@ -294,10 +317,17 @@ class MathEngine:
         # Joint probability matrix
         prob_matrix = np.outer(prob_home, prob_away)
         
+        if dc_policy not in {LEGACY_DC_POLICY, CLUB_DC_POLICY}:
+            raise ValueError(f"Unknown Dixon-Coles policy: {dc_policy}")
+
         # Dixon-Coles adjustment
         tau_00 = 1 - (lambda_home * lambda_away * rho)
-        tau_10 = 1 + (lambda_home * rho)
-        tau_01 = 1 + (lambda_away * rho)
+        if dc_policy == CLUB_DC_POLICY:
+            tau_10 = 1 + (lambda_away * rho)
+            tau_01 = 1 + (lambda_home * rho)
+        else:
+            tau_10 = 1 + (lambda_home * rho)
+            tau_01 = 1 + (lambda_away * rho)
         tau_11 = 1 - rho
         
         prob_matrix[0, 0] *= tau_00

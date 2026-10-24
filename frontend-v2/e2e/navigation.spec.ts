@@ -1,4 +1,4 @@
-import { test, expect, fixture } from './fixtures'
+import { test, expect, enterEditorKey, fixture } from './fixtures'
 
 test('competition is reachable in the header without opening a menu', async ({ page, api: _api }, testInfo) => {
   await page.goto('/#/')
@@ -67,6 +67,7 @@ test('saving a direct tip advances to the next game', async ({ page, api }) => {
   await page.getByRole('spinbutton', { name: 'Tore Bayern Munich', exact: true }).fill('3')
   await page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('0')
   await page.getByRole('button', { name: 'Speichern & nächstes Spiel', exact: true }).click()
+  await enterEditorKey(page, api.validEditorKey)
   await expect(page.getByRole('spinbutton', { name: 'Tore Borussia Mönchengladbach', exact: true })).toBeFocused()
   expect(api.saves).toEqual([{ match_id: 'ucl-next', user_tip: '3:0', competition: 'ucl2026' }])
 })

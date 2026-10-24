@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { cn } from '../../lib/util'
 import { shortDate } from '../../lib/format'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PointsBadge, TeamLogo } from '../../components/shared/Badges'
 import { performanceEntryKind } from '../../lib/performance.mjs'
+import { useSaveUserTip } from '../../hooks/queries'
+import { useAppState } from '../../state/AppState'
+import { normalizeScoreTip } from '../../lib/matchday-assistant.mjs'
 import type { CompletedMatch } from './usePerformanceData'
 
 type Filter = 'all' | 'hit' | 'miss' | 'notipped'
@@ -93,10 +96,17 @@ export function MatchHistory({ completed, hasReconstructed }: {
 
 function MatchCard({ cm }: { cm: CompletedMatch }) {
   const { entry, points } = cm
+  const { competition } = useAppState()
+  const save = useSaveUserTip()
   const userTip = entry.prediction?.user_tip ?? null
+  const [draft, setDraft] = useState(userTip ?? '')
+  useEffect(() => { setDraft(userTip ?? '') }, [userTip])
+  const normalized = normalizeScoreTip(draft)
+  const changed = normalized !== normalizeScoreTip(userTip)
+  const historical = ['shared_historical', 'manual_historical'].includes(entry.prediction?.user_tip_source ?? '')
   const modelKind = performanceEntryKind(entry)
-  const modelLabel = modelKind === 'verified' ? 'Modell · vorab belegt' : modelKind === 'reconstructed' ? 'Modell · rekonstruiert*' : 'Modell · Vorabstand unbelegt'
-  const modelTip = entry.prediction?.top_tip ?? null
+  const modelLabel = entry.prediction?.algo_tip_source === 'saved_cache' ? 'Modell · gespeicherter Tipp' : modelKind === 'verified' ? 'Modell · vorab belegt' : modelKind === 'reconstructed' ? 'Modell · rekonstruiert*' : 'Modell · Vorabstand unbelegt'
+  const modelTip = entry.prediction?.top_tip ?? entry.prediction?.model_tip ?? null
   const date = entry.metadata?.commence_time
     ? shortDate(entry.metadata.commence_time)
     : shortDate(entry.pre_match_snapshot?.timestamp_recorded ?? null)
@@ -121,7 +131,23 @@ function MatchCard({ cm }: { cm: CompletedMatch }) {
           tip={modelTip}
           points={entry.post_match_result.algo_points}
         />
-        <HistoryTipRow label={entry.prediction?.user_tip_source === 'shared_historical' ? 'Gemeinsamer Tipp · historisch importiert' : 'Gemeinsamer Tipp'} tip={userTip} points={userTip ? points : null} />
+        <HistoryTipRow label={historical ? 'Dein Tipp · nachgetragen' : 'Dein Tipp'} tip={userTip} points={userTip ? points : null} />
+        <form className="flex flex-wrap items-end gap-2 border-t border-line py-3" onSubmit={event => {
+          event.preventDefault()
+          if (normalized && changed && !save.isPending) save.mutate({matchId: cm.id, tip: normalized, historical: true, targetCompetition: competition})
+        }}>
+          <label className="min-w-0 flex-1 text-xs text-fg-2">
+            <span className="sr-only">Dein Tipp für {entry.metadata.home_team} gegen {entry.metadata.away_team}</span>
+            <input type="text" inputMode="text" autoComplete="off" maxLength={5} placeholder="z. B. 2:1" value={draft}
+              onChange={event => { setDraft(event.target.value); save.reset() }} disabled={save.isPending}
+              aria-invalid={Boolean(draft) && !normalized}
+              className="min-h-11 w-full rounded-lg border border-line-2 bg-surface-2 px-3 text-center font-mono text-base font-bold text-fg" />
+          </label>
+          <button type="submit" disabled={!normalized || !changed || save.isPending} className="min-h-11 rounded-lg bg-emerald-a px-3 text-xs font-semibold text-on-action disabled:opacity-50">{save.isPending ? 'Speichert …' : 'Speichern'}</button>
+        </form>
+        <p className="pb-2 text-xs text-fg-3">Nachträgliche Eingabe · für alle sichtbar · zählt nicht zum Vorab-Vergleich.</p>
+        {save.isError && <p role="alert" className="pb-2 text-xs text-red-a">Speichern fehlgeschlagen. Bitte neu laden und erneut versuchen.</p>}
+        {save.isSuccess && <p role="status" className="pb-2 text-xs text-emerald-a">Nachtrag gespeichert · {save.data?.points_earned ?? 0} Punkte</p>}
       </div>
     </article>
   )

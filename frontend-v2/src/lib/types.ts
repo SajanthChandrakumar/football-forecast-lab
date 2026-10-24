@@ -38,6 +38,20 @@ export interface TeamFormMatch {
   score: string
   result: 'W' | 'D' | 'L'
   provider?: string
+  provider_namespace?: string
+  identity_verified?: boolean
+  home_id?: string
+  home_team?: string
+  home_logo?: string | null
+  away_id?: string
+  away_team?: string
+  away_logo?: string | null
+  competition_id?: string
+  competition_kind?: 'league' | 'cup' | 'europe'
+  result_type?: 'FT' | 'AET' | 'PEN'
+  score_90?: { home: number; away: number }
+  score_aet?: { home: number; away: number }
+  penalties?: { home: number; away: number }
 }
 
 export interface PlayerFormEntry {
@@ -60,11 +74,13 @@ export interface PlayerForm {
 export interface TeamForm {
   form: ('W' | 'D' | 'L')[]
   on_fire: boolean
-  scope?: 'league'
+  scope?: 'league' | 'all_competitions'
   status?: TeamFormStatus
   source?: string
   observed_at?: string | null
   error?: string | null
+  coverage?: { available: number; required: number; complete: boolean }
+  validation_version?: string
   matches?: TeamFormMatch[]
   player_form?: PlayerForm
 }
@@ -143,6 +159,10 @@ export interface Match {
   odds_provenance?: Record<string, unknown>
   probabilities?: Probabilities | null
   base_probabilities?: Probabilities | null
+  matrix?: Record<number, Record<number, number>>
+  regulation_matrix?: Record<number, Record<number, number>>
+  probability_basis?: 'regulation' | string
+  matrix_basis?: 'regulation' | 'after_extra_time' | string
   frozen_at?: string | null
   top_tip: string
   model_tip?: string | null
@@ -156,6 +176,14 @@ export interface Match {
   model_version?: string | null
   input_provenance?: Record<string, unknown>
   provenance?: Record<string, unknown>
+  evaluation_forecast?: {
+    frozen_at?: string | null
+    captured_at?: string | null
+    capture_source?: string | null
+    model_version?: string | null
+    probabilities?: Probabilities | { model?: Probabilities }
+    input_provenance?: Record<string, unknown>
+  }
   xg_home?: number | null
   xg_away?: number | null
   context?: MatchContext
@@ -221,6 +249,9 @@ export interface Prediction {
   probabilities?: Probabilities | null
   /** Dict-of-dicts keyed by home/away goal count (backend serializes the DataFrame). */
   matrix?: Record<number, Record<number, number>>
+  regulation_matrix?: Record<number, Record<number, number>>
+  probability_basis?: 'regulation' | string
+  matrix_basis?: 'regulation' | 'after_extra_time' | string
   xp_tips?: XpTip[]
 }
 
@@ -252,11 +283,20 @@ export interface ArchiveEntry {
     input_provenance?: Record<string, unknown>
     provenance?: Record<string, unknown>
     probabilities?: Probabilities | null
+    max_prob?: number
+    xg_home?: number | null
+    xg_away?: number | null
+    matrix?: Record<number, Record<number, number>>
+    regulation_matrix?: Record<number, Record<number, number>>
+    probability_basis?: 'regulation' | string
+    matrix_basis?: 'regulation' | 'after_extra_time' | string
+    xp_tips?: XpTip[]
     base_probabilities?: Probabilities | null
     frozen_at?: string | null
     user_tip?: string | null
     user_tip_source?: string
     algo_reconstructed?: boolean
+    algo_tip_source?: string
     bots?: Partial<Record<BotKey, BotTip>>
   }
   post_match_result: {
@@ -372,6 +412,7 @@ export interface UclSimulation {
   reason?: string
   runs?: number
   n_runs: number
+  model_version?: string
   seed?: number
   table_version?: string
   coefficient_version?: string
@@ -384,6 +425,17 @@ export interface UclSimulation {
   results: UclSimulationTeam[]
   bracket?: Record<string, unknown>
 }
+
+export interface UclSimulationProcessing {
+  status: 'processing'
+  n_runs: number
+  runs?: number
+  model_version?: string
+  retry_after?: number
+  timed_out?: boolean
+}
+
+export type UclSimulationResponse = UclSimulation | UclSimulationProcessing
 
 export interface StandingsRow {
   pos?: number
@@ -406,6 +458,22 @@ export interface StandingsGroup {
 }
 
 export interface ModelEvaluation {
+  capture_status?: {
+    status: string | null
+    last_run_at: string | null
+    last_successful_at?: string | null
+    next_capture_at: string | null
+    interval_seconds: number | null
+    error?: string | null
+  }
+  maintenance_status?: {
+    status: 'success' | 'partial' | 'failed' | null
+    last_run_at: string | null
+    last_successful_at: string | null
+    next_due_at: string | null
+    interval_seconds: number | null
+    error?: string | null
+  }
   competition: CompetitionId
   completed_count: number
   captured_count: number

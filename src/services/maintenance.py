@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import math
 from uuid import uuid4
+from threading import Event, Thread
 
 from src.competitions import collection_for, competition_document_id, find_competition_document, get_competition
 from src.constants import DISPLAY_MAPPING, TEAM_MAPPING, _is_ko_round
@@ -30,6 +31,48 @@ FIXTURE_LIVE_INTERVAL = timedelta(minutes=15)
 MANUAL_REFRESH_COOLDOWN = 60
 
 
+def run_tracked_maintenance(cache_collections, odds_provider, **kwargs):
+    """Record scheduler health without treating attempts as successful refreshes."""
+    comp = get_competition(kwargs.get("competition"))
+    if not comp.is_club_competition:
+        return run_maintenance(cache_collections, odds_provider, **kwargs)
+    cache = collection_for(cache_collections, comp)
+    current = parse_time(kwargs.get("now") or datetime.now(timezone.utc))
+    state = {"last_run_at": current.isoformat(), "interval_seconds": 60,
+             "next_due_at": (current + timedelta(seconds=60)).isoformat()}
+    try:
+        result = run_maintenance(cache_collections, odds_provider, **kwargs)
+        if result.get("reason") in {"lease_held", "cooldown"}:
+            return result
+        incomplete = any(
+            isinstance(value, dict) and value.get("status") in {"failed", "stale", "unavailable"}
+            for key, value in result.items() if key.endswith("_status")
+        )
+        failed = result.get("status") in {"failed", "skipped"} or incomplete
+        state.update({"status": "partial" if failed else "success",
+                      "error": "Mindestens eine Quelle konnte nicht aktualisiert werden." if failed else None,
+                      "provider_calls": result.get("provider_calls", 0)})
+        if not failed:
+            state["last_successful_at"] = current.isoformat()
+        return result
+    except Exception:
+        state.update({"status": "failed", "error": "Wartung fehlgeschlagen; gespeicherte Daten bleiben erhalten."})
+        raise
+    finally:
+        if "status" in state:
+            cache.update_one({"_id": competition_document_id(comp, "maintenance_status")}, {"$set": state}, upsert=True)
+
+
+def _recent_club_form(cache, comp, current):
+    state = find_competition_document(cache, comp, "team_form_sync") or {}
+    try:
+        elapsed = current - parse_time(state.get("last_attempt_at"))
+    except (TypeError, ValueError):
+        return None
+    interval = timedelta(days=1) if state.get("status") == "fresh" else timedelta(hours=1)
+    return state if timedelta(0) <= elapsed < interval else None
+
+
 def run_maintenance(
     cache_collections,
     odds_provider,
@@ -40,6 +83,7 @@ def run_maintenance(
     force: bool = False,
     allow_force_capture: bool = False,
     manual: bool = False,
+    results_only: bool = False,
     lease_seconds: int = LEASE_SECONDS,
     fixture_fetcher=None,
     clubelo_ingestor=None,
@@ -114,6 +158,19 @@ def run_maintenance(
     clubelo_status = None
     team_form_status = None
     match_intelligence_status = None
+    stop_heartbeat = Event()
+    heartbeat = None
+    if now is None and comp.is_club_competition:
+        def renew_lease():
+            while not stop_heartbeat.wait(max(1, min(60, lease_seconds / 3))):
+                try:
+                    _renew_maintenance_lease(cache_collection, lease_id, lease_token,
+                        datetime.now(timezone.utc), lease_seconds)
+                except Exception:
+                    # The main job reports storage failures; heartbeat never creates a lease.
+                    pass
+        heartbeat = Thread(target=renew_lease, name="club-maintenance-lease", daemon=True)
+        heartbeat.start()
     try:
         if manual:
             cooldown_id = competition_document_id(comp, "manual_refresh_state")
@@ -139,21 +196,43 @@ def run_maintenance(
             captured = capture_evaluation()
             return {"status": "noop", "reason": "force_disabled", "provider_calls": 0,
                     "mutated": bool(captured), "evaluation_captured": captured}
-        if comp.id == "ucl2026":
+        if results_only:
+            fixture_status = _recent_club_fixtures(cache_collection, comp, current)
+            if fixture_status is None:
+                fixture_status = _refresh_fixtures(
+                    cache_collection, comp, fixture_fetcher, current,
+                    manual=True, observed_at_fn=observation_time,
+                )
+            fixtures = _fixtures(cache_collection, comp)
+            archived_results = _sync_completed_results(
+                collection_for(archive_collections, comp), fixtures, comp,
+            ) if archive_collections is not None else 0
+            cache_collection.update_one(
+                {"_id": competition_document_id(comp, "result_sync_status")},
+                {"$set": {"status": fixture_status["status"], "last_run_at": observation_time().isoformat(),
+                          "observed_at": fixture_status.get("observed_at"), "archived_results": archived_results}}, upsert=True,
+            )
+            return {"status": fixture_status["status"], "fixture_status": fixture_status,
+                    "provider_calls": 0, "archived_results": archived_results,
+                    "mutated": bool(archived_results or fixture_status.get("changed"))}
+        if comp.is_club_competition:
             team_form_status = {"status": "unavailable", "source": "api_football", "error": "team form service unavailable"}
             if team_form_service is not None:
                 try:
-                    team_form_status = team_form_service.refresh_daily(now=current)
-                    if hasattr(team_form_service, "refresh_history_depth"):
-                        team_form_status["history_backfill"] = team_form_service.refresh_history_depth(now=current)
+                    if hasattr(team_form_service, "refresh_all_competitions"):
+                        team_form_status = (None if manual else _recent_club_form(cache_collection, comp, current)) or team_form_service.refresh_all_competitions(now=current)
+                    else:
+                        team_form_status = team_form_service.refresh_daily(now=current)
+                        if hasattr(team_form_service, "refresh_history_depth"):
+                            team_form_status["history_backfill"] = team_form_service.refresh_history_depth(now=current)
                 except Exception as exc:
                     team_form_status = {"status": "stale", "source": "api_football", "error": str(exc), "observed_at": current.isoformat()}
         standings_status = None
         if comp.id == "epl2026" and standings_fetcher is not None:
-            standings_status = _refresh_standings(cache_collection, comp, standings_fetcher, current, manual=manual, observed_at_fn=observation_time if manual else None)
+            standings_status = _refresh_standings(cache_collection, comp, standings_fetcher, current, manual=manual, observed_at_fn=observation_time if now is None else None)
         if fixture_fetcher is not None:
             cached_fixture_status = None if manual else _recent_club_fixtures(cache_collection, comp, current)
-            fixture_status = cached_fixture_status or _refresh_fixtures(cache_collection, comp, fixture_fetcher, current, manual=manual, observed_at_fn=observation_time if manual else None)
+            fixture_status = cached_fixture_status or _refresh_fixtures(cache_collection, comp, fixture_fetcher, current, manual=manual, observed_at_fn=observation_time if now is None else None)
         if comp.is_club_competition and clubelo_ingestor is not None:
             cached_ratings = None if manual else _recent_club_ratings(cache_collection, comp, current)
             if comp.id == "ucl2026" and fixture_status.get("changed"):
@@ -163,10 +242,10 @@ def run_maintenance(
                 if not coverage or coverage.get("missing") or coverage.get("required") != coverage.get("available"):
                     cached_ratings = None
             clubelo_status = cached_ratings or clubelo_ingestor(
-                cache_collection, competition=comp, observed_at=None if manual and now is None else current,
+                cache_collection, competition=comp, observed_at=None if now is None else current,
             )
         fixtures = _fixtures(cache_collection, comp)
-        if comp.id == "epl2026" and team_form_service is not None and fixture_status.get("status") == "fresh":
+        if comp.id == "epl2026" and team_form_service is not None and not hasattr(team_form_service, "refresh_all_competitions") and fixture_status.get("status") == "fresh":
             seeded = find_competition_document(cache_collection, comp, "league_form_seed") or {}
             fixture_observed_at = fixture_status.get("observed_at")
             if fixture_status.get("changed") or seeded.get("fixture_observed_at") != fixture_observed_at:
@@ -193,7 +272,7 @@ def run_maintenance(
         if comp.is_club_competition and match_intelligence_refresher is not None:
             try:
                 match_intelligence_status = match_intelligence_refresher(
-                    cache_collection, fixtures, now=None if manual and now is None else current, competition=comp, **({"manual": True} if manual else {}),
+                    cache_collection, fixtures, now=None if now is None else current, competition=comp, **({"manual": True} if manual else {}),
                 )
             except Exception as exc:
                 match_intelligence_status = {
@@ -204,28 +283,11 @@ def run_maintenance(
         reconstructed_results = 0
         snapshot_predictions = 0
         predictions_updated = 0
-        rows = (clubelo_status or {}).get("rows") or []
-        if comp.id == "ucl2026" and math_engine is not None and rows:
-            import pandas as pd
-            math_engine.elo_df = pd.DataFrame(rows)
+        # Club ratings remain competition-scoped. Never replace the shared WM
+        # engine table or rebuild completed historical predictions during sync.
         if archive_collections is not None:
             archive_collection = collection_for(archive_collections, comp)
-            archived_results = _sync_completed_results(
-                archive_collection, fixtures, comp
-            )
-            if comp.id == "ucl2026" and math_engine is not None:
-                archive = load_archive_from_db(archive_collection, force=True)
-                changed_entries = {}
-                reconstructed_results, snapshot_predictions = _reconstruct_completed_entries(
-                    PredictionService(math_engine),
-                    archive,
-                    changed_entries,
-                    MathEngine,
-                    comp,
-                    cache_collection=cache_collection,
-                )
-                for match_id, entry in changed_entries.items():
-                    upsert_archive_entry(archive_collection, match_id, entry)
+            archived_results = _sync_completed_results(archive_collection, fixtures, comp)
         due_by_event = {}
         all_due = []
         bucket_document = find_competition_document(cache_collection, comp, "odds_bucket_state") or {}
@@ -309,7 +371,7 @@ def run_maintenance(
                 **({"standings_status": standings_status} if standings_status is not None else {}),
             }
 
-        if manual:
+        if now is None:
             current = observation_time()
         lookup = _quote_lookup(quotes)
         if comp.is_club_competition:
@@ -378,7 +440,16 @@ def run_maintenance(
             **({"standings_status": standings_status} if standings_status is not None else {}),
         }
     finally:
+        stop_heartbeat.set()
+        if heartbeat is not None:
+            heartbeat.join(timeout=1)
         cache_collection.delete_one({"_id": lease_id, "lease_token": lease_token})
+
+
+def _renew_maintenance_lease(cache, lease_id, token, current, seconds):
+    result = cache.update_one({"_id": lease_id, "lease_token": token},
+        {"$set": {"lease_until": (current + timedelta(seconds=seconds)).isoformat()}}, upsert=False)
+    return bool(getattr(result, "matched_count", 0))
 
 
 def _freeze_due_forecasts(cache_collection, archive_collections, math_engine, competition, now) -> int:
@@ -481,7 +552,7 @@ def _recent_club_fixtures(cache_collection, competition, current):
     live = any(
         not fixture.get("completed")
         and (kickoff := parse_time(fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")))
-        and kickoff - timedelta(hours=1) <= current <= kickoff + timedelta(hours=6)
+        and kickoff - timedelta(hours=1) <= current
         for fixture in fixtures if fixture.get("commence_time") or (fixture.get("raw_match") or {}).get("commence_time")
     )
     interval = FIXTURE_LIVE_INTERVAL if live else DISCOVERY_INTERVAL
@@ -527,6 +598,7 @@ def _persist_club_predictions(cache_collection, competition, math_engine, clubel
         "source", "observed_at", "source_mode", "model_version", "input_provenance",
         "provenance", "xg_home", "xg_away", "probabilities", "matrix", "score_matrix", "max_xp",
         "context", "match_context", "elo_home_share", "market_home_share", "edge_home",
+        "regulation_matrix", "matrix_basis", "probability_basis",
     )
     originals = {
         str(match.get("id") or match.get("event_id")): dict(match)
@@ -601,10 +673,12 @@ def _discovery_due(cache_collection, competition, current: datetime) -> bool:
         return False
     document = find_competition_document(cache_collection, comp, "odds_discovery_state") or {}
     try:
-        observed_at = parse_time(document.get("observed_at"))
+        observed_at = parse_time(document.get("last_attempt_at") if document.get("status") == "failed" else document.get("observed_at"))
     except (TypeError, ValueError):
         return True
-    return current - observed_at >= DISCOVERY_INTERVAL
+    elapsed = current - observed_at
+    interval = timedelta(hours=1) if document.get("status") == "failed" else DISCOVERY_INTERVAL
+    return elapsed < timedelta(0) or elapsed >= interval
 
 
 def _record_discovery(cache_collection, competition, current: datetime, status: str, *, events: int = 0, error: str | None = None) -> None:
@@ -615,7 +689,8 @@ def _record_discovery(cache_collection, competition, current: datetime, status: 
             "competition": comp.id,
             "source": "odds_api",
             "status": status,
-            "observed_at": current.isoformat(),
+            "last_attempt_at": current.isoformat(),
+            **({"observed_at": current.isoformat(), "last_successful_at": current.isoformat()} if status == "fresh" else {}),
             "events": events,
             "error": error,
         }},
@@ -671,7 +746,7 @@ def _refresh_fixtures(cache_collection, competition, fetcher, current, *, manual
             continue
         match = dict(existing.get(event_id) or {})
         match.update({key: fixture.get(key) for key in (
-            "id", "home_team", "away_team", "home_logo", "away_logo",
+            "id", "home_team", "away_team", "home_team_id", "away_team_id", "provider_namespace", "home_logo", "away_logo",
             "commence_time", "round", "completed", "actual_score",
         ) if key in fixture})
         raw_match = dict(match.get("raw_match") or {})
@@ -835,9 +910,30 @@ def _sync_completed_results(archive_collection, fixtures, competition) -> int:
         })
         prediction = dict(existing.get("prediction") or {"top_tip": None, "max_xp": None})
         post = dict(existing.get("post_match_result") or {})
-        if post.get("status") == "completed" and post.get("actual_score") == actual_score:
-            continue
         algo_tip = prediction.get("top_tip") or prediction.get("model_tip")
+        if not algo_tip:
+            # Preserve an actual saved value, never recalculate a historical prediction.
+            try:
+                from src.services.input_validation import bounded_score
+                cached_tip = bounded_score(fixture.get("model_tip") or fixture.get("top_tip"))
+                observed = parse_time(fixture.get("observed_at"))
+                kickoff = parse_time(fixture.get("commence_time"))
+                eligible = (observed < kickoff and fixture.get("source_mode") in {"odds+elo", "elo-only", "odds-only"})
+            except (TypeError, ValueError):
+                eligible = False
+            if eligible:
+                recovered = {"top_tip": cached_tip, "model_tip": cached_tip, "algo_tip_source": "saved_cache",
+                             "algo_tip_recovered_at": datetime.now(timezone.utc).isoformat(),
+                             "algo_tip_input_observed_at": observed.isoformat()}
+                if existing:
+                    archive_collection.update_one(
+                        {"_id": event_id, "prediction.top_tip": {"$in": [None, ""]}, "prediction.model_tip": {"$in": [None, ""]}},
+                        {"$set": {f"prediction.{key}": value for key, value in recovered.items()}}, upsert=False,
+                    )
+                    prediction = dict((archive_collection.find_one({"_id": event_id}) or {}).get("prediction") or {})
+                else:
+                    prediction.update(recovered)
+                algo_tip = prediction.get("top_tip") or prediction.get("model_tip")
         user_tip = prediction.get("user_tip")
         bots = prediction.get("bots") or {}
         post.update({
@@ -850,18 +946,28 @@ def _sync_completed_results(archive_collection, fixtures, competition) -> int:
                 for name, info in bots.items() if info.get("tip")
             },
         })
-        archive_collection.update_one(
-            {"_id": event_id},
+        previous_post = existing.get("post_match_result") or {}
+        if get_competition(competition).is_club_competition and previous_post.get("status") == "completed":
+            # A model release must not re-grade already stored historical points.
+            for field in ("actual_score", "points_earned", "algo_points"):
+                if previous_post.get(field) is not None:
+                    post[field] = previous_post[field]
+            post["bot_points"].update(previous_post.get("bot_points") or {})
+        if post == (existing.get("post_match_result") or {}) and metadata == (existing.get("metadata") or {}):
+            continue
+        result_write = archive_collection.update_one(
+            {"_id": event_id, **({"prediction.user_tip": prediction.get("user_tip"), "prediction.top_tip": prediction.get("top_tip")} if existing else {})},
             {"$set": {
                 "competition": get_competition(competition).id,
                 "metadata": metadata,
-                "pre_match_snapshot": existing.get("pre_match_snapshot"),
-                "prediction": prediction,
                 "post_match_result": post,
+            }, "$setOnInsert": {
+                "prediction": prediction,
+                "pre_match_snapshot": existing.get("pre_match_snapshot"),
             }},
-            upsert=True,
+            upsert=not bool(existing),
         )
-        changed += 1
+        changed += int(bool(getattr(result_write, "matched_count", 1)) or getattr(result_write, "upserted_id", None) is not None)
     if changed:
         invalidate_archive_mem_cache(archive_collection)
     return changed

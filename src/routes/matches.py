@@ -1,6 +1,7 @@
 import time
 import logging
 import math
+from copy import deepcopy
 from collections.abc import Mapping
 from datetime import datetime, timezone, timedelta
 
@@ -25,6 +26,8 @@ from src.services.prediction import PredictionService, infer_stage
 from src.services.ucl_simulation import _normalised_matrix_dict
 from src.services.match_intelligence import attach_cached_match_intelligence, cached_match_intelligence
 from src.services.input_validation import bounded_match_id
+from src.services.source_freshness import source_status
+from src.services.prediction_cache import cached_prediction
 from src.math_engine import MathEngine
 
 logger = logging.getLogger(__name__)
@@ -127,7 +130,7 @@ def build_elo_snapshot(math_engine, home_team: str, away_team: str, competition=
     return {"home_rating": values[0], "away_rating": values[1]}
 
 
-def _sync_archive_tips(matches, archive, archive_collection):
+def _sync_archive_tips(matches, archive, archive_collection, *, persist_pending=True):
     """Reconcile dashboard tips with the archive.
 
     Pending matches: the archive follows the latest recalculation (prediction
@@ -149,7 +152,7 @@ def _sync_archive_tips(matches, archive, archive_collection):
                 m["top_tip"] = frozen
                 m["model_tip"] = prediction.get("model_tip") or frozen
                 m["max_xp"] = float(prediction.get("max_xp") or 0)
-                for key in ("pool_tip", "pool_status", "source_mode", "status", "source_status", "source", "observed_at"):
+                for key in ("pool_tip", "pool_status", "source_mode", "status", "source_status", "source", "observed_at", "model_version"):
                     if key in prediction:
                         m[key] = prediction[key]
                     elif key in snapshot:
@@ -175,6 +178,8 @@ def _sync_archive_tips(matches, archive, archive_collection):
                             m[key] = archived_context[key]
             continue
 
+        if not persist_pending or entry["prediction"].get("frozen_at") or entry["prediction"].get("evaluation_forecast"):
+            continue
         tip = m.get("top_tip")
         if not tip or tip == "N/A":
             continue
@@ -260,13 +265,14 @@ def _present_cached_matches(
         return cached_data if isinstance(cached_data, list) else _unavailable_matches()
     comp = get_competition(competition)
     if comp.is_club_competition:
+        cached_data = deepcopy(cached_data)
         # Predictions and matrices are persisted by maintenance. Enrich only
         # legacy or incomplete open fixtures; reads do not persist that work.
         needs_enrichment = [
             dict(match) for match in cached_data
             if isinstance(match, dict)
             and not _is_completed_match(match)
-            and not _has_complete_ucl_prediction(match)
+            and (not _has_complete_ucl_prediction(match) or match.get("model_version") != "prediction-club-v2")
         ]
     else:
         needs_enrichment = [dict(match) if isinstance(match, dict) else match for match in cached_data]
@@ -293,11 +299,41 @@ def _present_cached_matches(
         presented_data = _apply_cached_club_forms(presented_data, team_form_service)
         presented_data = attach_cached_match_intelligence(presented_data, cache_store, comp)
     archive = load_archive_from_db(archive_store, force=True)
-    return _sync_archive_tips(
+    return _apply_club_source_status(_sync_archive_tips(
         presented_data,
         archive,
         archive_store,
-    )
+        persist_pending=not comp.is_club_competition,
+    ), comp)
+
+
+def _apply_club_source_status(matches, competition, *, now=None):
+    if not get_competition(competition).is_club_competition:
+        return matches
+    rows = deepcopy(matches)
+    for row in rows:
+        if not isinstance(row, dict) or _is_completed_match(row):
+            continue
+        provenance = row.get("input_provenance") or row.get("provenance") or {}
+        if not provenance:
+            if row.get("status") == "fresh" or row.get("source_status") == "fresh":
+                row["status"] = row["source_status"] = "stale"
+            continue
+        statuses = []
+        for key in ("odds", "elo"):
+            metadata = provenance.get(key)
+            if not isinstance(metadata, dict):
+                continue
+            metadata["status"] = source_status(metadata.get("status"), metadata.get("observed_at"), now=now)
+            if metadata["status"] not in {"failed", "unavailable"}:
+                statuses.append(metadata["status"])
+        if statuses:
+            row["status"] = row["source_status"] = "stale" if "stale" in statuses else "fresh"
+        elif row.get("status") == "fresh" or row.get("source_status") == "fresh":
+            row["status"] = row["source_status"] = "stale"
+        row["input_provenance"] = provenance
+        row["provenance"] = deepcopy(provenance)
+    return rows
 
 
 def _is_completed_match(match):
@@ -348,6 +384,11 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
         if comp.is_club_competition and pool_context_collection is not None
         else None
     )
+    pool_documents = None
+    if comp.is_club_competition and pool_context_collection is not None:
+        ids = [competition_document_id(comp, f"pool_context:{match.get('id')}")
+               for match in matches if isinstance(match, dict) and not _is_completed_match(match)]
+        pool_documents = {document["_id"]: document for document in pool_context_collection.find({"_id": {"$in": ids}})} if ids else {}
     for m in matches:
         raw_match = m.get("raw_match") or {}
         round_name = raw_match.get("round", m.get("round", "")) if isinstance(raw_match, dict) else m.get("round", "")
@@ -382,7 +423,9 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
             if comp.id == "wc2026":
                 context.setdefault("is_ko", m.get("is_ko_phase", False))
             pool_document = {}
-            if pool_context_collection is not None:
+            if pool_documents is not None:
+                pool_document = pool_documents.get(competition_document_id(comp, f"pool_context:{m.get('id')}"), {})
+            elif pool_context_collection is not None:
                 pool_document = find_competition_document(
                     pool_context_collection, comp, f"pool_context:{m.get('id')}"
                 ) or {}
@@ -393,10 +436,13 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
                 "observed_at": m.get("odds_observed_at"),
                 "provenance": m.get("odds_provenance") or {},
             } if odds else None)
-            prediction = prediction_service.predict(
+            if comp.is_club_competition:
+                for source in (odds_input, elo_state):
+                    if isinstance(source, dict):
+                        source["status"] = source_status(source.get("status"), source.get("observed_at"))
+            prediction = cached_prediction(prediction_service, comp,
                 odds=odds_input,
                 elo=elo_state,
-                competition=comp,
                 context=context,
                 field_counts=pool_document.get("tip_counts"),
                 user_points=pool_document.get("user_points", 0),
@@ -421,6 +467,9 @@ def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_conte
                 "xg_away": prediction.get("xg_away"),
                 "probabilities": prediction.get("probabilities"),
                 "matrix": prediction.get("matrix", m.get("matrix", {})),
+                **({"regulation_matrix": prediction.get("regulation_matrix"),
+                    "matrix_basis": prediction.get("matrix_basis"),
+                    "probability_basis": prediction.get("probability_basis")} if comp.is_club_competition else {}),
                 "max_xp": float(prediction.get("max_xp") or 0.0),
                 "context": prediction.get("context") or context,
                 "match_context": prediction.get("context") or context,

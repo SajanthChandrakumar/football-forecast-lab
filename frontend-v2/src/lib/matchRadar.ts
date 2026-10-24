@@ -1,4 +1,5 @@
 import { buildMatchHint, type MatchHint } from './matchHint.ts'
+import { modelInputFreshness } from './match-freshness.mjs'
 import type { Match } from './types.ts'
 
 export type RadarCategory = 'safe' | 'open' | 'surprise'
@@ -23,8 +24,9 @@ function displayName(team: string, display?: string): string {
   return display?.replace(/^\p{RI}\p{RI}\s*/u, '') || team
 }
 
-function classify(match: Match): RadarMatch {
-  const hint = buildMatchHint(match)
+function classify(match: Match, now: number, requireFreshInputs: boolean): RadarMatch {
+  const freshness = requireFreshInputs ? modelInputFreshness(match, now) : { status: 'fresh' as const, message: '' }
+  const hint = buildMatchHint(match, now, requireFreshInputs)
   const edge = match.edge_home
   const hasComparison = match.odds
     && Number.isFinite(match.elo_home_share)
@@ -32,24 +34,26 @@ function classify(match: Match): RadarMatch {
     && typeof edge === 'number'
     && Number.isFinite(edge)
 
-  if (hasComparison && Math.abs(edge) >= SURPRISE_EDGE) {
+  if (freshness.status === 'fresh' && hasComparison && Math.abs(edge) >= SURPRISE_EDGE) {
     const team = edge > 0
       ? displayName(match.home_team, match.home_disp)
       : displayName(match.away_team, match.away_disp)
     return { match, hint, category: 'surprise', reason: `${team} wird vom Modell stärker eingeschätzt als vom Markt.` }
   }
 
-  if (hint.confidence === 'high') {
+  if (freshness.status === 'fresh' && hint.confidence === 'high') {
     return { match, hint, category: 'safe', reason: hint.summary }
   }
 
-  const reason = hint.available
-    ? 'Das Spiel ist offen – den Tipp vor Anstoß noch einmal prüfen.'
+  const reason = freshness.status !== 'fresh'
+    ? `Datenstand nicht bestätigt (${freshness.message}) – den Tipp vor Anstoß noch einmal prüfen.`
+    : hint.available
+      ? 'Das Spiel ist offen – den Tipp vor Anstoß noch einmal prüfen.'
     : 'Noch nicht genug Daten für einen klaren Tipp.'
   return { match, hint, category: 'open', reason }
 }
 
-export function buildMatchdayRadar(matches: Match[], now = Date.now()): MatchdayRadar {
+export function buildMatchdayRadar(matches: Match[], now = Date.now(), requireFreshInputs = false): MatchdayRadar {
   const upcoming = matches
     .filter((match) => !match.completed && !match.actual_score)
     .map((match) => ({ match, time: Date.parse(String(match.raw_match?.commence_time ?? '')) }))
@@ -59,7 +63,7 @@ export function buildMatchdayRadar(matches: Match[], now = Date.now()): Matchday
   const firstKickoff = upcoming[0]?.time
   const selected = firstKickoff === undefined
     ? []
-    : upcoming.filter(({ time }) => time - firstKickoff <= MATCHDAY_WINDOW_MS).map(({ match }) => classify(match))
+    : upcoming.filter(({ time }) => time - firstKickoff <= MATCHDAY_WINDOW_MS).map(({ match }) => classify(match, now, requireFreshInputs))
 
   const counts = { safe: 0, open: 0, surprise: 0 }
   for (const item of selected) counts[item.category] += 1

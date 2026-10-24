@@ -150,6 +150,29 @@ def test_prediction_service_returns_model_market_and_elo_vectors_from_shared_pro
     assert vectors["elo"] == pytest.approx({"home": 0.555, "draw": 0.26, "away": 0.185})
 
 
+def test_ucl_capture_uses_same_versioned_model_vector_as_display_prediction():
+    from src.math_engine import MathEngine
+
+    service = PredictionService(MathEngine("data/elo_ratings.csv"))
+    raw_odds = {"home": 2.1, "draw": 3.4, "away": 3.7}
+    elo = {
+        "home_rating": 1800, "away_rating": 1700, "source": "clubelo",
+        "observed_at": (CAPTURED - timedelta(seconds=5)).isoformat(),
+    }
+    snapshot = {
+        "status": "fresh", "source": "odds_api",
+        "observed_at": (CAPTURED - timedelta(seconds=10)).isoformat(), "odds": raw_odds,
+    }
+    displayed = service.predict(odds=raw_odds, elo=elo, competition="ucl2026")["probabilities"]
+    record = build_evaluation_forecast(
+        service, snapshot, elo, kickoff_at=KICKOFF, captured_at=CAPTURED,
+        capture_source="maintenance", competition="ucl2026",
+    )
+
+    assert record["model_version"] == "prediction-club-v2"
+    assert record["probabilities"]["model"] == pytest.approx(displayed)
+
+
 def test_capture_accepts_t15_and_rejects_t5_or_unknown_input_timestamps():
     service = PredictionService(MathStub())
     odds = {

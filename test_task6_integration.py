@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 import os
 import importlib
 from pathlib import Path
@@ -37,6 +38,10 @@ def _ucl_teams_and_fixtures():
                 "score_90": "0:0",
             })
     return teams, fixtures
+
+
+def _ucl_coefficients(teams):
+    return {team: 100 + index for index, team in enumerate(teams)}
 
 
 def test_public_match_cache_miss_is_explicitly_unavailable_without_provider_calls(monkeypatch):
@@ -160,24 +165,28 @@ def test_ucl_standings_api_returns_empty_for_unestablished_schedule(monkeypatch)
 
 
 def test_ucl_simulation_routes_clamp_large_and_negative_runs(monkeypatch):
+    teams, fixtures = _ucl_teams_and_fixtures()
+    fixtures = [{**fixture, "status": "scheduled", "score_90": None} for fixture in fixtures]
+    observed_at = datetime.now(timezone.utc).isoformat()
     cache = MemoryCollection([{
-        "_id": "ucl2026:matches_cache",
-        "data": [{
-            "id": "m1",
-            "home_team": "Team 01",
-            "away_team": "Team 02",
-            "status": "scheduled",
-            "matrix": {"0:0": 1.0},
-        }],
-        "teams": ["Team 01", "Team 02"],
+        "_id": "ucl2026:matches_cache", "data": fixtures, "teams": teams,
+        "uefa_coefficients": _ucl_coefficients(teams),
+    }, {
+        "_id": "ucl2026:clubelo_ratings", "status": "fresh", "source": "clubelo",
+        "observed_at": observed_at,
+        "rows": [{"team": team, "elo_rating": 1500 + index} for index, team in enumerate(teams)],
+    }, {
+        "_id": "ucl2026:ucl_simulation", "runs": 5000, "data": {"status": "legacy-flawed"},
     }])
-    observed = []
 
-    def fake_simulation(*args, **kwargs):
-        observed.append(kwargs["n_runs"])
-        return {"status": "fresh", "n_runs": kwargs["n_runs"]}
+    class QueuedExecutor:
+        def __init__(self):
+            self.jobs = []
 
-    monkeypatch.setattr("src.routes.simulate.simulate_ucl_tournament", fake_simulation)
+        def submit(self, function, *args):
+            self.jobs.append((function, args))
+
+    executor = QueuedExecutor()
     class Engine:
         elo_df = {"team_name": ["Team 01"], "elo_rating": [1500.0]}
 
@@ -185,61 +194,99 @@ def test_ucl_simulation_routes_clamp_large_and_negative_runs(monkeypatch):
             return None
 
     def fake_knockout_simulation(_ratings, *, n_runs):
-        observed.append(n_runs)
         return {"status": "fresh", "n_runs": n_runs}
 
     monkeypatch.setattr("src.routes.simulate.simulate_knockout", fake_knockout_simulation)
-    router = simulate_router(Engine(), {"ucl2026": cache, "wc2026": MemoryCollection()})
+    router = simulate_router(Engine(), {"ucl2026": cache, "wc2026": MemoryCollection()}, ucl_executor=executor)
     ucl_endpoint = next(route.endpoint for route in router.routes if route.path == "/api/simulate_ucl")
     knockout_endpoint = next(route.endpoint for route in router.routes if route.path == "/api/simulate_knockout")
 
-    assert ucl_endpoint(competition="ucl2026")["n_runs"] == 100
-    assert ucl_endpoint(runs=999999, competition="ucl2026")["n_runs"] == 100000
-    assert ucl_endpoint(runs=-5, competition="ucl2026")["n_runs"] == 100
-    assert knockout_endpoint(runs=999999, competition="ucl2026")["n_runs"] == 100000
-    assert knockout_endpoint(runs=-5, competition="ucl2026")["n_runs"] == 100
-    assert knockout_endpoint(competition="ucl2026")["n_runs"] == 100
+    default = ucl_endpoint(competition="ucl2026")
+    large = ucl_endpoint(runs=999999, competition="ucl2026")
+    negative = ucl_endpoint(runs=-5, competition="ucl2026")
+    assert default.status_code == large.status_code == negative.status_code == 202
+    assert json.loads(default.body)["n_runs"] == 5000
+    assert json.loads(large.body)["n_runs"] == 100000
+    assert json.loads(negative.body)["n_runs"] == 5000
+    assert len(executor.jobs) == 2  # default and negative inputs share the normalized key
+    assert json.loads(knockout_endpoint(runs=999999, competition="ucl2026").body)["n_runs"] == 100000
+    assert json.loads(knockout_endpoint(runs=-5, competition="ucl2026").body)["n_runs"] == 5000
+    assert json.loads(knockout_endpoint(competition="ucl2026").body)["n_runs"] == 5000
     assert knockout_endpoint(competition="wc2026")["n_runs"] == 20000
     assert knockout_endpoint(runs=-5, competition="wc2026")["n_runs"] == 1000
-    assert observed == [100, 100000, 100, 100000, 100, 20000, 1000]
 
 
-def test_ucl_simulation_cache_reuses_results_by_runs_and_expires(monkeypatch):
+def test_ucl_simulation_cache_keys_snapshot_and_runs_and_recovers_failed_or_expired_jobs(monkeypatch):
+    teams, fixtures = _ucl_teams_and_fixtures()
+    fixtures = [{**fixture, "status": "scheduled", "score_90": None} for fixture in fixtures]
+    observed_at = datetime.now(timezone.utc).isoformat()
     cache = MemoryCollection([{
-        "_id": "ucl2026:matches_cache",
-        "data": [{
-            "id": "m1",
-            "home_team": "Team 01",
-            "away_team": "Team 02",
-            "status": "scheduled",
-            "matrix": {"0:0": 1.0},
-        }],
-        "teams": ["Team 01", "Team 02"],
+        "_id": "ucl2026:matches_cache", "data": fixtures, "teams": teams,
+        "uefa_coefficients": _ucl_coefficients(teams),
+    }, {
+        "_id": "ucl2026:clubelo_ratings", "status": "fresh", "source": "clubelo",
+        "observed_at": observed_at,
+        "rows": [{"team": team, "elo_rating": 1500 + index} for index, team in enumerate(teams)],
+    }, {
+        "_id": "ucl2026:ucl_simulation", "runs": 5000, "data": {"status": "legacy-flawed"},
     }])
     observed = []
 
+    class QueuedExecutor:
+        def __init__(self):
+            self.jobs = []
+
+        def submit(self, function, *args):
+            self.jobs.append((function, args))
+
+    executor = QueuedExecutor()
+
+    def fake_pair_matrices(*args):
+        return {}
+
     def fake_simulation(*args, **kwargs):
         observed.append(kwargs["n_runs"])
-        return {"status": "fresh", "n_runs": kwargs["n_runs"], "call": len(observed)}
+        if len(observed) == 1:
+            raise RuntimeError("temporary worker failure")
+        return {"status": "fresh", "n_runs": kwargs["n_runs"], "call": len(observed), "warnings": []}
 
+    monkeypatch.setattr("src.routes.simulate.build_club_pair_score_matrices", fake_pair_matrices)
     monkeypatch.setattr("src.routes.simulate.simulate_ucl_tournament", fake_simulation)
     endpoint = next(
         route.endpoint
-        for route in simulate_router(object(), {"ucl2026": cache}).routes
+        for route in simulate_router(object(), {"ucl2026": cache}, ucl_executor=executor).routes
         if route.path == "/api/simulate_ucl"
     )
 
-    first = endpoint(runs=100, competition="ucl2026")
-    repeated = endpoint(runs=100, competition="ucl2026")
-    other_run_count = endpoint(runs=200, competition="ucl2026")
-    assert first == repeated == {"status": "fresh", "n_runs": 100, "call": 1}
-    assert other_run_count == {"status": "fresh", "n_runs": 200, "call": 2}
-    assert observed == [100, 200]
+    first = endpoint(runs=5000, competition="ucl2026")
+    repeated = endpoint(runs=5000, competition="ucl2026")
+    assert first.status_code == repeated.status_code == 202
+    assert len(executor.jobs) == 1
+    failed_fn, failed_args = executor.jobs.pop(0)
+    failed_fn(*failed_args)
 
-    cache.update_one({"_id": "ucl2026:ucl_simulation"}, {"$set": {"timestamp": 0}})
-    expired = endpoint(runs=200, competition="ucl2026")
-    assert expired == {"status": "fresh", "n_runs": 200, "call": 3}
-    assert observed == [100, 200, 200]
+    failed_result = endpoint(runs=5000, competition="ucl2026")
+    assert failed_result["status"] == "failed"
+    retry = endpoint(runs=5000, competition="ucl2026")
+    assert retry.status_code == 202
+    success_fn, success_args = executor.jobs.pop(0)
+    success_fn(*success_args)
+    completed = endpoint(runs=5000, competition="ucl2026")
+    assert completed["status"] == "fresh"
+    assert completed["n_runs"] == 5000
+    assert completed["model_version"] == "prediction-club-v2"
+    assert completed["rating_source"] == "clubelo"
+    assert completed["input_snapshot_hash"]
+
+    other_run_count = endpoint(runs=6000, competition="ucl2026")
+    assert other_run_count.status_code == 202
+    assert len(executor.jobs) == 1
+    expired_cache_id = executor.jobs[0][1][1]
+    cache.documents[expired_cache_id]["lease_until"] = 0
+    recovered = endpoint(runs=6000, competition="ucl2026")
+    assert recovered.status_code == 202
+    assert len(executor.jobs) == 2
+    assert observed == [5000, 5000]
 
 
 def test_migration_script_direct_invocation_bootstraps_repo_imports_and_dotenv():
@@ -262,7 +309,7 @@ def test_migration_script_direct_invocation_bootstraps_repo_imports_and_dotenv()
 
 def test_public_ui_does_not_expose_protected_elo_sync_control():
     repo = Path(__file__).resolve().parent
-    sidebar = (repo / "frontend-v2/src/components/layout/Sidebar.tsx").read_text()
+    sidebar = (repo / "frontend-v2/src/components/layout/Navigation.tsx").read_text()
     api = (repo / "frontend-v2/src/lib/api.ts").read_text()
     queries = (repo / "frontend-v2/src/hooks/queries.ts").read_text()
 
@@ -285,15 +332,14 @@ def test_empty_ucl_clubelo_sync_has_truthful_metadata(tmp_path):
         object,
         competition="ucl2026",
     )
-    observed = datetime.fromisoformat(result["observed_at"])
+    assert result["observed_at"] is None
 
     assert result["status"] == "unavailable"
     assert result["source"] == "clubelo"
     assert result["error"]
-    assert observed >= before
 
 
-def test_ucl_clubelo_sync_reconstructs_missed_completed_tip(tmp_path):
+def test_ucl_clubelo_sync_preserves_completed_tip_and_world_cup_table(tmp_path):
     class ArchiveCollection(MemoryCollection):
         def replace_one(self, query, document, upsert=False):
             self.documents[query["_id"]] = dict(document)
@@ -321,8 +367,10 @@ def test_ucl_clubelo_sync_reconstructs_missed_completed_tip(tmp_path):
         "post_match_result": {"status": "completed", "actual_score": "3:2"},
     }])
 
+    engine = MathEngine("data/elo_ratings.csv", TEAM_MAPPING)
+    old_ratings = engine.elo_df.copy(deep=True)
     result = perform_elo_sync(
-        MathEngine("data/elo_ratings.csv", TEAM_MAPPING),
+        engine,
         object(),
         cache,
         archive,
@@ -333,11 +381,10 @@ def test_ucl_clubelo_sync_reconstructs_missed_completed_tip(tmp_path):
     )
     rebuilt = archive.documents["ucl-1"]
 
-    assert result["updates"] == 1
-    assert rebuilt["prediction"]["algo_reconstructed"] is True
-    assert rebuilt["prediction"]["source_mode"] == "elo-only"
-    assert rebuilt["prediction"]["top_tip"]
-    assert rebuilt["post_match_result"]["algo_points"] >= 0
+    assert result["updates"] == 0
+    assert rebuilt["prediction"] == {"top_tip": None}
+    assert "algo_points" not in rebuilt["post_match_result"]
+    assert engine.elo_df.equals(old_ratings)
 
 
 def test_maintenance_refreshes_ucl_fixtures_and_flattens_provider_odds():
@@ -461,7 +508,7 @@ def test_maintenance_archives_completed_ucl_results_without_inventing_tips():
     assert "ucl-finished" in load_archive_from_db(archive)
 
 
-def test_maintenance_reconstructs_missed_ucl_performance_from_clubelo():
+def test_maintenance_does_not_invent_missed_historical_ucl_predictions():
     now = datetime(2026, 9, 9, 20, tzinfo=timezone.utc)
     cache = MemoryCollection()
 
@@ -497,16 +544,13 @@ def test_maintenance_reconstructs_missed_ucl_performance_from_clubelo():
     )
 
     entry = archive.find_one({"_id": "ucl-finished"})
-    assert result["reconstructed_results"] == 1
-    assert entry["prediction"]["algo_reconstructed"] is True
-    assert entry["prediction"]["source_mode"] == "elo-only"
-    assert entry["prediction"]["top_tip"]
-    assert entry["prediction"]["bots"]
-    assert entry["post_match_result"]["algo_points"] is not None
-    assert entry["post_match_result"]["bot_points"]
+    assert result["reconstructed_results"] == 0
+    assert entry["prediction"].get("top_tip") is None
+    assert entry["post_match_result"]["algo_points"] is None
+    assert entry["post_match_result"]["bot_points"] == {}
 
 
-def test_maintenance_prefers_saved_pre_match_odds_over_elo_reconstruction():
+def test_maintenance_preserves_historical_prediction_even_with_saved_odds():
     kickoff = datetime(2026, 9, 9, 16, 45, tzinfo=timezone.utc)
     now = datetime(2026, 9, 9, 20, tzinfo=timezone.utc)
     cache = MemoryCollection([{
@@ -569,14 +613,13 @@ def test_maintenance_prefers_saved_pre_match_odds_over_elo_reconstruction():
     )
 
     entry = archive.find_one({"_id": "ucl-finished"})
-    assert result["snapshot_predictions"] == 1
-    assert entry["pre_match_snapshot"]["odds"] == {"home": 1.8, "draw": 3.5, "away": 4.5}
-    assert entry["prediction"]["top_tip"] == "2:1"
-    assert entry["prediction"]["source_mode"] == "odds-only"
-    assert entry["prediction"]["algo_reconstructed"] is False
-    assert entry["prediction"]["tip_source"] == "pre_match_odds_snapshot"
-    assert entry["post_match_result"]["algo_points"] == 6
-    assert entry["post_match_result"]["bot_points"]
+    assert result["snapshot_predictions"] == 0
+    assert entry["pre_match_snapshot"] is None
+    assert entry["prediction"]["top_tip"] == "1:0"
+    assert entry["prediction"]["source_mode"] == "elo-only"
+    assert entry["prediction"]["algo_reconstructed"] is True
+    assert entry["post_match_result"]["algo_points"] == 5
+    assert entry["post_match_result"]["bot_points"] == {"professor": 5}
 
 
 def test_maintenance_snapshot_is_the_input_for_t15_freeze():
@@ -846,15 +889,44 @@ def test_maintenance_persists_ucl_prediction_matrix_for_cached_odds(monkeypatch)
         captured["matrix"] = score_matrices["e1"]
         return {"status": "fresh", "teams": []}
 
+    teams, fixtures = _ucl_teams_and_fixtures()
+    teams[0], teams[1] = "Bayern Munich", "Arsenal"
+    for fixture in fixtures:
+        fixture["home_team"] = teams[int(fixture["home_team"][-2:])]
+        fixture["away_team"] = teams[int(fixture["away_team"][-2:])]
+        fixture["status"] = "scheduled"
+        fixture["score_90"] = None
+    persisted_fixture = dict(stored)
+    persisted_fixture.update({"id": "e1", "status": "scheduled", "completed": False, "score_90": None})
+    fixtures[0] = persisted_fixture
+    cache.update_one({"_id": "ucl2026:matches_cache"}, {"$set": {
+        "data": fixtures, "teams": teams, "uefa_coefficients": _ucl_coefficients(teams),
+    }})
+    rating_doc = cache.find_one({"_id": "ucl2026:elo_ratings"})
+    rating_doc["rows"] = [
+        {"team_name": team, "elo_rating": rating, "team": team}
+        for team, rating in [("Bayern Munich", 1900.0), ("Arsenal", 1800.0)]
+        + [(team, 1500.0 + index) for index, team in enumerate(teams[2:], start=2)]
+    ]
+    cache.update_one({"_id": "ucl2026:elo_ratings"}, {"$set": {"rows": rating_doc["rows"]}})
+
     monkeypatch.setattr("src.routes.simulate.simulate_ucl_tournament", capture_simulation)
+    monkeypatch.setattr("src.routes.simulate.build_club_pair_score_matrices", lambda *_args: {})
+
+    class InlineExecutor:
+        def submit(self, function, *args):
+            function(*args)
+
     simulation_endpoint = next(
         route.endpoint
-        for route in simulate_router(None, {"ucl2026": cache}).routes
+        for route in simulate_router(None, {"ucl2026": cache}, ucl_executor=InlineExecutor()).routes
         if route.path == "/api/simulate_ucl"
     )
-    simulation = simulation_endpoint(runs=100, competition="ucl2026")
+    queued = simulation_endpoint(runs=5000, competition="ucl2026")
+    simulation = simulation_endpoint(runs=5000, competition="ucl2026")
+    assert queued.status_code == 202
     assert simulation["status"] == "fresh"
-    assert captured["runs"] == 100
+    assert captured["runs"] == 5000
     assert captured["matrix"]
     assert sum(captured["matrix"].values()) == pytest.approx(1.0)
 
@@ -900,6 +972,22 @@ def test_maintenance_expires_ucl_simulation_when_fixture_result_changes(monkeypa
     assert cache.find_one({"_id": "ucl2026:matches_cache"})["data"][0]["actual_score"] == "2:1"
     assert cache.find_one({"_id": "ucl2026:ucl_simulation"})["timestamp"] == 0
 
+    teams, fixtures = _ucl_teams_and_fixtures()
+    teams[0], teams[1] = "Bayern Munich", "Arsenal"
+    for fixture in fixtures:
+        fixture["home_team"] = teams[int(fixture["home_team"][-2:])]
+        fixture["away_team"] = teams[int(fixture["away_team"][-2:])]
+        fixture["status"] = "completed"
+        fixture["score_90"] = "0:0"
+    fixtures[0].update({"id": "finished-match", "actual_score": "2:1", "score_90": None, "completed": True})
+    cache.update_one({"_id": "ucl2026:matches_cache"}, {"$set": {
+        "data": fixtures, "teams": teams, "uefa_coefficients": _ucl_coefficients(teams),
+    }})
+    cache.update_one({"_id": "ucl2026:clubelo_ratings"}, {"$set": {
+        "competition": "ucl2026", "status": "fresh", "source": "clubelo", "observed_at": now.isoformat(),
+        "rows": [{"team": team, "team_name": team, "elo_rating": 1500.0 + index} for index, team in enumerate(teams)],
+    }}, upsert=True)
+
     simulated_fixtures = []
     simulation_calls = []
 
@@ -909,15 +997,23 @@ def test_maintenance_expires_ucl_simulation_when_fixture_result_changes(monkeypa
         return {"status": "fresh", "source_revision": "after-result"}
 
     monkeypatch.setattr("src.routes.simulate.simulate_ucl_tournament", fake_simulation)
+    monkeypatch.setattr("src.routes.simulate.build_club_pair_score_matrices", lambda *_args: {})
+
+    class InlineExecutor:
+        def submit(self, function, *args):
+            function(*args)
+
     endpoint = next(
         route.endpoint
-        for route in simulate_router(None, {"ucl2026": cache}).routes
+        for route in simulate_router(None, {"ucl2026": cache}, ucl_executor=InlineExecutor()).routes
         if route.path == "/api/simulate_ucl"
     )
-    fresh_result = endpoint(runs=100, competition="ucl2026")
+    queued = endpoint(runs=5000, competition="ucl2026")
+    fresh_result = endpoint(runs=5000, competition="ucl2026")
 
+    assert queued.status_code == 202
     assert fresh_result["source_revision"] == "after-result"
-    assert simulation_calls == [100]
+    assert simulation_calls == [5000]
     assert simulated_fixtures[0]["completed"] is True
     assert simulated_fixtures[0]["actual_score"] == "2:1"
 
@@ -984,7 +1080,7 @@ def test_matches_serves_complete_ucl_prediction_without_recomputing_or_writing(m
             "matrix": matrix,
             "source_mode": "odds+elo",
             "status": "fresh",
-            "model_version": "prediction-v1",
+            "model_version": "prediction-club-v2",
             "input_provenance": {"odds": {"source": "odds_api"}, "elo": {"source": "clubelo"}},
             "provenance": {"odds": {"source": "odds_api"}, "elo": {"source": "clubelo"}},
         }],

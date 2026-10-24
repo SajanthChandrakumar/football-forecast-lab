@@ -1,4 +1,4 @@
-import { test, expect, chooseCompetition, fixture, NOW } from './fixtures'
+import { test, expect, chooseCompetition, enterEditorKey, fixture, NOW } from './fixtures'
 
 const saveButton = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })
 
@@ -12,6 +12,7 @@ test('a rejected save preserves input and a successful retry survives reload', a
   await page.goto('/#/match/ucl-next')
   await enterTip(page)
   await saveButton(page).click()
+  await enterEditorKey(page, api.validEditorKey)
   await expect(page.getByRole('alert').filter({ hasText: 'Der Tipp konnte nicht gespeichert werden' })).toBeVisible()
   await expect(page.getByRole('spinbutton', { name: 'Tore Bayern Munich', exact: true })).toHaveValue('4')
   await expect(page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true })).toHaveValue('3')
@@ -30,6 +31,7 @@ test('a server cutoff rejection closes the editor', async ({ page, api }) => {
   await page.goto('/#/match/ucl-next')
   await enterTip(page)
   await saveButton(page).click()
+  await enterEditorKey(page, api.validEditorKey)
   await expect(page.getByRole('alert').filter({ hasText: 'fünf Minuten vor Anpfiff geschlossen' })).toBeVisible()
   await expect(saveButton(page)).toBeDisabled()
   await expect(page.getByRole('spinbutton', { name: 'Tore Bayern Munich', exact: true })).toHaveAttribute('readonly', '')
@@ -41,6 +43,7 @@ test('a fixture more than a month away remains editable', async ({ page, api }) 
   await page.goto('/#/match/ucl-next')
   await enterTip(page)
   await saveButton(page).click()
+  await enterEditorKey(page, api.validEditorKey)
   await expect(page.getByRole('status').filter({ hasText: '4:3 gespeichert' })).toBeVisible()
 })
 
@@ -86,6 +89,7 @@ test('a pending save stays in its competition when the competition changes', asy
   await page.goto('/#/match/ucl-next')
   await enterTip(page)
   await saveButton(page).click()
+  await enterEditorKey(page, api.validEditorKey)
   await expect(page.getByRole('button', { name: 'Speichert …', exact: true })).toBeDisabled()
   await chooseCompetition(page, 'epl2026')
   finishSave()

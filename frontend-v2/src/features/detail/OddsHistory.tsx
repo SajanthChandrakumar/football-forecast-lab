@@ -3,6 +3,8 @@ import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { useAppState } from '../../state/AppState'
+import { QueryState } from '../../components/shared/QueryState'
+import { chronologicalOddsHistory, oddsHistoryChartRows } from './odds-history.mjs'
 
 type Outcome = 'home' | 'draw' | 'away'
 type OddsHistoryPoint = {
@@ -45,21 +47,22 @@ function observedTime(value: string) {
   })
 }
 
+function graphTime(value: number) {
+  return new Date(value).toLocaleString('de-CH', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich',
+  })
+}
+
 function OddsHistoryChart({ observations, homeTeam, awayTeam }: {
   observations: OddsHistoryPoint[]; homeTeam: string; awayTeam: string
 }) {
-  const data = observations.map((point) => ({
-    bucketLabel: BUCKET_LABEL[point.bucket] ?? point.bucket,
-    Heim: point.probabilities.home * 100,
-    Remis: point.probabilities.draw * 100,
-    Auswärts: point.probabilities.away * 100,
-  }))
+  const data = oddsHistoryChartRows(observations)
   return (
     <div role="img" aria-label={`Bereinigte 1X2-Wahrscheinlichkeit für ${homeTeam}, Remis und ${awayTeam}`} className="mt-4 h-44 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="bucketLabel" tick={{ fill: 'var(--text-3)', fontSize: 10 }} tickLine={false} axisLine={false} />
+          <XAxis type="number" dataKey="observedTimestamp" scale="time" domain={['dataMin', 'dataMax']} tickFormatter={graphTime} tick={{ fill: 'var(--text-3)', fontSize: 10 }} tickLine={false} axisLine={false} />
           <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} tick={{ fill: 'var(--text-3)', fontSize: 10 }} tickLine={false} axisLine={false} />
           <Tooltip formatter={(value) => `${Number(value).toFixed(1)} %`} contentStyle={{ borderRadius: 12, borderColor: 'var(--border)', background: 'var(--surface)' }} />
           {OUTCOMES.map(({ key, label }) => (
@@ -77,9 +80,17 @@ export function OddsHistory({ matchId, homeTeam, awayTeam, enabled = true }: {
   const { competition } = useAppState()
   const query = useQuery({
     queryKey: ['oddsHistory', competition, matchId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams({ competition })
-      const response = await fetch(`/api/odds-history/${encodeURIComponent(matchId)}?${params}`)
+      const timeout = AbortSignal.timeout(12_000)
+      const requestSignal = AbortSignal.any([signal, timeout])
+      let response: Response
+      try {
+        response = await fetch(`/api/odds-history/${encodeURIComponent(matchId)}?${params}`, { signal: requestSignal })
+      } catch (error) {
+        if (timeout.aborted && !signal.aborted) throw new Error('Der Quotenverlauf dauert zu lange. Bitte erneut versuchen.')
+        throw error
+      }
       if (!response.ok) throw new Error('Quotenverlauf konnte nicht geladen werden.')
       return response.json() as Promise<OddsHistoryData>
     },
@@ -90,8 +101,8 @@ export function OddsHistory({ matchId, homeTeam, awayTeam, enabled = true }: {
 
   if (!enabled) return null
   if (query.isLoading) return <p className="mt-3 text-sm text-fg-2">Quotenverlauf wird geladen…</p>
-  if (query.isError || !query.data) return <p className="mt-3 text-sm text-fg-2">Quotenverlauf konnte nicht geladen werden.</p>
-  const { observations } = query.data
+  if (query.isError || !query.data) return <div className="mt-3"><QueryState title="Quotenverlauf nicht verfügbar" message="Die gespeicherten Daten konnten nicht geladen werden." onRetry={() => { void query.refetch() }} /></div>
+  const observations = chronologicalOddsHistory(query.data.observations)
   if (!observations.length) {
     return <p className="mt-3 text-sm text-fg-2">Für dieses Spiel ist kein gespeicherter Quotenverlauf verfügbar.</p>
   }

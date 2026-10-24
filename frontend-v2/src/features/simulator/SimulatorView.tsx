@@ -5,7 +5,7 @@ import { TeamLogo } from '../../components/shared/Badges'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
 import { QueryState } from '../../components/shared/QueryState'
-import type { KnockoutSimulation, UclSimulation, UclSimulationTeam } from '../../lib/types'
+import type { KnockoutSimulation, UclSimulation, UclSimulationProcessing, UclSimulationResponse, UclSimulationTeam } from '../../lib/types'
 import { hasUclSimulationResults } from '../../lib/simulation.mjs'
 import { ChartSkeleton } from '../../components/shared/Skeleton'
 import { ViewTabs, ViewPanel } from '../../components/shared/ViewTabs'
@@ -42,7 +42,7 @@ export function SimulatorView() {
 
   if (competition === 'ucl2026') {
     return <UclSimulator
-      data={query.data as UclSimulation | undefined}
+      data={query.data as UclSimulationResponse | undefined}
       isLoading={query.isLoading}
       error={query.error as Error | null}
       onRetry={() => void query.refetch()}
@@ -119,41 +119,45 @@ function WcSimulationSummary({ data }: { data: KnockoutSimulation }) {
 }
 
 function UclSimulator({ data, isLoading, error, onRetry, view, onViewChange }: {
-  data?: UclSimulation
+  data?: UclSimulationResponse
   isLoading: boolean
   error: Error | null
   onRetry: () => void
   view: typeof SIMULATION_VIEWS[number]
   onViewChange: (view: typeof SIMULATION_VIEWS[number]) => void
 }) {
-  const hasResults = hasUclSimulationResults(data)
+  const processing = isProcessing(data)
+  const completed = processing ? undefined : data as UclSimulation | undefined
+  const hasResults = hasUclSimulationResults(completed)
   const runs = data?.n_runs ?? data?.runs ?? 0
-  const results = [...(data?.results ?? [])].sort((a, b) => a.team.localeCompare(b.team, 'de'))
+  const results = [...(completed?.results ?? [])].sort((a, b) => a.team.localeCompare(b.team, 'de'))
   return (
     <PageTransition>
       <PageHeader title="Turnier-Simulation" subtitle="Modellrechnung für den weiteren Verlauf der UCL-Ligaphase und K.-o.-Runden." />
-      {hasResults && data && <GlassCard className="surface-panel analysis-section">
+      {hasResults && completed && <GlassCard className="surface-panel analysis-section">
         <SectionTitle className="section-heading mb-2">Simulation · {runs.toLocaleString('de-CH')} Durchläufe</SectionTitle>
         <p className="text-sm leading-relaxed text-fg-2">
           Grundlage sind {runs.toLocaleString('de-CH')} simulierte Turnierverläufe. {runs <= 1_000 ? 'Das ist eine kleine Stichprobe: Die Werte sind grobe Orientierung, und kleine Abstände oder die Reihenfolge sind nicht stabil.' : 'Die Werte sind Modellschätzungen, keine Vorhersage sicherer Ergebnisse.'}
           {' '}Prozentwerte sind auf ganze Prozentpunkte gerundet.
         </p>
-        {data.warnings?.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-fg-2">{[...new Set(data.warnings)].map((warning) => <li key={warning}>{translateWarning(warning)}</li>)}</ul> : null}
+        {completed.warnings?.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-fg-2">{[...new Set(completed.warnings)].map((warning) => <li key={warning}>{translateWarning(warning)}</li>)}</ul> : null}
         <details className="info-disclosure mt-3"><summary>Datenquellen und Rechenstand</summary>
-          <p className="info-content">Tabellenstand: {data.table_version ?? 'nicht angegeben'} · Koeffizienten: {data.coefficient_version ?? 'nicht angegeben'} · Ranglistenquelle: {data.ranking_source === 'local' ? 'lokale Berechnung' : data.ranking_source ?? 'nicht angegeben'}.</p>
+          <p className="info-content">Modellversion: {completed.model_version ?? 'nicht angegeben'} · Tabellenstand: {completed.table_version ?? 'nicht angegeben'} · Koeffizienten: {completed.coefficient_version ?? 'nicht angegeben'} · Ranglistenquelle: {completed.ranking_source === 'local' ? 'lokale Berechnung' : completed.ranking_source ?? 'nicht angegeben'}.</p>
         </details>
       </GlassCard>}
       {isLoading && <p className="analysis-section text-sm text-fg-2">Turnierverläufe werden berechnet…</p>}
       {error && <QueryState title="Simulation fehlgeschlagen" message="Die Turnierchancen konnten nicht geladen werden." onRetry={onRetry} />}
-      {!isLoading && !error && data?.status === 'unavailable' && <QueryState title="Simulation derzeit nicht verfügbar" message="Für die Berechnung fehlen aktuell notwendige Modelldaten." />}
-      {!isLoading && !error && hasResults && data && data.results.length === 0 && <QueryState title="Keine Ergebnisse verfügbar" message="Die Simulation hat keine Teamresultate geliefert." onRetry={onRetry} />}
+      {!isLoading && !error && processing && <QueryState title="Simulation läuft noch" message="Der Server verarbeitet weiterhin 5.000 Durchläufe. Prüfe den Status erneut, wenn du fortfahren möchtest." onRetry={onRetry} />}
+      {!isLoading && !error && completed?.status === 'unavailable' && <QueryState title="Simulation derzeit nicht verfügbar" message="Für die Berechnung fehlen notwendige Modelldaten. Du kannst es später erneut versuchen." onRetry={onRetry} />}
+      {!isLoading && !error && completed?.status === 'failed' && <QueryState title="Simulation fehlgeschlagen" message={completed.error ?? 'Die Berechnung konnte nicht abgeschlossen werden.'} onRetry={onRetry} />}
+      {!isLoading && !error && hasResults && completed && completed.results.length === 0 && <QueryState title="Keine Ergebnisse verfügbar" message="Die Simulation hat keine Teamresultate geliefert." onRetry={onRetry} />}
 
-      <ViewTabs id="simulation" label="Simulationsansicht" items={SIMULATION_TABS} value={view} onChange={onViewChange} />
+      <ViewTabs id="simulation" label="Simulationsansicht" items={SIMULATION_TABS} value={view} onChange={onViewChange} wrap />
       <ViewPanel id="simulation" value="titles" active={view}>
-        {hasResults && data && data.results.length > 0 && !error && <TitleChanceList results={data.results} />}
+        {hasResults && completed && completed.results.length > 0 && !error && <TitleChanceList results={completed.results} />}
       </ViewPanel>
       <ViewPanel id="simulation" value="rounds" active={view}>
-        {hasResults && data && data.results.length > 0 && !error && <GlassCard className="surface-panel !p-0">
+        {hasResults && completed && completed.results.length > 0 && !error && <GlassCard className="surface-panel !p-0">
           <div className="border-b border-line px-5 py-4"><SectionTitle>Ergebnisse je Team</SectionTitle></div>
           <div className="overflow-x-auto" role="region" aria-label="UCL-Simulationsergebnisse je Team" tabIndex={0}>
             <table className="w-full min-w-[920px] text-sm">
@@ -172,6 +176,10 @@ function UclSimulator({ data, isLoading, error, onRetry, view, onViewChange }: {
       </ViewPanel>
     </PageTransition>
   )
+}
+
+function isProcessing(data?: UclSimulationResponse): data is UclSimulationProcessing {
+  return data?.status === 'processing'
 }
 
 function TitleChanceList({ results, precision = 0 }: { results: Array<{ team: string; champion: number }>; precision?: 0 | 1 }) {

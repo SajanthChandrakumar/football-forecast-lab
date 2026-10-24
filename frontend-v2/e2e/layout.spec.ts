@@ -14,6 +14,41 @@ for (const theme of ['dark', 'light']) test(`each view fits the viewport in ${th
         await expect(page.getByText('2 von 4 ausgewählt')).toBeVisible()
         await page.getByRole('button', { name: 'Borussia Mönchengladbach', exact: true }).click()
         await page.getByRole('button', { name: 'Club Atlético de Madrid', exact: true }).click()
+        const formRow = page.getByRole('region', { name: /Pflichtspielform$/ }).first().locator('ol > li').first()
+        await expect(formRow).toBeVisible()
+        const rowLayout = await formRow.evaluate((row) => {
+          const sides = [...row.querySelectorAll<HTMLElement>('[role="group"]')]
+          const score = row.querySelector<HTMLElement>(':scope > div.grid > span:not([role="group"])')
+          const box = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect()
+            return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+          }
+          return {
+            sides: sides.map(box),
+            score: score ? box(score) : null,
+            nameWidths: sides.map((side) => side.querySelector<HTMLElement>(':scope > span:not([role="img"])')?.getBoundingClientRect().width ?? 0),
+            crestBeforeName: sides.map((side) => {
+              const crest = side.querySelector<HTMLElement>(':scope > img, :scope > [role="img"]')
+              const name = side.querySelector<HTMLElement>(':scope > span:not([role="img"])')
+              return crest && name ? crest.getBoundingClientRect().x < name.getBoundingClientRect().x : false
+            }),
+          }
+        })
+        expect(rowLayout.sides).toHaveLength(2)
+        expect(rowLayout.score).not.toBeNull()
+        if ((page.viewportSize()?.width ?? 1440) < 640) {
+          expect(rowLayout.sides[1].y).toBeGreaterThan(rowLayout.sides[0].y)
+          expect(Math.abs(rowLayout.sides[0].x - rowLayout.sides[1].x)).toBeLessThan(1)
+          expect(rowLayout.score!.x).toBeGreaterThan(rowLayout.sides[0].x)
+          expect(Math.min(...rowLayout.nameWidths)).toBeGreaterThanOrEqual(120)
+          expect(rowLayout.crestBeforeName).toEqual([true, true])
+        } else {
+          const homeCenter = rowLayout.sides[0].y + rowLayout.sides[0].height / 2
+          const awayCenter = rowLayout.sides[1].y + rowLayout.sides[1].height / 2
+          expect(rowLayout.sides[0].x).toBeLessThan(rowLayout.score!.x)
+          expect(rowLayout.score!.x).toBeLessThan(rowLayout.sides[1].x)
+          expect(Math.abs(homeCenter - awayCenter)).toBeLessThan(1)
+        }
       }
       if (route === 'match/ucl-long') await expect(page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })).toBeVisible()
       if (route === 'performance') await expect(page.getByRole('tab', { name: 'Gespeicherte Tipps', exact: true })).toBeVisible()

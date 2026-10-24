@@ -278,7 +278,7 @@ def _safe_elo_values(value: Mapping[str, Any]) -> tuple[float, float] | None:
     return home, away
 
 
-def freeze_due_comparisons(service, cache_collection, archive_collection, competition=None, now=None) -> int:
+def freeze_due_comparisons(service, cache_collection, archive_collection, competition=None, now=None, *, require_complete_capture=False) -> int:
     """Freeze eligible cached fixtures once between T-15 and the T-5 tip deadline.
 
     This maintenance-only path does not call sports providers. It uses the
@@ -368,6 +368,22 @@ def freeze_due_comparisons(service, cache_collection, archive_collection, compet
 
             elo_state = _trusted_elo_snapshot(service, service.math_engine, fixture, ratings, current, kickoff, comp)
             entry = archive_collection.find_one({"_id": match_id})
+            if require_complete_capture:
+                from src.services.forecast_evaluation import build_evaluation_forecast
+                prematch = (entry or {}).get("pre_match_snapshot") or {}
+                candidate_elo = prematch.get("elo_state") or elo_state or {}
+                record = build_evaluation_forecast(
+                    service, snapshot, candidate_elo, kickoff_at=kickoff, captured_at=current,
+                    capture_source="freeze", elo_observed_at=prematch.get("timestamp_recorded"), competition=comp,
+                )
+                from src.services.prediction import _evaluation_baseline, _capture_elo_baseline
+                if (record is None
+                    or _capture_elo_baseline(service, candidate_elo, prematch, current, kickoff) is None
+                    or _evaluation_baseline(record["probabilities"]["market"],
+                        record["provenance"]["market"].get("source"),
+                        record["provenance"]["market"].get("observed_at"), current, kickoff) is None
+                ):
+                    continue  # Retry next tick if missing inputs arrive before the deadline.
             if entry is None:
                 metadata = {
                     key: fixture.get(key)

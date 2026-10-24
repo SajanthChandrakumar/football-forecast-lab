@@ -89,7 +89,21 @@ def _fixture(
             "status": {"short": status},
             "venue": {"name": "Stadium"},
         },
-        "league": {"name": league_name, "type": league_type},
+        "league": {
+            "id": (
+                "eng.1" if "premier league" in league_name.casefold()
+                else "uefa.champions" if "champions league" in league_name.casefold()
+                else "club.friendly" if "friend" in league_name.casefold()
+                else "unknown"
+            ),
+            "slug": (
+                "eng.1" if "premier league" in league_name.casefold()
+                else "uefa.champions" if "champions league" in league_name.casefold()
+                else "club.friendly" if "friend" in league_name.casefold()
+                else "unknown"
+            ),
+            "name": league_name, "type": league_type,
+        },
         "teams": {"home": home, "away": away},
         "goals": {"home": home_goals, "away": away_goals},
     }
@@ -102,6 +116,25 @@ def _away_fixture(fixture):
     teams["home"]["name"], teams["away"]["name"] = "Opponent", "Team"
     fixture["teams"] = teams
     return fixture
+
+
+def _verified_form_match(
+    fixture_id, team_id="10", opponent_id="20", *, played_at="2026-09-20T18:00:00Z",
+    result="W", provider="espn", competition_id="uefa.champions",
+    competition_name="UEFA Champions League", competition_kind="europe",
+):
+    return {
+        "fixture_id": str(fixture_id), "played_at": played_at,
+        "competition_name": competition_name, "competition_id": competition_id,
+        "competition_kind": competition_kind, "opponent_id": str(opponent_id),
+        "opponent_name": "Opponent", "venue": "home", "goals_for": 2,
+        "goals_against": 1, "score": "2:1", "result": result,
+        "home_id": str(team_id), "home_team": "Team", "home_logo": None,
+        "away_id": str(opponent_id), "away_team": "Opponent", "away_logo": None,
+        "result_type": "FT", "provider": provider,
+        "provider_namespace": TeamFormService.PROVIDER_NAMESPACES[provider],
+        "identity_verified": True,
+    }
 
 
 def test_api_football_client_returns_json_and_records_quota(monkeypatch):
@@ -161,10 +194,20 @@ def _espn_event(
     goals_for="3",
     goals_against="1",
 ):
+    competition_name = competition.replace("2026-27 ", "")
+    if "premier league" in competition_name.casefold():
+        league_id, league_type = "eng.1", "League"
+    elif "champions league" in competition_name.casefold():
+        league_id, league_type = "uefa.champions", "Cup"
+    elif "friendly" in competition_name.casefold():
+        league_id, league_type = "club.friendly", "Friendly"
+    else:
+        league_id, league_type = "unknown", ""
     return {
         "id": fixture_id,
         "date": "2026-09-19T14:00Z",
         "season": {"year": 2026, "displayName": competition},
+        "league": {"id": league_id, "slug": league_id, "name": competition_name, "type": league_type},
         "competitions": [{
             "altGameNote": competition,
             "status": {"type": {"completed": completed, "detail": detail}},
@@ -186,7 +229,7 @@ def _espn_event(
     }
 
 
-def test_espn_fallback_discovers_current_ucl_teams_and_normalizes_all_competitions():
+def test_espn_fallback_discovers_provider_ids_and_normalizes_verified_results():
     calls = []
     ucl_event = _espn_event(opponent_id="83", opponent_name="Barcelona")
     premier_league = _espn_event()
@@ -212,6 +255,9 @@ def test_espn_fallback_discovers_current_ucl_teams_and_normalizes_all_competitio
         "fixture_id": "401",
         "played_at": "2026-09-19T14:00Z",
         "competition_name": "English Premier League",
+        "competition_id": "eng.1",
+        "competition_slug": "eng.1",
+        "competition_kind": "league",
         "opponent_id": "331",
         "opponent_name": "Brighton & Hove Albion",
         "venue": "home",
@@ -219,9 +265,19 @@ def test_espn_fallback_discovers_current_ucl_teams_and_normalizes_all_competitio
         "goals_against": 1,
         "score": "3:1",
         "result": "W",
+        "home_id": "359",
+        "home_team": "Arsenal",
+        "home_logo": "arsenal.png",
+        "away_id": "331",
+        "away_team": "Brighton & Hove Albion",
+        "away_logo": "brighton.png",
+        "result_type": "FT",
+        "provider": "espn",
+        "provider_namespace": "espn:team-id",
+        "identity_verified": True,
     }]
-    assert calls[0][1] == {"dates": "2026"}
-    assert calls[1][1] == {"season": 2026}
+    assert calls[0][1] == {"dates": "2026", "limit": 1000}
+    assert calls[1][1] == {"season": 2026, "limit": 1000}
 
 
 def test_espn_fallback_normalizes_daily_scoreboard_with_single_page():
@@ -235,6 +291,58 @@ def test_espn_fallback_normalizes_daily_scoreboard_with_single_page():
     assert payload["paging"] == {"current": 1, "total": 1}
     assert payload["response"][0]["fixture"]["status"]["short"] == "FT"
     assert payload["response"][0]["league"]["name"] == "English Premier League"
+
+
+def test_espn_roster_scans_beyond_default_first_hundred_and_preserves_fixture_ids():
+    events = [_espn_event(f"old-{index}") for index in range(100)]
+    for event in events:
+        event["season"]["year"] = 2025
+    current_event = _espn_event("current-101", team_id="200", opponent_id="201")
+    events.append(current_event)
+    calls = []
+
+    def request_fn(url, *, params, timeout):
+        calls.append((url, params, timeout))
+        return FakeResponse({"events": events})
+
+    client = EspnTeamFormClient(request_fn=request_fn, competition="epl2026", season=2025)
+    payload = client.request("/teams", {"season": 2026})
+
+    assert calls[0][1] == {"dates": "2026", "limit": 1000}
+    assert {item["team"]["id"] for item in payload["response"]} == {"200", "201"}
+    assert payload["fixture_index"]["current-101"] == {"home_id": "200", "away_id": "201"}
+
+
+def test_espn_team_schedule_uses_requested_season_and_fetches_all_pages():
+    calls = []
+
+    def request_fn(url, *, params, timeout):
+        calls.append((url, params))
+        return FakeResponse({"events": [_espn_event()]})
+
+    client = EspnTeamFormClient(request_fn=request_fn, competition="epl2026", season=2025)
+    result = client.request("/fixtures", {"team": "359", "season": 2026})
+
+    assert calls == [(
+        "https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/359/schedule",
+        {"season": 2026, "limit": 1000},
+    )]
+    assert result["response"][0]["fixture"]["id"] == "401"
+
+
+def test_espn_shootout_winner_is_used_without_fabricating_penalty_score():
+    raw = _espn_event(detail="Final (PEN)", goals_for="1", goals_against="1")
+    raw["competitions"][0]["status"]["type"]["detail"] = "Final (PEN)"
+    raw["competitions"][0]["competitors"][0]["winner"] = True
+    raw["competitions"][0]["competitors"][1]["winner"] = False
+    payload = EspnTeamFormClient._normalize_event(raw)
+
+    result = TeamFormService(MemoryCollection(), EspnTeamFormClient()).parse_fixtures(
+        "359", {"response": [payload]}, provider="espn",
+    )
+
+    assert result[0]["result"] == "W"
+    assert "penalties" not in result[0]
 
 
 def test_failover_client_uses_espn_only_after_api_football_plan_error():
@@ -273,7 +381,9 @@ def test_espn_bootstrap_persists_provider_and_does_not_apply_api_pacing():
         def request(self, path, params):
             if path == "/teams":
                 return {"response": [{"team": {"id": "359", "name": "Arsenal"}}]}
-            return {"response": [_fixture("401")]}
+            fixture = _fixture("401")
+            fixture["teams"]["home"]["id"] = "359"
+            return {"response": [fixture]}
 
     sleeps = []
     result = TeamFormService(cache, EspnClient()).bootstrap(
@@ -286,7 +396,7 @@ def test_espn_bootstrap_persists_provider_and_does_not_apply_api_pacing():
     assert cache.find_one({"_id": "ucl2026:team_form:359"})["provider"] == "espn"
 
 
-def test_espn_client_supplements_partial_club_schedule_from_fotmob_without_hardcoded_ids():
+def test_espn_client_never_supplements_matches_by_cross_provider_team_name():
     calls = []
     espn_ucl = _espn_event(
         fixture_id="ucl-1", team_id="494", team_name="Slavia Prague",
@@ -321,17 +431,14 @@ def test_espn_client_supplements_partial_club_schedule_from_fotmob_without_hardc
             return FakeResponse({"fixtures": {"allFixtures": {"fixtures": fotmob_fixtures}}})
         raise AssertionError(url)
 
-    client = EspnTeamFormClient(request_fn=request_fn, season=2026)
+    client = EspnTeamFormClient(request_fn=request_fn, season=2026, enable_fotmob_fallback=True)
     service = TeamFormService(MemoryCollection(), client)
     service.parse_teams(client.request("/teams", {"season": 2026}))
     matches = service.parse_fixtures("494", client.request("/fixtures", {"team": "494", "last": 5}))
 
-    assert len(matches) == 6
-    assert matches[0]["competition_name"] == "1. Liga"
-    assert matches[0]["opponent_name"] == "Opponent 0"
-    assert client.provider == "espn+fotmob"
-    assert any(url.endswith("/api/data/search/suggest") for url, _ in calls)
-    assert any(url.endswith("/api/data/teams") for url, _ in calls)
+    assert [row["fixture_id"] for row in matches] == ["ucl-1"]
+    assert client.provider == "espn"
+    assert not any("fotmob.com" in url for url, _ in calls)
 
 
 def test_team_ids_are_stable_and_teams_use_competition_scoped_storage():
@@ -356,6 +463,7 @@ def test_team_ids_are_stable_and_teams_use_competition_scoped_storage():
         "status": "fresh",
         "source": "api_football",
         "provider": "api_football",
+        "provider_namespace": "api_football:team-id",
         "observed_at": "2026-09-25T00:00:00+00:00",
         "last_attempt_at": "2026-09-25T00:00:00+00:00",
         "last_successful_at": "2026-09-25T00:00:00+00:00",
@@ -372,18 +480,16 @@ def test_fixture_normalization_uses_team_home_and_away_perspective():
     home = service.parse_fixtures("10", {"response": [home_fixture]})[0]
     away = service.parse_fixtures("10", {"response": [away_fixture]})[0]
 
-    assert home == {
-        "fixture_id": "100",
-        "played_at": "2026-09-01T18:00:00+00:00",
-        "competition_name": "UEFA Champions League",
-        "opponent_id": "20",
-        "opponent_name": "Opponent",
-        "venue": "home",
-        "goals_for": 3,
-        "goals_against": 1,
-        "score": "3:1",
-        "result": "W",
-    }
+    assert home["fixture_id"] == "100"
+    assert home["competition_id"] == "uefa.champions"
+    assert home["competition_kind"] == "europe"
+    assert home["home_id"] == "10" and home["away_id"] == "20"
+    assert home["home_team"] == "Team" and home["away_team"] == "Opponent"
+    assert home["result_type"] == "FT"
+    assert home["provider_namespace"] == "api_football:team-id"
+    assert home["identity_verified"] is True
+    assert home["goals_for"] == 3 and home["goals_against"] == 1
+    assert home["score"] == "3:1" and home["result"] == "W"
     assert away["opponent_id"] == "20"
     assert away["opponent_name"] == "Opponent"
     assert away["venue"] == "away"
@@ -405,7 +511,7 @@ def test_only_full_time_and_extra_time_final_statuses_are_included():
 
     matches = service.parse_fixtures("10", {"response": fixtures})
 
-    assert [match["fixture_id"] for match in matches] == ["1", "2", "3"]
+    assert [match["fixture_id"] for match in matches] == ["1", "2"]
 
 
 def test_penalty_shootout_decides_result_when_goal_totals_are_level():
@@ -448,18 +554,8 @@ def test_parsed_matches_sort_newest_first_and_are_limited_to_ten():
 
 
 def test_merge_replaces_duplicate_fixture_ids_sorts_and_caps_cached_form():
-    old_match = {
-        "fixture_id": "1",
-        "played_at": "2026-09-01T18:00:00+00:00",
-        "competition_name": "Old Competition",
-        "opponent_id": "20",
-        "opponent_name": "Opponent",
-        "venue": "home",
-        "goals_for": 1,
-        "goals_against": 0,
-        "score": "1:0",
-        "result": "W",
-    }
+    service = TeamFormService(MemoryCollection(), client=object())
+    old_match = service.parse_fixtures("10", {"response": [_fixture(1)]})[0]
     cache = MemoryCollection(
         [
             {
@@ -870,7 +966,7 @@ def test_daily_refresh_uses_zurich_yesterday_pages_and_only_stored_teams():
     assert stored["source"] == "api_football"
     assert stored["provider"] == "api_football"
     assert stored["last_successful_at"] == stored["observed_at"]
-    assert stored["coverage"]["matches"] == 3
+    assert stored["coverage"] == {"available": 3, "required": 10, "complete": False}
 
 
 def test_daily_refresh_catches_up_oldest_seven_dates_and_is_idempotent():
@@ -976,8 +1072,8 @@ def test_daily_successful_empty_fixture_response_is_unavailable_for_new_team():
     assert result["status"] == "fresh"
     assert row["status"] == "unavailable"
     assert row["matches"] == []
-    assert row["coverage"] == {"matches": 0, "limit": 10}
-    assert "no completed" in row["error"].lower()
+    assert row["coverage"] == {"available": 0, "required": 10, "complete": False}
+    assert "no verified" in row["error"].lower()
 
 
 def test_daily_successful_empty_day_keeps_existing_nonempty_row_fresh():
@@ -991,11 +1087,12 @@ def test_daily_successful_empty_day_keeps_existing_nonempty_row_fresh():
     TeamFormService(cache, client).refresh_daily(now=datetime(2026, 9, 25, tzinfo=timezone.utc))
 
     row = cache.find_one({"_id": "ucl2026:team_form:10"})
-    assert row["status"] == "fresh"
-    assert row["matches"] == [{**match, "provider": "unknown"}]
+    assert row["status"] == "unavailable"
+    assert row["matches"] == []
+    assert row["raw_legacy_matches"] == [match]
 
 
-def test_daily_refresh_updates_supplemented_teams_once_per_zurich_day():
+def test_daily_refresh_never_retries_name_joined_fotmob_supplements():
     old_match = TeamFormService(MemoryCollection(), object()).parse_fixtures(
         "10", {"response": [_fixture(1, date="2026-09-20T18:00:00+00:00")]},
     )[0]
@@ -1024,11 +1121,10 @@ def test_daily_refresh_updates_supplemented_teams_once_per_zurich_day():
     first = service.refresh_daily(now=now)
     second = service.refresh_daily(now=now)
 
-    assert client.requests == [("/fixtures", {"team": "10", "last": 10})]
+    assert client.requests == []
     assert first["status"] == second["status"] == "fresh"
-    assert cache.find_one({"_id": "ucl2026:team_form_sync"})["supplemental_refresh_date"] == "2026-09-26"
     row = cache.find_one({"_id": "ucl2026:team_form:10"})
-    assert [match["fixture_id"] for match in row["matches"]] == ["2", "1"]
+    assert row["matches"] == [old_match]
     assert row["provider"] == row["source"] == "espn+fotmob"
 
 
@@ -1065,7 +1161,7 @@ def test_bootstrap_rows_record_fresh_provider_metadata():
     assert stored["status"] == "fresh"
     assert stored["provider"] == stored["source"] == "api_football"
     assert stored["last_successful_at"] == "2026-09-25T00:00:00+00:00"
-    assert stored["coverage"]["matches"] == 1
+    assert stored["coverage"] == {"available": 1, "required": 10, "complete": False}
     assert cache.find_one({"_id": "ucl2026:team_form_teams"})["status"] == "fresh"
     bootstrap_state = cache.find_one({"_id": "ucl2026:team_form_bootstrap"})
     assert bootstrap_state["status"] == "fresh"
@@ -1085,8 +1181,8 @@ def test_bootstrap_valid_empty_fixture_response_records_unavailable_row():
     row = cache.find_one({"_id": "ucl2026:team_form:10"})
     assert row["status"] == "unavailable"
     assert row["matches"] == []
-    assert row["coverage"] == {"matches": 0, "limit": 10}
-    assert "no completed" in row["error"].lower()
+    assert row["coverage"] == {"available": 0, "required": 10, "complete": False}
+    assert "senior men" in row["error"].lower()
 
 
 def test_bootstrap_provider_error_marks_existing_rows_stale_without_clearing_matches():
@@ -1223,28 +1319,30 @@ def test_api_startup_without_form_key_keeps_cache_readable(monkeypatch):
     assert api.team_form_service.competition.id == "ucl2026"
 
 
-def test_cached_form_resolves_existing_alias_and_keeps_newest_match_details():
+def test_cached_club_form_requires_provider_id_and_keeps_newest_match_details():
     matches = [
-        {"fixture_id": "2", "played_at": "2026-09-24T18:00:00+00:00", "result": "W"},
-        {"fixture_id": "1", "played_at": "2026-09-20T18:00:00+00:00", "result": "L"},
+        _verified_form_match("2", played_at="2026-09-24T18:00:00+00:00", result="W", provider="api_football"),
+        _verified_form_match("1", played_at="2026-09-20T18:00:00+00:00", result="L", provider="api_football"),
     ]
     cache = MemoryCollection([
-        {"_id": "ucl2026:team_form_teams", "teams": [{"team_id": "10", "name": "Paris Saint Germain"}]},
-        {"_id": "ucl2026:team_form:10", "status": "stale", "source": "api_football",
+        {"_id": "ucl2026:team_form_teams", "provider_namespace": "api_football:team-id",
+         "teams": [{"team_id": "10", "name": "Paris Saint Germain"}]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "scope": "all_competitions",
+         "status": "stale", "source": "api_football", "provider": "api_football",
+         "provider_namespace": "api_football:team-id", "validation_version": "senior-men-v1",
          "observed_at": "2026-09-25T08:00:00+00:00", "error": "provider down", "matches": matches},
     ])
 
-    result = TeamFormService(cache, client=None).cached_form_for_match("Paris Saint-Germain")
+    service = TeamFormService(cache, client=None)
+    by_name = service.cached_form_for_match("Paris Saint-Germain")
+    result = service.cached_form_for_match("Unrecognized display name", fallback_team_id="10")
 
-    assert result == {
-        "status": "stale",
-        "source": "api_football",
-        "observed_at": "2026-09-25T08:00:00+00:00",
-        "error": "provider down",
-        "form": ["L", "W"],
-        "on_fire": False,
-        "matches": matches,
-    }
+    assert by_name["matches"] == []
+    assert result["status"] == "stale"
+    assert result["source"] == "api_football"
+    assert result["error"] == "provider down"
+    assert result["form"] == ["L", "W"]
+    assert result["matches"] == matches
 
 
 def test_cached_form_supports_provider_id_and_explicit_unavailable_state():
@@ -1267,17 +1365,19 @@ def test_cached_form_supports_provider_id_and_explicit_unavailable_state():
 def test_ucl_match_route_adds_cached_form_without_provider_calls_or_cache_mutation():
     source_match = {
         "id": "ucl-1", "home_team": "Paris Saint-Germain", "away_team": "Arsenal",
+        "home_team_id": "10", "away_team_id": "20", "provider_namespace": "espn:team-id",
+        "commence_time": "2026-09-25T18:00:00Z",
         "completed": True, "actual_score": "2:1", "top_tip": "2:1", "raw_match": {},
     }
     cache = MemoryCollection([
         {"_id": "ucl2026:matches_cache", "data": [source_match]},
-        {"_id": "ucl2026:team_form_teams", "teams": [
+        {"_id": "ucl2026:team_form_teams", "provider_namespace": "espn:team-id", "teams": [
             {"team_id": "10", "name": "Paris Saint Germain"}, {"team_id": "20", "name": "Arsenal"},
         ]},
-        {"_id": "ucl2026:team_form:10", "status": "fresh", "source": "api_football",
-         "observed_at": "2026-09-25T08:00:00+00:00", "matches": [
-             {"fixture_id": "f1", "played_at": "2026-09-24T18:00:00+00:00", "result": "W"},
-         ]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "scope": "all_competitions",
+         "source": "espn", "provider": "espn", "provider_namespace": "espn:team-id",
+         "validation_version": "senior-men-v1", "observed_at": "2026-09-25T08:00:00+00:00",
+         "matches": [_verified_form_match("f1", played_at="2026-09-24T18:00:00+00:00")]},
     ])
 
     class Engine:
@@ -1321,21 +1421,24 @@ def test_ucl_match_route_reads_forms_and_player_history_in_bounded_bulk_queries(
             return super().find(query)
 
     fixtures = [
-        {"id": str(i), "home_team": "Arsenal", "away_team": "Lille", "completed": True,
+        {"id": str(i), "home_team": "Arsenal", "away_team": "Lille",
+         "home_team_id": "10", "away_team_id": "20", "provider_namespace": "espn:team-id",
+         "commence_time": "2026-10-01T18:00:00Z", "completed": True,
          "actual_score": "1:0", "raw_match": {}}
         for i in range(4)
     ]
     cache = CountingCollection([
         {"_id": "ucl2026:matches_cache", "data": fixtures},
-        {"_id": "ucl2026:team_form_teams", "teams": [
+        {"_id": "ucl2026:team_form_teams", "provider_namespace": "espn:team-id", "teams": [
             {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Lille"},
         ]},
-        {"_id": "ucl2026:team_form:10", "status": "fresh", "source": "espn", "matches": [
-            {"fixture_id": "a", "played_at": "2026-09-20T18:00:00+00:00", "result": "W"},
-        ]},
-        {"_id": "ucl2026:team_form:20", "status": "fresh", "source": "espn", "matches": [
-            {"fixture_id": "b", "played_at": "2026-09-20T18:00:00+00:00", "result": "L"},
-        ]},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "scope": "all_competitions", "status": "fresh",
+         "source": "espn", "provider": "espn", "provider_namespace": "espn:team-id",
+         "validation_version": "senior-men-v1", "matches": [_verified_form_match("a")]},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "scope": "all_competitions", "status": "fresh",
+         "source": "espn", "provider": "espn", "provider_namespace": "espn:team-id",
+         "validation_version": "senior-men-v1",
+         "matches": [_verified_form_match("b", team_id="20", opponent_id="10", result="L")]},
     ])
 
     class Engine:
@@ -1360,7 +1463,7 @@ def test_team_form_keeps_ten_recent_matches():
     payload = {"response": [
         {
             "fixture": {"id": str(index), "date": f"2026-09-{index:02d}T18:00:00+00:00", "status": {"short": "FT"}},
-            "league": {"name": "League", "type": "League"},
+            "league": {"id": "eng.1", "slug": "eng.1", "name": "English Premier League", "type": "League"},
             "teams": {"home": {"id": "1", "name": "Arsenal"}, "away": {"id": "2", "name": "Opponent"}},
             "goals": {"home": 2, "away": 1},
         }
@@ -1398,17 +1501,16 @@ def test_bootstrap_refills_completed_api_football_team_when_only_five_matches_ar
 
 
 def test_cached_history_fixtures_are_deduplicated_and_skip_fotmob_ids():
+    first = _verified_form_match("espn-1", team_id="1", opponent_id="2")
+    first.update({"home_team": "Arsenal", "away_team": "Chelsea"})
+    second = _verified_form_match("espn-1", team_id="2", opponent_id="1")
+    second.update({"home_id": "1", "away_id": "2", "home_team": "Arsenal", "away_team": "Chelsea"})
     cache = MemoryCollection([
-        {"_id": "ucl2026:team_form_teams", "teams": [
+        {"_id": "ucl2026:team_form_teams", "scope": "all_competitions", "provider_namespace": "espn:team-id", "teams": [
             {"team_id": "1", "name": "Arsenal"}, {"team_id": "2", "name": "Chelsea"},
         ]},
-        {"_id": "ucl2026:team_form:1", "matches": [
-            {"fixture_id": "espn-1", "played_at": "2026-09-20T18:00:00Z", "opponent_name": "Chelsea", "venue": "home", "provider": "espn"},
-            {"fixture_id": "fotmob:99", "played_at": "2026-09-19T18:00:00Z", "opponent_name": "Other", "venue": "away", "provider": "fotmob"},
-        ]},
-        {"_id": "ucl2026:team_form:2", "matches": [
-            {"fixture_id": "espn-1", "played_at": "2026-09-20T18:00:00Z", "opponent_name": "Arsenal", "venue": "away", "provider": "espn"},
-        ]},
+        {"_id": "ucl2026:team_form:1", "team_id": "1", "scope": "all_competitions", "matches": [first]},
+        {"_id": "ucl2026:team_form:2", "team_id": "2", "scope": "all_competitions", "matches": [second]},
     ])
     service = TeamFormService(cache, client=None)
 
@@ -1420,7 +1522,7 @@ def test_cached_history_fixtures_are_deduplicated_and_skip_fotmob_ids():
     }]
 
 
-def test_cached_history_fixtures_accept_legacy_espn_rows_without_provider():
+def test_cached_history_fixtures_reject_unverified_legacy_rows():
     cache = MemoryCollection([
         {"_id": "ucl2026:team_form_teams", "teams": [{"team_id": "1", "name": "Lens"}]},
         {"_id": "ucl2026:team_form:1", "source": "espn", "matches": [
@@ -1429,10 +1531,7 @@ def test_cached_history_fixtures_accept_legacy_espn_rows_without_provider():
         ]},
     ])
 
-    assert TeamFormService(cache, client=None).cached_history_fixtures() == [{
-        "id": "401876453", "home_team": "AS Monaco", "away_team": "Lens",
-        "commence_time": "2026-09-18T18:00:00Z", "completed": True, "historical": True,
-    }]
+    assert TeamFormService(cache, client=None).cached_history_fixtures() == []
 
 
 def test_history_depth_backfill_refreshes_at_most_six_teams_once_per_day():
@@ -1468,7 +1567,7 @@ def test_history_depth_backfill_refreshes_at_most_six_teams_once_per_day():
     assert all(params["last"] == 10 for _, params in client.calls)
 
 
-def test_history_depth_uses_dedicated_espn_client_and_stamps_match_source():
+def test_history_depth_does_not_translate_another_providers_team_id_by_name():
     cache = MemoryCollection([
         {"_id": "ucl2026:team_form_teams", "provider": "api_football", "teams": [{"team_id": "10", "name": "Team"}]},
         {"_id": "ucl2026:team_form:10", "team_id": "10", "matches": []},
@@ -1484,23 +1583,19 @@ def test_history_depth_uses_dedicated_espn_client_and_stamps_match_source():
         provider = "espn"
 
         def request(self, path, params):
-            if path == "/teams":
-                return {"response": [{"team": {"id": "999", "name": "Team"}}]}
-            fixture = _fixture(99)
-            fixture["teams"]["home"]["id"] = "999"
-            return {"response": [fixture]}
+            raise AssertionError("cross-provider team ID translation is not permitted")
 
     service = TeamFormService(cache, Primary(), history_client=History())
 
+    before = cache.find_one({"_id": "ucl2026:team_form:10"})
     service.refresh_history_depth(now=datetime(2026, 9, 28, 9, tzinfo=timezone.utc))
 
     row = cache.find_one({"_id": "ucl2026:team_form:10"})
-    assert row["matches"][0]["provider"] == "espn"
-    assert row["provider"] == "espn"
-    assert cache.find_one({"_id": "ucl2026:team_form_sync"})["history_espn_team_ids"] == {"10": "999"}
+    assert row == before
+    assert "history_espn_team_ids" not in cache.find_one({"_id": "ucl2026:team_form_sync"})
 
 
-def test_merge_freezes_provider_on_legacy_rows_before_provider_switch():
+def test_merge_quarantines_unverified_legacy_rows_before_provider_switch():
     cache = MemoryCollection([{
         "_id": "ucl2026:team_form:10", "team_id": "10", "provider": "espn+fotmob",
         "matches": [
@@ -1514,21 +1609,17 @@ def test_merge_freezes_provider_on_legacy_rows_before_provider_switch():
 
     TeamFormService(cache, Client()).merge_matches("10", [])
 
-    matches = cache.find_one({"_id": "ucl2026:team_form:10"})["matches"]
-    assert {row["fixture_id"]: row["provider"] for row in matches} == {
-        "espn-1": "unknown", "fotmob:2": "fotmob",
-    }
+    form = cache.find_one({"_id": "ucl2026:team_form:10"})
+    assert form["matches"] == []
+    assert form["raw_legacy_matches"] == [
+        {"fixture_id": "espn-1", "played_at": "2026-09-20T18:00:00Z"},
+        {"fixture_id": "fotmob:2", "played_at": "2026-09-19T18:00:00Z"},
+    ]
 
 
-def test_merge_replaces_same_match_from_another_provider_instead_of_counting_twice():
-    existing = {
-        "fixture_id": "api-77", "played_at": "2026-09-20T18:00:00+00:00",
-        "opponent_name": "Sporting CP", "venue": "home", "score": "2:1",
-        "provider": "api_football",
-    }
-    replacement = {
-        **existing, "fixture_id": "espn-99", "provider": "espn",
-    }
+def test_merge_does_not_cross_dedupe_provider_ids_without_verified_mapping():
+    existing = _verified_form_match("api-77", team_id="10", opponent_id="20", provider="api_football")
+    replacement = _verified_form_match("espn-99", team_id="10", opponent_id="20", provider="espn")
     cache = MemoryCollection([{
         "_id": "ucl2026:team_form:10", "team_id": "10", "provider": "api_football",
         "matches": [existing],
@@ -1540,14 +1631,12 @@ def test_merge_replaces_same_match_from_another_provider_instead_of_counting_twi
 
     matches = cache.find_one({"_id": "ucl2026:team_form:10"})["matches"]
     assert [row["fixture_id"] for row in matches] == ["espn-99"]
+    assert cache.find_one({"_id": "ucl2026:team_form:10"})["raw_legacy_matches"] == [existing]
 
 
 def test_cached_forms_rank_players_from_three_archived_match_summaries():
     form_matches = [
-        {
-            "fixture_id": fixture_id, "played_at": f"2026-09-{day:02d}T18:00:00Z",
-            "opponent_name": "Opponent", "venue": "home", "score": "2:1", "result": "W",
-        }
+        _verified_form_match(fixture_id, played_at=f"2026-09-{day:02d}T18:00:00Z")
         for fixture_id, day in (("f1", 20), ("f2", 15), ("f3", 10))
     ]
     summaries = []
@@ -1572,16 +1661,19 @@ def test_cached_forms_rank_players_from_three_archived_match_summaries():
             }}},
         })
     cache = MemoryCollection([
-        {"_id": "ucl2026:team_form_teams", "teams": [
+        {"_id": "ucl2026:team_form_teams", "provider_namespace": "espn:team-id", "teams": [
             {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
         ]},
-        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": form_matches},
-        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "fresh", "matches": form_matches},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "unavailable", "matches": []},
         *summaries,
     ])
 
     result = TeamFormService(cache, client=None).cached_forms_for_matches([
-        {"home_team": "Arsenal", "away_team": "Opponent"},
+        {"home_team": "Arsenal", "away_team": "Opponent", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id", "commence_time": "2026-10-01T18:00:00Z"},
     ])
 
     player_form = result[0]["home_form"]["player_form"]
@@ -1596,14 +1688,16 @@ def test_cached_forms_rank_players_from_three_archived_match_summaries():
 
 def test_cached_forms_do_not_claim_player_form_before_three_archived_matches():
     cache = MemoryCollection([
-        {"_id": "ucl2026:team_form_teams", "teams": [
+        {"_id": "ucl2026:team_form_teams", "provider_namespace": "espn:team-id", "teams": [
             {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
         ]},
-        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": [
-            {"fixture_id": "f1", "played_at": "2026-09-20T18:00:00Z", "result": "W"},
-            {"fixture_id": "f2", "played_at": "2026-09-15T18:00:00Z", "result": "D"},
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "fresh", "matches": [
+            _verified_form_match("f1", played_at="2026-09-20T18:00:00Z"),
+            _verified_form_match("f2", played_at="2026-09-15T18:00:00Z", result="D"),
         ]},
-        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "unavailable", "matches": []},
         *[{
             "_id": f"ucl2026:match_intelligence:{fixture_id}", "event_id": fixture_id,
             "data": {"lineups": {"Arsenal": {
@@ -1614,7 +1708,8 @@ def test_cached_forms_do_not_claim_player_form_before_three_archived_matches():
     ])
 
     result = TeamFormService(cache, client=None).cached_forms_for_matches([
-        {"home_team": "Arsenal", "away_team": "Opponent"},
+        {"home_team": "Arsenal", "away_team": "Opponent", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id", "commence_time": "2026-10-01T18:00:00Z"},
     ])
 
     assert result[0]["home_form"]["player_form"] == {
@@ -1625,14 +1720,16 @@ def test_cached_forms_do_not_claim_player_form_before_three_archived_matches():
 
 def test_cached_forms_ignore_lineups_without_individual_player_stats():
     cache = MemoryCollection([
-        {"_id": "ucl2026:team_form_teams", "teams": [
+        {"_id": "ucl2026:team_form_teams", "provider_namespace": "espn:team-id", "teams": [
             {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
         ]},
-        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": [
-            {"fixture_id": fixture_id, "played_at": f"2026-09-{day:02d}T18:00:00Z", "result": "W"}
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "fresh", "matches": [
+            _verified_form_match(fixture_id, played_at=f"2026-09-{day:02d}T18:00:00Z")
             for fixture_id, day in (("f1", 20), ("f2", 15), ("f3", 10))
         ]},
-        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "unavailable", "matches": []},
         *[{
             "_id": f"ucl2026:match_intelligence:{fixture_id}", "event_id": fixture_id,
             "data": {"lineups": {"Arsenal": {
@@ -1645,7 +1742,8 @@ def test_cached_forms_ignore_lineups_without_individual_player_stats():
     ])
 
     result = TeamFormService(cache, client=None).cached_forms_for_matches([
-        {"home_team": "Arsenal", "away_team": "Opponent"},
+        {"home_team": "Arsenal", "away_team": "Opponent", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id", "commence_time": "2026-10-01T18:00:00Z"},
     ])
 
     assert result[0]["home_form"]["player_form"] == {
@@ -1656,14 +1754,16 @@ def test_cached_forms_ignore_lineups_without_individual_player_stats():
 
 def test_cached_forms_do_not_present_missing_contribution_fields_as_zero():
     cache = MemoryCollection([
-        {"_id": "ucl2026:team_form_teams", "teams": [
+        {"_id": "ucl2026:team_form_teams", "provider_namespace": "espn:team-id", "teams": [
             {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Opponent"},
         ]},
-        {"_id": "ucl2026:team_form:10", "team_id": "10", "status": "fresh", "matches": [
-            {"fixture_id": fixture_id, "played_at": f"2026-09-{day:02d}T18:00:00Z", "result": "W"}
+        {"_id": "ucl2026:team_form:10", "team_id": "10", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "fresh", "matches": [
+            _verified_form_match(fixture_id, played_at=f"2026-09-{day:02d}T18:00:00Z")
             for fixture_id, day in (("f1", 20), ("f2", 15), ("f3", 10))
         ]},
-        {"_id": "ucl2026:team_form:20", "team_id": "20", "status": "unavailable", "matches": []},
+        {"_id": "ucl2026:team_form:20", "team_id": "20", "provider": "espn", "provider_namespace": "espn:team-id",
+         "scope": "all_competitions", "status": "unavailable", "matches": []},
         *[{
             "_id": f"ucl2026:match_intelligence:{fixture_id}", "event_id": fixture_id,
             "data": {"lineups": {"Arsenal": {
@@ -1674,7 +1774,8 @@ def test_cached_forms_do_not_present_missing_contribution_fields_as_zero():
     ])
 
     result = TeamFormService(cache, client=None).cached_forms_for_matches([
-        {"home_team": "Arsenal", "away_team": "Opponent"},
+        {"home_team": "Arsenal", "away_team": "Opponent", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id", "commence_time": "2026-10-01T18:00:00Z"},
     ])
 
     assert result[0]["home_form"]["player_form"]["players"] == [{

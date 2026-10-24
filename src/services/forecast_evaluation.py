@@ -9,6 +9,7 @@ import re
 from typing import Any, Mapping
 
 from src.competitions import get_competition
+from src.services.source_freshness import source_status
 
 
 METHODS = ("model", "market", "elo")
@@ -59,6 +60,7 @@ def build_evaluation_forecast(
     captured_at: Any,
     capture_source: str,
     elo_observed_at: Any = None,
+    competition=None,
 ) -> dict[str, Any] | None:
     """Build a complete, timestamp-verified forecast record without writing it."""
     kickoff = _timestamp(kickoff_at)
@@ -73,10 +75,21 @@ def build_evaluation_forecast(
         return None
     if market_time > captured or elo_time > captured or market_time >= kickoff or elo_time >= kickoff:
         return None
-    if odds_snapshot.get("status", "fresh") not in {"fresh", "stale"}:
+    comp = get_competition(competition or odds_snapshot.get("competition"))
+    market_status = odds_snapshot.get("status", "fresh")
+    elo_status = elo_state.get("status", "fresh")
+    if comp.is_club_competition:
+        market_status = source_status(market_status, market_time, now=captured)
+        elo_status = source_status(elo_status, elo_time, now=captured)
+    if market_status not in {"fresh", "stale"} or elo_status not in {"fresh", "stale"}:
         return None
 
-    vectors = service.evaluation_probabilities(odds_snapshot, elo_state)
+    try:
+        vectors = service.evaluation_probabilities(odds_snapshot, elo_state, competition=comp)
+    except TypeError as exc:
+        if "competition" not in str(exc):
+            raise
+        vectors = service.evaluation_probabilities(odds_snapshot, elo_state)
     if not isinstance(vectors, Mapping):
         return None
     normalized = {method: _valid_vector(vectors.get(method)) for method in METHODS}
@@ -89,12 +102,14 @@ def build_evaluation_forecast(
         return None
     market_provenance = {
         "observed_at": market_time.isoformat(),
+        "status": market_status,
         **({"source": str(odds_snapshot["source"])} if odds_snapshot.get("source") else {}),
         **({"snapshot_id": str(odds_snapshot["_id"])} if odds_snapshot.get("_id") is not None else {}),
         **({"bucket": str(odds_snapshot["bucket"])} if odds_snapshot.get("bucket") else {}),
     }
     elo_provenance = {
         "observed_at": elo_time.isoformat(),
+        "status": elo_status,
         **({"source": str(elo_state["source"])} if elo_state.get("source") else {}),
     }
     if isinstance(elo_state.get("provenance"), Mapping):
@@ -107,7 +122,10 @@ def build_evaluation_forecast(
         "capture_source": capture_source,
         "captured_at": captured.isoformat(),
         "kickoff_at": kickoff.isoformat(),
-        "model_version": str(service.model_version),
+        "model_version": str(
+            service.model_version_for(comp) if callable(getattr(service, "model_version_for", None))
+            else service.model_version
+        ),
         "probabilities": normalized,
         "inputs": {"odds": clean_odds, "elo": clean_elo},
         "provenance": {"market": market_provenance, "elo": elo_provenance},
@@ -168,6 +186,7 @@ def capture_archive_forecasts(cache_collection, archive_collection, service, *, 
                 service, snapshot, elo,
                 kickoff_at=entry["metadata"]["commence_time"], captured_at=current,
                 capture_source="maintenance", elo_observed_at=pre_match.get("timestamp_recorded"),
+                competition=competition,
             )
             if record is not None:
                 captured += int(persist_evaluation_forecast(archive_collection, entry["_id"], record))

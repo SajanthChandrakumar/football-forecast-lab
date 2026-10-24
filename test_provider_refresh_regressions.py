@@ -48,23 +48,19 @@ def test_manual_ucl_report_does_not_hide_team_form_failure(monkeypatch):
     assert 'must-stay-private' not in str(result)
 
 
-def test_daily_sync_matches_team_names_across_provider_id_namespaces():
-    from datetime import datetime, timezone
+def test_daily_sync_requires_exact_provider_team_id_and_ignores_display_name():
     from src.services.team_form import TeamFormService
     from test_team_form import MemoryCollection, _fixture
-    store=MemoryCollection([{'_id':'ucl2026:team_form_teams','teams':[{'team_id':'10','name':'Team'}]}])
+    store=MemoryCollection()
     wrong=_fixture('wrong')
-    wrong['teams']['home']['name']='Unrelated Club'
+    wrong['teams']['home']['id']=999
     right=_fixture('right')
-    right['teams']['home']['id']=999
+    right['teams']['home']['name']='Unrelated Club'
     class Client:
         provider='api_football'
-        def request(self,*args,**kwargs):
-            return {'response':[wrong,right],'paging':{'current':1,'total':1}}
-    result=TeamFormService(store,Client()).refresh_daily(now=datetime(2026,10,20,tzinfo=timezone.utc))
-    assert result['status']=='fresh'
-    saved=store.find_one({'_id':'ucl2026:team_form:10'})
-    assert [row['fixture_id'] for row in saved['matches']]==['right']
+    service=TeamFormService(store,Client())
+    rows=service.parse_fixtures('10',{'response':[wrong,right]},provider='api_football')
+    assert [row['fixture_id'] for row in rows]==['right']
 
 
 def test_initial_daily_sync_catches_up_since_completed_bootstrap():
@@ -87,17 +83,22 @@ def test_initial_daily_sync_catches_up_since_completed_bootstrap():
     assert result['remaining_dates']==22
 
 
-def test_daily_sync_resolves_known_cross_provider_club_aliases():
-    from datetime import datetime, timezone
+def test_club_form_does_not_resolve_team_ids_from_cross_provider_aliases():
     from src.services.team_form import TeamFormService
-    from test_team_form import MemoryCollection, _fixture
-    store=MemoryCollection([{'_id':'ucl2026:team_form_teams','teams':[{'team_id':'132','name':'Bayern Munich'}]}])
-    fixture=_fixture('bayern-new')
-    fixture['teams']['home']={'id':157,'name':'Bayern München'}
+    from test_team_form import MemoryCollection
+    store=MemoryCollection([
+        {'_id':'ucl2026:team_form_teams','provider_namespace':'espn:team-id',
+         'teams':[{'team_id':'132','name':'Bayern Munich'}]},
+        {'_id':'ucl2026:team_form:132','team_id':'132','scope':'all_competitions','status':'fresh',
+         'provider':'api_football','provider_namespace':'api_football:team-id',
+         'matches':[{'fixture_id':'bayern-new','played_at':'2026-09-01T18:00:00Z','result':'W',
+                     'identity_verified':True,'provider':'api_football','provider_namespace':'api_football:team-id',
+                     'home_id':'132','away_id':'20','competition_id':'uefa.champions',
+                     'competition_name':'UEFA Champions League','competition_kind':'europe'}]},
+    ])
     class Client:
-        provider='api_football'
-        def request(self,*args,**kwargs):
-            return {'response':[fixture],'paging':{'current':1,'total':1}}
-    TeamFormService(store,Client()).refresh_daily(now=datetime(2026,10,20,tzinfo=timezone.utc))
-    saved=store.find_one({'_id':'ucl2026:team_form:132'})
-    assert [row['fixture_id'] for row in saved['matches']]==['bayern-new']
+        provider='espn'
+    service=TeamFormService(store,Client())
+    form=service.cached_form_for_match('Bayern München',before='2026-10-01T18:00:00Z')
+    assert form['matches']==[]
+    assert service._resolve_team_id('Bayern Munich',None,store.find_one({'_id':'ucl2026:team_form_teams'})) is None

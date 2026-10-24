@@ -12,6 +12,7 @@ export interface AssistantRow {
   suggestion: string
   sourceLabel: string
   stale: boolean
+  freshnessMessage: string
   observedAt: string
   value: string
   editable: boolean
@@ -25,6 +26,7 @@ export function buildAssistantRows(
   drafts: Record<string, string>,
   savedOverrides: Record<string, string>,
   now?: number,
+  competition?: string,
 ): AssistantRow[]
 export function getSaveCandidates(rows: AssistantRow[]): { match: Match; tip: string }[]
 export function saveTipBatch<T>(

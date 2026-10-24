@@ -5,6 +5,7 @@ import { buildMatchdayRadar, type RadarCategory } from '../../lib/matchRadar'
 import { dayHeading, kickoffTime } from '../../lib/format'
 import { cn } from '../../lib/util'
 import { TeamLabel, TipBadge } from '../../components/shared/Badges'
+import { useAppState } from '../../state/AppState'
 
 const categories: { key: RadarCategory; label: string; short: string }[] = [
   { key: 'safe', label: 'Klare Tipps', short: 'Klar' },
@@ -20,7 +21,9 @@ const categoryStyle: Record<RadarCategory, string> = {
 
 export function MatchdayRadar({ matches }: { matches: Match[] }) {
   const navigate = useNavigate()
-  const radar = useMemo(() => buildMatchdayRadar(matches), [matches])
+  const { competition } = useAppState()
+  const requireFreshInputs = competition === 'epl2026' || competition === 'ucl2026'
+  const radar = useMemo(() => buildMatchdayRadar(matches, Date.now(), requireFreshInputs), [matches, requireFreshInputs])
   const [selected, setSelected] = useState<RadarCategory | null>(null)
   const [showTipCard, setShowTipCard] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')

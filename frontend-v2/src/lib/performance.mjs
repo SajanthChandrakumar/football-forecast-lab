@@ -9,14 +9,16 @@ function validProbabilities(probabilities) {
 export function performanceEntryKind(entry) {
   if (entry?.post_match_result?.status !== 'completed') return 'pending'
   if (entry?.prediction?.algo_reconstructed === true) return 'reconstructed'
+  if (entry?.prediction?.algo_tip_source === 'saved_cache') return 'legacy'
 
-  const frozenAt = Date.parse(entry?.prediction?.frozen_at ?? '')
+  const capture = entry?.prediction?.evaluation_forecast
+  const frozenAt = Date.parse(entry?.prediction?.frozen_at ?? capture?.frozen_at ?? (capture?.capture_source === 'maintenance' ? capture.captured_at : '') ?? '')
   const kickoff = Date.parse(entry?.metadata?.commence_time ?? '')
   const actualScore = entry?.post_match_result?.actual_score
   const verified = Number.isFinite(frozenAt)
     && Number.isFinite(kickoff)
     && frozenAt < kickoff
-    && validProbabilities(entry?.prediction?.probabilities)
+    && validProbabilities(capture?.probabilities?.model ?? capture?.probabilities ?? entry?.prediction?.probabilities)
     && /^\d+:\d+$/.test(actualScore ?? '')
   return verified ? 'verified' : 'legacy'
 }
@@ -49,7 +51,7 @@ export function commonPerformance(archive) {
 
     const prediction = entry?.prediction ?? {}
     const outcome = entry?.post_match_result ?? {}
-    if (prediction.algo_reconstructed === true) continue
+    if (prediction.algo_reconstructed === true || ['manual_historical', 'shared_historical'].includes(prediction.user_tip_source)) continue
     if (!isScoreTip(prediction.user_tip) || !isScoreTip(prediction.top_tip)) continue
     if (outcome.points_earned == null || outcome.algo_points == null) continue
 
@@ -116,7 +118,7 @@ export function officialPerformance(archive, botKeys) {
     }
 
     if (kind === 'verified') {
-      brierTotal += brierScore(entry.prediction.probabilities, entry.post_match_result.actual_score)
+      brierTotal += brierScore(entry.prediction.evaluation_forecast?.probabilities?.model ?? entry.prediction.evaluation_forecast?.probabilities ?? entry.prediction.probabilities, entry.post_match_result.actual_score)
       result.probabilityCount++
     }
 

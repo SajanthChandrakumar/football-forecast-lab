@@ -45,7 +45,7 @@ export function PerformanceView() {
   return (
     <PageTransition>
       <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
-      <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} />
+      <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} wrap={competition !== 'wc2026'} />
 
       <ViewPanel id="performance" value="tips" active={view}>
         <div className="analysis-section space-y-4">
@@ -145,7 +145,7 @@ export function PerformanceView() {
           </GlassCard>
 
           <ForecastEvaluation />
-          <ModelComparison />
+          {competition === 'wc2026' && <ModelComparison />}
           <GlassCard>
             <SectionTitle>Gesamte gespeicherte Modellhistorie</SectionTitle>
             <p className="mt-3 text-sm text-fg-2">Modell · {totals.algoAllCount} Tipps gesamt: <b className="tabular-nums text-fg">{totals.algoAllTotal}</b> Punkte.</p>

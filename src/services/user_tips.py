@@ -21,7 +21,7 @@ _PREDICTION_FIELDS = (
     "model_tip", "top_tip", "pool_tip", "pool_status", "probabilities", "base_probabilities",
     "frozen_at", "status", "source_status",
     "source", "observed_at", "source_mode", "model_version", "input_provenance",
-    "provenance", "context", "max_xp", "bots",
+    "provenance", "context", "max_xp", "bots", "regulation_matrix", "matrix_basis", "probability_basis",
 )
 _SNAPSHOT_FIELDS = (
     "odds", "elo_state", "source_mode", "status", "source_status", "source",
@@ -264,3 +264,42 @@ def archive_cached_model_tips(archive_store, cache_store, competition, *, now=No
     if created:
         invalidate_archive_mem_cache(archive_store)
     return created
+
+
+def save_historical_tip(archive_store, match_id, user_tip, competition, *, now=None):
+    """Record an explicit retrospective tip separately from pre-kickoff submissions."""
+    from src.math_engine import MathEngine
+    comp = require_competition(competition)
+    archive_store = collection_for(archive_store, comp)
+    try:
+        match_id = bounded_match_id(match_id)
+        user_tip = bounded_score(user_tip)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    entry = archive_store.find_one({'_id': match_id})
+    if not entry:
+        raise HTTPException(status_code=404, detail='Spiel nicht im Archiv.')
+    post = entry.get('post_match_result') or {}
+    if post.get('status') != 'completed' or not post.get('actual_score'):
+        raise HTTPException(status_code=409, detail='Nachträge sind nur für abgeschlossene Spiele möglich.')
+    prediction = entry.get('prediction') or {}
+    previous = prediction.get('user_tip')
+    current = now or datetime.now(timezone.utc)
+    points = MathEngine.calculate_actual_points(user_tip, post['actual_score'], bool((entry.get('metadata') or {}).get('is_ko_phase')))
+    edits = [*(prediction.get('user_tip_edits') or []), {
+        'recorded_at': current.isoformat(), 'previous_tip': previous,
+        'previous_source': prediction.get('user_tip_source'), 'tip': user_tip,
+    }]
+    result = archive_store.update_one({
+        '_id': match_id, 'prediction.user_tip': previous,
+        'prediction.user_tip_recorded_at': prediction.get('user_tip_recorded_at'),
+        'post_match_result.status': 'completed', 'post_match_result.actual_score': post['actual_score'],
+    }, {'$set': {
+        'prediction.user_tip': user_tip, 'prediction.user_tip_source': 'manual_historical',
+        'prediction.user_tip_recorded_at': current.isoformat(), 'prediction.user_tip_edits': edits,
+        'post_match_result.points_earned': points,
+    }}, upsert=False)
+    if not getattr(result, 'matched_count', 0):
+        raise HTTPException(status_code=409, detail='Der Tipp wurde inzwischen geändert. Bitte neu laden.')
+    invalidate_archive_mem_cache(archive_store)
+    return {'ok': True, 'points_earned': points}

@@ -8,21 +8,25 @@ match.  WC simulation remains in :mod:`src.services.monte_carlo`.
 from __future__ import annotations
 
 from collections import defaultdict
-from numbers import Real
 from datetime import datetime, timezone
+from math import isfinite
+from numbers import Real
+import time
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 
 from src.services.prediction import (
-    advancement_probabilities,
+    CLUB_MODEL_VERSION,
+    PredictionService,
     build_match_context,
     extra_time_eligible_for_score,
 )
+from src.constants import TEAM_MAPPING
 
 
-DEFAULT_UCL_RUNS = 100
+DEFAULT_UCL_RUNS = 5000
 DEFAULT_UCL_SEED = 20260908
 UCL_TEAM_COUNT = 36
 UCL_MATCH_COUNT = 144
@@ -157,6 +161,61 @@ def _fixture_score(fixture: Mapping[str, Any]) -> tuple[int, int] | None:
     return None
 
 
+def _fixture_value(fixture: Mapping[str, Any], key: str) -> Any:
+    if fixture.get(key) is not None:
+        return fixture.get(key)
+    post = fixture.get("post_match_result")
+    if isinstance(post, Mapping):
+        return post.get(key)
+    return None
+
+
+def _knockout_stage(fixture: Mapping[str, Any]) -> str:
+    context = fixture.get("match_context")
+    nested_stage = context.get("stage") if isinstance(context, Mapping) else None
+    value = (
+        fixture.get("stage") or fixture.get("round") or fixture.get("phase")
+        or fixture.get("knockout_stage") or nested_stage or ""
+    )
+    return " ".join(str(value).lower().replace("_", " ").replace("-", " ").split())
+
+
+def has_known_knockout_result(fixtures: Sequence[Mapping[str, Any]]) -> bool:
+    stages = {
+        "knockout", "knockout phase", "playoff", "playoffs", "play off", "play offs",
+        "knockout playoff", "knockout playoffs", "round of 16", "last 16", "r16",
+        "quarterfinal", "quarterfinals", "quarter final", "quarter finals",
+        "semifinal", "semifinals", "semi final", "semi finals", "final",
+    }
+    for fixture in fixtures:
+        if not isinstance(fixture, Mapping):
+            continue
+        stage = _knockout_stage(fixture)
+        has_knockout_metadata = bool(
+            fixture.get("is_ko_phase") or fixture.get("is_ko") or fixture.get("tie_id")
+            or fixture.get("knockout_stage")
+        )
+        if (stage in stages or has_knockout_metadata) and _is_completed(fixture):
+            return True
+    return False
+
+
+def _shootout_winner(fixture: Mapping[str, Any], home: str, away: str) -> str | None:
+    value = _fixture_value(fixture, "shootout_winner") or _fixture_value(fixture, "penalty_winner")
+    if value is not None:
+        normalized = str(value).strip()
+        if normalized in {home, "home", "Home"}:
+            return home
+        if normalized in {away, "away", "Away"}:
+            return away
+    penalties = _fixture_value(fixture, "penalties")
+    if isinstance(penalties, Mapping):
+        score = _score_pair(penalties)
+        if score is not None and score[0] != score[1]:
+            return home if score[0] > score[1] else away
+    return None
+
+
 def _is_completed(fixture: Mapping[str, Any]) -> bool:
     if _fixture_score(fixture) is not None:
         return True
@@ -167,7 +226,7 @@ def _is_completed(fixture: Mapping[str, Any]) -> bool:
     return bool(fixture.get("completed")) or status in {"completed", "final", "post"}
 
 
-def _discipline_value(fixture: Mapping[str, Any], side: str) -> float:
+def _discipline_value(fixture: Mapping[str, Any], side: str) -> float | None:
     keys = (
         f"{side}_disciplinary_score",
         f"{side}_discipline",
@@ -176,61 +235,158 @@ def _discipline_value(fixture: Mapping[str, Any], side: str) -> float:
     for key in keys:
         value = fixture.get(key)
         if isinstance(value, Real) and not isinstance(value, bool):
-            return float(value)
+            parsed = float(value)
+            return parsed if isfinite(parsed) else None
     discipline = fixture.get("disciplinary_score", fixture.get("discipline"))
     if isinstance(discipline, Mapping):
         value = discipline.get(side)
         if isinstance(value, Real) and not isinstance(value, bool):
-            return float(value)
-    return 0.0
+            parsed = float(value)
+            return parsed if isfinite(parsed) else None
+    return None
 
 
-def _coefficient_data(value: Any, version: str) -> tuple[float, float | None, str]:
+def _finite_metric(value: Any, *, rank: bool = False) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not isfinite(parsed) or (parsed <= 0 if rank else parsed < 0):
+        return None
+    return parsed
+
+
+def _coefficient_data(value: Any, version: str) -> tuple[float | None, float | None, str]:
     if isinstance(value, Mapping):
         actual_version = str(value.get("version", value.get("coefficient_version", version)))
         coefficient = value.get("coefficient", value.get("points", value.get("rating")))
         rank = value.get("rank", value.get("coefficient_rank", value.get("uefa_coefficient_rank")))
-        try:
-            coefficient_value = float(coefficient) if coefficient is not None else 0.0
-        except (TypeError, ValueError):
-            coefficient_value = 0.0
-        try:
-            rank_value = float(rank) if rank is not None else None
-        except (TypeError, ValueError):
-            rank_value = None
-        return coefficient_value, rank_value, actual_version
-    try:
-        return float(value), None, version
-    except (TypeError, ValueError):
-        return 0.0, None, version
+        return _finite_metric(coefficient), _finite_metric(rank, rank=True), actual_version
+    return _finite_metric(value), None, version
 
 
-def _sort_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    def key(row: Mapping[str, Any]):
-        # ``uefa_coefficient`` is the higher-is-better value.  If a provider
-        # only supplies a one-based rank, lower rank is equivalent to higher
-        # coefficient and is used as the fallback.
-        coefficient = row.get("uefa_coefficient")
-        rank = row.get("uefa_coefficient_rank")
-        coefficient_key = -float(coefficient or 0.0)
-        if (coefficient is None or float(coefficient or 0.0) == 0.0) and rank is not None:
-            coefficient_key = float(rank)
-        return (
-            -float(row.get("points", 0)),
-            -float(row.get("goal_difference", 0)),
-            -float(row.get("goals_for", 0)),
-            -float(row.get("away_goals", 0)),
-            -float(row.get("wins", 0)),
-            -float(row.get("away_wins", 0)),
-            -float(row.get("opponents_points", 0)),
-            -float(row.get("opponents_goal_difference", 0)),
-            -float(row.get("opponents_goals", 0)),
-            float(row.get("disciplinary_score", 0)),
-            coefficient_key,
-            str(row.get("team", "")),
-        )
+def _rank_data(value: Any, version: str) -> tuple[float | None, str]:
+    if isinstance(value, Mapping):
+        actual_version = str(value.get("version", value.get("coefficient_version", version)))
+        rank = value.get("rank", value.get("coefficient_rank", value.get("uefa_coefficient_rank")))
+        return _finite_metric(rank, rank=True), actual_version
+    return _finite_metric(value, rank=True), version
 
-    return [dict(row) for row in sorted(rows, key=key)]
+
+def _tiebreak_version_error(versions: Mapping[str, str], expected: str, metric: str) -> str | None:
+    distinct = set(versions.values())
+    if distinct == {expected}:
+        return None
+    actual = ", ".join(sorted(distinct)) or "missing"
+    return f"UEFA {metric} versions must match requested {expected}; found {actual}"
+
+
+def resolve_uefa_tiebreak_inputs(
+    teams: Sequence[str],
+    uefa_coefficients: Mapping[str, Any] | None,
+    uefa_coefficient_ranks: Mapping[str, Any] | None,
+    *,
+    coefficient_version: str = UCL_COEFFICIENT_VERSION,
+) -> dict[str, Any]:
+    """Require one complete, finite coefficient or rank source for simulation."""
+    coefficients = (
+        {str(team): value for team, value in uefa_coefficients.items()}
+        if isinstance(uefa_coefficients, Mapping) else {}
+    )
+    ranks = (
+        {str(team): value for team, value in uefa_coefficient_ranks.items()}
+        if isinstance(uefa_coefficient_ranks, Mapping) else {}
+    )
+    parsed_coefficients: dict[str, float] = {}
+    parsed_ranks: dict[str, float] = {}
+    coefficient_versions: dict[str, str] = {}
+    rank_versions: dict[str, str] = {}
+    team_list = list(map(str, teams))
+    for team in team_list:
+        coefficient, embedded_rank, version = _coefficient_data(coefficients.get(team), coefficient_version)
+        rank, rank_version = _rank_data(ranks.get(team), coefficient_version)
+        if rank is None:
+            rank = embedded_rank
+            rank_version = version
+        if coefficient is not None:
+            parsed_coefficients[team] = coefficient
+            coefficient_versions[team] = version
+        if rank is not None:
+            parsed_ranks[team] = rank
+            rank_versions[team] = rank_version
+
+    if len(parsed_coefficients) == len(team_list):
+        version_error = _tiebreak_version_error(coefficient_versions, coefficient_version, "coefficient")
+        if version_error is None:
+            return {
+                "metric": "coefficient",
+                "values": {team: {"coefficient": parsed_coefficients[team], "version": coefficient_versions[team]} for team in team_list},
+            }
+    if len(parsed_ranks) == len(team_list):
+        rank_version_error = _tiebreak_version_error(rank_versions, coefficient_version, "rank")
+        if rank_version_error is None:
+            return {
+                "metric": "rank",
+                "values": {team: {"rank": parsed_ranks[team], "version": rank_versions[team]} for team in team_list},
+            }
+    if len(parsed_coefficients) == len(team_list):
+        raise MissingModelInput(version_error)
+    if len(parsed_ranks) == len(team_list):
+        raise MissingModelInput(rank_version_error)
+    missing = [team for team in team_list if team not in parsed_coefficients and team not in parsed_ranks]
+    detail = f"; missing or invalid for {', '.join(missing)}" if missing else "; mixed coefficient/rank coverage cannot be compared"
+    raise MissingModelInput(f"complete finite UEFA coefficient or rank coverage is required{detail}")
+
+
+_PRE_DISCIPLINE_FIELDS = (
+    "points", "goal_difference", "goals_for", "away_goals", "wins", "away_wins",
+    "opponents_points", "opponents_goal_difference", "opponents_goals",
+)
+
+
+def _ranking_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    coefficient = row.get("uefa_coefficient")
+    rank = row.get("uefa_coefficient_rank")
+    if coefficient is not None:
+        coefficient_key = (0, -float(coefficient))
+    elif rank is not None:
+        coefficient_key = (1, float(rank))
+    else:
+        coefficient_key = (2, 0.0)
+    return (
+        -float(row.get("points", 0)),
+        -float(row.get("goal_difference", 0)),
+        -float(row.get("goals_for", 0)),
+        -float(row.get("away_goals", 0)),
+        -float(row.get("wins", 0)),
+        -float(row.get("away_wins", 0)),
+        -float(row.get("opponents_points", 0)),
+        -float(row.get("opponents_goal_difference", 0)),
+        -float(row.get("opponents_goals", 0)),
+        float(row.get("disciplinary_score") or 0),
+        coefficient_key,
+    )
+
+
+def _sort_rows(rows: Sequence[Mapping[str, Any]], *, require_complete_tiebreak: bool = False) -> list[dict[str, Any]]:
+    materialized = [dict(row) for row in rows]
+    if require_complete_tiebreak:
+        groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
+        for row in materialized:
+            groups[tuple(row.get(field) for field in _PRE_DISCIPLINE_FIELDS)].append(row)
+        for group in groups.values():
+            if len(group) > 1 and any(not row.get("_disciplinary_score_known", row.get("disciplinary_score") is not None) for row in group):
+                names = ", ".join(sorted(str(row.get("team", "?")) for row in group))
+                raise MissingModelInput(f"disciplinary score is required to rank tied teams: {names}")
+    ranked = sorted(materialized, key=_ranking_key)
+    if require_complete_tiebreak:
+        for left, right in zip(ranked, ranked[1:]):
+            if _ranking_key(left) == _ranking_key(right):
+                names = ", ".join(sorted((str(left.get("team", "?")), str(right.get("team", "?")))))
+                raise MissingModelInput(f"UEFA tiebreak inputs leave teams unresolved: {names}")
+    return ranked
 
 
 def rank_ucl_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -251,6 +407,7 @@ def build_ucl_table(
     uefa_coefficient_ranks: Mapping[str, Any] | None = None,
     coefficient_version: str = UCL_COEFFICIENT_VERSION,
     precomputed: bool = False,
+    require_complete_tiebreak: bool = False,
 ) -> list[dict[str, Any]]:
     """Build a local table, or sort pre-aggregated rows for integrations."""
     if precomputed:
@@ -262,6 +419,8 @@ def build_ucl_table(
     for team, rank in (uefa_coefficient_ranks or {}).items():
         if team not in uefa_coefficients:
             uefa_coefficients[team] = {"rank": rank}
+    normalized_discipline = {str(team): _finite_metric(value) for team, value in disciplinary_scores.items()}
+    discipline_known = {team: normalized_discipline.get(team) is not None for team in team_list}
     rows: dict[str, dict[str, Any]] = {
         team: {
             "team": team,
@@ -272,7 +431,8 @@ def build_ucl_table(
             "away_goals": 0,
             "wins": 0,
             "away_wins": 0,
-            "disciplinary_score": float(disciplinary_scores.get(team, 0) or 0),
+            "disciplinary_score": normalized_discipline.get(team),
+            "_disciplinary_score_known": discipline_known[team],
             "opponents_points": 0,
             "opponents_goal_difference": 0,
             "opponents_goals": 0,
@@ -292,8 +452,15 @@ def build_ucl_table(
         # Unplayed fixtures contribute no cards.  This keeps future discipline
         # tied in every simulation run, while completed discipline remains a
         # deterministic table input.
-        rows[home]["disciplinary_score"] += _discipline_value(fixture, "home")
-        rows[away]["disciplinary_score"] += _discipline_value(fixture, "away")
+        for team, side in ((home, "home"), (away, "away")):
+            value = _discipline_value(fixture, side)
+            if value is None:
+                if not discipline_known[team]:
+                    rows[team]["_disciplinary_score_known"] = False
+                continue
+            if rows[team]["disciplinary_score"] is None:
+                rows[team]["disciplinary_score"] = 0.0
+            rows[team]["disciplinary_score"] += value
         home_goals, away_goals = score
         rows[home]["goals_for"] += home_goals
         rows[home]["goals_against"] += away_goals
@@ -325,7 +492,7 @@ def build_ucl_table(
             row["opponents_goal_difference"] += opponent_row["goal_difference"]
             row["opponents_goals"] += opponent_row["goals_for"]
 
-    local = _sort_rows(rows.values())
+    local = _sort_rows(rows.values(), require_complete_tiebreak=require_complete_tiebreak)
     official_map = {str(team): index for index, team in enumerate(official_order or (), 1)}
     if official_map:
         local.sort(key=lambda row: (official_map.get(row["team"], len(official_map) + 1), row["rank"] if "rank" in row else 0))
@@ -338,6 +505,7 @@ def build_ucl_table(
         row["official_rank"] = official_map.get(row["team"])
         row["table_source"] = table_source
         row["goals_against"] = int(row["goals_against"])
+        row.pop("_disciplinary_score_known", None)
     return local
 
 
@@ -473,21 +641,54 @@ def _normalise_matrix(value: Any) -> tuple[list[tuple[int, int]], np.ndarray]:
     return scores, probabilities / probabilities.sum()
 
 
+def _same_timestamp(left, right) -> bool:
+    try:
+        first = datetime.fromisoformat(str(left).replace("Z", "+00:00"))
+        second = datetime.fromisoformat(str(right).replace("Z", "+00:00"))
+        return first.tzinfo is not None and second.tzinfo is not None and first == second
+    except (TypeError, ValueError):
+        return False
+
+
+def _fixture_prediction(fixture: Mapping[str, Any]) -> tuple[Any, Mapping[str, Any]]:
+    prediction = fixture.get("prediction") if isinstance(fixture.get("prediction"), Mapping) else {}
+    model_version = fixture.get("model_version", prediction.get("model_version"))
+    context = fixture.get("context") or fixture.get("match_context") or prediction.get("context") or {}
+    provenance = fixture.get("input_provenance") or fixture.get("provenance") or prediction.get("input_provenance") or prediction.get("provenance") or {}
+    elo = provenance.get("elo") if isinstance(provenance, Mapping) else None
+    if (
+        model_version != CLUB_MODEL_VERSION
+        or not isinstance(context, Mapping)
+        or context.get("competition") != "ucl2026"
+        or fixture.get("source_mode", prediction.get("source_mode")) in (None, "unavailable")
+        or not isinstance(elo, Mapping)
+        or elo.get("source") != "clubelo"
+        or elo.get("status") not in {"fresh", "stale"}
+        or not elo.get("observed_at")
+    ):
+        return None, {}
+    for source in (fixture, prediction):
+        if not isinstance(source, Mapping):
+            continue
+        for key in ("matrix", "score_matrix"):
+            if source.get(key) is not None and _normalised_matrix_dict(source[key]) is not None:
+                return source[key], elo
+    return None, elo
+
+
 def _matrix_lookup(fixture: Mapping[str, Any], matrices: Any, home: str, away: str) -> tuple[list[tuple[int, int]], np.ndarray]:
     candidates = []
-    for key in ("score_matrix", "matrix"):
-        if fixture.get(key) is not None:
-            candidates.append((fixture[key], False))
-    prediction = fixture.get("prediction")
-    if isinstance(prediction, Mapping):
-        for key in ("score_matrix", "matrix"):
-            if prediction.get(key) is not None:
-                candidates.append((prediction[key], False))
-    if isinstance(matrices, pd.DataFrame):
-        candidates.append((matrices, False))
-    elif isinstance(matrices, Mapping):
+    fixture_matrix, _provenance = _fixture_prediction(fixture)
+    if fixture_matrix is not None:
+        candidates.append((fixture_matrix, False))
+    if isinstance(matrices, Mapping):
         fixture_id = fixture.get("id", fixture.get("match_id", fixture.get("event_id")))
-        keys = (fixture_id, str(fixture_id) if fixture_id is not None else None, (home, away), f"{home}::{away}", f"{home}:{away}", (away, home), f"{away}::{home}", f"{away}:{home}", "default")
+        keys = (
+            fixture_id if fixture_matrix is not None else None,
+            str(fixture_id) if fixture_id is not None and fixture_matrix is not None else None,
+            (home, away), f"{home}::{away}", f"{home}:{away}",
+            (away, home), f"{away}::{home}", f"{away}:{home}",
+        )
         for key in keys:
             if key is not None and key in matrices:
                 candidates.append((matrices[key], key in ((away, home), f"{away}::{home}", f"{away}:{home}")))
@@ -502,18 +703,13 @@ def _matrix_lookup(fixture: Mapping[str, Any], matrices: Any, home: str, away: s
     raise MissingModelInput(f"no valid score matrix for {home} vs {away}")
 
 
-def _fixture_matrix(fixture: Mapping[str, Any]) -> Any:
-    for key in ("matrix", "score_matrix"):
-        value = fixture.get(key)
-        if value is not None and _normalised_matrix_dict(value) is not None:
-            return value
-    prediction = fixture.get("prediction")
-    if isinstance(prediction, Mapping):
-        for key in ("matrix", "score_matrix"):
-            value = prediction.get(key)
-            if value is not None and _normalised_matrix_dict(value) is not None:
-                return value
-    return None
+def _fixture_matrix(fixture: Mapping[str, Any], rating_observed_at=None) -> Any:
+    value, provenance = _fixture_prediction(fixture)
+    if value is None:
+        return None
+    if rating_observed_at is not None and not _same_timestamp(provenance.get("observed_at"), rating_observed_at):
+        return None
+    return value
 
 
 def _normalised_matrix_dict(value: Any) -> dict[str, float] | None:
@@ -524,7 +720,7 @@ def _normalised_matrix_dict(value: Any) -> dict[str, float] | None:
     return {f"{home}:{away}": float(probability) for (home, away), probability in zip(scores, probabilities)}
 
 
-def build_cached_ucl_inputs(cached: Mapping[str, Any]) -> dict[str, Any]:
+def build_cached_ucl_inputs(cached: Mapping[str, Any], *, rating_observed_at=None) -> dict[str, Any]:
     """Normalize cache fixture matrices and pass through simulation metadata."""
     if not isinstance(cached, Mapping):
         raise ValueError("UCL fixture cache is unavailable")
@@ -532,38 +728,37 @@ def build_cached_ucl_inputs(cached: Mapping[str, Any]) -> dict[str, Any]:
     fixtures = cached.get("data")
     if not isinstance(fixtures, list) or not fixtures:
         raise ValueError("UCL fixture cache contains no fixtures")
-    matrices = dict(cached.get("score_matrices") or {}) if isinstance(cached.get("score_matrices"), Mapping) else {}
-    open_matrices: list[dict[str, float]] = []
+    # Pair-keyed matrices have no per-fixture freshness/provenance envelope.
+    # The route builds complete pair matrices from verified ClubElo ratings;
+    # only individually verified fixture matrices are admitted here.
+    matrices = {}
+    normalized_fixtures = []
     for fixture in fixtures:
         if not isinstance(fixture, Mapping):
             raise ValueError("UCL fixture cache contains an invalid fixture")
         fixture_id = fixture.get("id", fixture.get("match_id", fixture.get("event_id")))
-        fixture_matrix = _fixture_matrix(fixture)
-        if fixture_matrix is None and fixture_id is not None:
-            fixture_matrix = matrices.get(str(fixture_id), matrices.get(fixture_id))
+        fixture_matrix = _fixture_matrix(fixture, rating_observed_at)
         matrix = _normalised_matrix_dict(fixture_matrix)
+        clean_fixture = dict(fixture)
+        if matrix:
+            clean_fixture["matrix"] = matrix
+        else:
+            clean_fixture.pop("matrix", None)
+            clean_fixture.pop("score_matrix", None)
+            prediction = clean_fixture.get("prediction")
+            if isinstance(prediction, Mapping):
+                clean_prediction = dict(prediction)
+                clean_prediction.pop("matrix", None)
+                clean_prediction.pop("score_matrix", None)
+                clean_fixture["prediction"] = clean_prediction
+        normalized_fixtures.append(clean_fixture)
         if matrix and fixture_id is not None:
             matrices[str(fixture_id)] = matrix
-        if matrix and not _is_completed(fixture):
-            open_matrices.append(matrix)
-
-    explicit_default = cached.get("default_score_matrix", cached.get("default_matrix"))
-    if explicit_default is None and isinstance(cached.get("score_matrices"), Mapping):
-        explicit_default = cached["score_matrices"].get("default")
-    default_matrix = _normalised_matrix_dict(explicit_default) if explicit_default is not None else None
-    if default_matrix is None and open_matrices:
-        aggregate: defaultdict[str, float] = defaultdict(float)
-        for matrix in open_matrices:
-            for score, probability in matrix.items():
-                aggregate[score] += probability
-        default_matrix = {score: probability / len(open_matrices) for score, probability in aggregate.items()}
-    if default_matrix:
-        matrices["default"] = default_matrix
     official_order = cached.get("official_order", metadata.get("official_order"))
     if isinstance(official_order, list) and official_order and isinstance(official_order[0], Mapping):
         official_order = [row.get("team", row.get("team_name")) for row in official_order]
     return {
-        "fixtures": fixtures,
+        "fixtures": normalized_fixtures,
         "teams": cached.get("teams"),
         "score_matrices": matrices,
         "disciplinary_scores": cached.get("disciplinary_scores", metadata.get("disciplinary_scores")) or {},
@@ -575,13 +770,71 @@ def build_cached_ucl_inputs(cached: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _sample_score(fixture: Mapping[str, Any], matrices: Any, home: str, away: str, rng: np.random.Generator) -> tuple[int, int, tuple[float, float]]:
+def build_club_pair_score_matrices(
+    teams: Sequence[str],
+    club_ratings: Mapping[str, Any],
+    math_engine,
+) -> dict[tuple[str, str], dict[str, float]]:
+    """Build one corrected, pair-specific base matrix per unordered club pair."""
+    rating_by_name = {}
+    for name, value in (club_ratings or {}).items():
+        canonical = TEAM_MAPPING.get(str(name), str(name))
+        if isinstance(value, bool):
+            continue
+        try:
+            rating = float(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if np.isfinite(rating):
+            rating_by_name[canonical] = rating
+    normalized = {str(team): TEAM_MAPPING.get(str(team), str(team)) for team in teams}
+    missing = [team for team, canonical in normalized.items() if canonical not in rating_by_name]
+    if missing:
+        raise MissingModelInput(f"verified ClubElo rating unavailable for: {', '.join(missing)}")
+
+    service = PredictionService(math_engine)
+    matrices = {}
+    team_list = list(normalized)
+    for index, home in enumerate(team_list):
+        for away in team_list[index + 1:]:
+            distribution = service.regulation_distribution(
+                odds=None,
+                elo={"home_rating": rating_by_name[normalized[home]], "away_rating": rating_by_name[normalized[away]]},
+                competition="ucl2026",
+            )
+            matrix = _normalised_matrix_dict(distribution[4]) if distribution else None
+            if matrix is None:
+                raise MissingModelInput(f"unable to build pair-specific ClubElo matrix for {home} vs {away}")
+            matrices[(home, away)] = matrix
+    return matrices
+
+
+def _prepared_distribution(
+    fixture: Mapping[str, Any], matrices: Any, home: str, away: str,
+    prepared: dict[tuple[str, str], tuple[list[tuple[int, int]], np.ndarray, tuple[float, float]]] | None = None,
+) -> tuple[list[tuple[int, int]], np.ndarray, tuple[float, float]]:
+    key = (home, away)
+    if prepared is not None and key in prepared:
+        return prepared[key]
     scores, probabilities = _matrix_lookup(fixture, matrices, home, away)
+    xg = (
+        float(sum(home_goals * probability for (home_goals, _), probability in zip(scores, probabilities))),
+        float(sum(away_goals * probability for (_, away_goals), probability in zip(scores, probabilities))),
+    )
+    result = (scores, probabilities, xg)
+    if prepared is not None:
+        prepared[key] = result
+    return result
+
+
+def _sample_score(
+    fixture: Mapping[str, Any], matrices: Any, home: str, away: str, rng: np.random.Generator,
+    prepared: dict[tuple[str, str], tuple[list[tuple[int, int]], np.ndarray, tuple[float, float]]] | None = None,
+) -> tuple[int, int, tuple[float, float]]:
+    scores, probabilities, xg = _prepared_distribution(fixture, matrices, home, away, prepared)
     index = int(rng.choice(len(scores), p=probabilities))
     selected = scores[index]
-    xg_home = float(sum(home_goals * probability for (home_goals, _), probability in zip(scores, probabilities)))
-    xg_away = float(sum(away_goals * probability for (_, away_goals), probability in zip(scores, probabilities)))
-    return selected[0], selected[1], (xg_home, xg_away)
+    return selected[0], selected[1], xg
 
 
 def _play_match(
@@ -594,18 +847,17 @@ def _play_match(
     stage: str,
     leg: str,
     first_leg_score: tuple[int, int] | None = None,
+    prepared: dict[tuple[str, str], tuple[list[tuple[int, int]], np.ndarray, tuple[float, float]]] | None = None,
 ) -> dict[str, Any]:
     fixed = _fixture_score(fixture)
+    stored_aet = _score_pair(_fixture_value(fixture, "score_aet"))
+    stored_shootout_winner = _shootout_winner(fixture, home, away)
     if fixed is None:
-        home_score, away_score, xg = _sample_score(fixture, matrices, home, away, rng)
+        home_score, away_score, xg = _sample_score(fixture, matrices, home, away, rng, prepared)
     else:
         home_score, away_score = fixed
-        # Completed games do not need a model.  ET still needs a deterministic
-        # neutral increment if the stored fixture carries one.
-        try:
-            _, _, xg = _sample_score(fixture, matrices, home, away, rng)
-        except MissingModelInput:
-            xg = (0.0, 0.0)
+        # A known result must never be completed with a newly sampled score.
+        xg = (0.0, 0.0)
     context_first = None
     if first_leg_score is not None:
         # Task 3's aggregate helper uses the current home/away orientation;
@@ -613,20 +865,51 @@ def _play_match(
         context_first = f"{first_leg_score[1]}:{first_leg_score[0]}"
     context = build_match_context({"competition": "ucl2026", "stage": stage, "leg": leg, "first_leg_score": context_first})
     score_90 = (home_score, away_score)
-    aet_score = None
+    aet_score = stored_aet
     penalties = False
-    if extra_time_eligible_for_score(context, home_score, away_score):
+    if fixed is not None and extra_time_eligible_for_score(context, home_score, away_score):
+        if stored_aet is None:
+            raise MissingModelInput("known knockout result is missing its extra-time score")
+        context_value = build_match_context(context)
+        if (
+            context_value.leg == "second"
+            and context_value.first_leg_home_score is not None
+            and context_value.first_leg_away_score is not None
+        ):
+            total_home = context_value.first_leg_home_score + stored_aet[0]
+            total_away = context_value.first_leg_away_score + stored_aet[1]
+        else:
+            total_home, total_away = stored_aet
+        if total_home == total_away:
+            if stored_shootout_winner is None:
+                raise MissingModelInput("known knockout result is missing its shootout winner")
+            winner = stored_shootout_winner
+            penalties = True
+        else:
+            winner = home if total_home > total_away else away
+    elif fixed is not None:
+        winner = home if home_score > away_score else away if away_score > home_score else None
+    elif extra_time_eligible_for_score(context, home_score, away_score):
         extra_home = int(rng.poisson(max(0.0, xg[0]) / 3.0))
         extra_away = int(rng.poisson(max(0.0, xg[1]) / 3.0))
         home_score += extra_home
         away_score += extra_away
         aet_score = (home_score, away_score)
-        if home_score == away_score:
-            penalties = True
-            advancement = advancement_probabilities(context, home_score, away_score)
-            winner = home if rng.random() < advancement["home"] else away
+        context_value = build_match_context(context)
+        if (
+            context_value.leg == "second"
+            and context_value.first_leg_home_score is not None
+            and context_value.first_leg_away_score is not None
+        ):
+            total_home = context_value.first_leg_home_score + home_score
+            total_away = context_value.first_leg_away_score + away_score
         else:
-            winner = home if home_score > away_score else away
+            total_home, total_away = home_score, away_score
+        if total_home == total_away:
+            penalties = True
+            winner = home if rng.random() < 0.5 else away
+        else:
+            winner = home if total_home > total_away else away
     elif stage != "league" and leg == "single" and home_score == away_score:
         # A final draw always reaches ET; the branch above handles it.  This
         # guard keeps malformed future contexts from producing a fake winner.
@@ -646,12 +929,21 @@ def _play_two_leg_tie(
     rng: np.random.Generator,
     *,
     stage: str,
+    prepared: dict[tuple[str, str], tuple[list[tuple[int, int]], np.ndarray, tuple[float, float]]] | None = None,
+    first_fixture: Mapping[str, Any] | None = None,
+    second_fixture: Mapping[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    first = _play_match(unseeded, seeded, {"home_team": unseeded, "away_team": seeded}, matrices, rng, stage=stage, leg="first")
+    first = _play_match(
+        unseeded, seeded, first_fixture or {"home_team": unseeded, "away_team": seeded},
+        matrices, rng, stage=stage, leg="first", prepared=prepared,
+    )
     first_score = first["score_90"]
-    second = _play_match(seeded, unseeded, {"home_team": seeded, "away_team": unseeded}, matrices, rng, stage=stage, leg="second", first_leg_score=first_score)
+    second = _play_match(
+        seeded, unseeded, second_fixture or {"home_team": seeded, "away_team": unseeded},
+        matrices, rng, stage=stage, leg="second", first_leg_score=first_score, prepared=prepared,
+    )
     first_seeded, first_unseeded = first_score[1], first_score[0]
-    second_seeded, second_unseeded = second["score_90"]
+    second_seeded, second_unseeded = second.get("score_aet") or second["score_90"]
     seeded_total = first_seeded + second_seeded
     unseeded_total = first_unseeded + second_unseeded
     if seeded_total > unseeded_total:
@@ -698,6 +990,7 @@ def simulate_ucl_tournament(
     coefficient_version: str = UCL_COEFFICIENT_VERSION,
     coefficient_provenance: Mapping[str, Any] | None = None,
     validate_schedule: bool = True,
+    max_duration_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Run a seeded UCL league/table/playoff/knockout simulation."""
     if runs is not None:
@@ -705,6 +998,11 @@ def simulate_ucl_tournament(
     n_runs = int(n_runs)
     if n_runs <= 0:
         raise ValueError("Simulation runs must be positive")
+    started = time.monotonic() if max_duration_seconds is not None else None
+
+    def runtime_exhausted() -> bool:
+        return started is not None and time.monotonic() - started >= max_duration_seconds
+
     try:
         team_list = [str(team) for team in teams]
         if not isinstance(fixtures, Sequence) or isinstance(fixtures, (str, bytes)):
@@ -713,6 +1011,8 @@ def simulate_ucl_tournament(
             if not isinstance(fixture, Mapping):
                 raise ValueError("UCL fixture must be a mapping")
             _fixture_teams(fixture)
+        if has_known_knockout_result(fixtures):
+            raise MissingModelInput("known knockout results require verified draw and leg metadata; they cannot be resimulated")
         if validate_schedule:
             validate_ucl_schedule(team_list, fixtures)
         for fixture in fixtures:
@@ -722,28 +1022,57 @@ def simulate_ucl_tournament(
         for fixture in fixtures:
             if not _is_completed(fixture):
                 _matrix_lookup(fixture, score_matrices, *_fixture_teams(fixture))
+        resolved_tiebreak = resolve_uefa_tiebreak_inputs(
+            team_list, uefa_coefficients, uefa_coefficient_ranks, coefficient_version=coefficient_version,
+        )
+        uefa_coefficients = resolved_tiebreak["values"]
+        uefa_coefficient_ranks = {}
+        if runtime_exhausted():
+            return _unavailable(team_list, n_runs, seed, "simulation exceeded its bounded runtime")
     except (MissingModelInput, TypeError, ValueError, KeyError) as exc:
         team_list = [str(team) for team in teams] if teams is not None else []
         return _unavailable(team_list, n_runs, seed, str(exc))
 
     rng = np.random.default_rng(seed)
+    prepared_distributions: dict[tuple[str, str], tuple[list[tuple[int, int]], np.ndarray, tuple[float, float]]] = {}
+    league_samples: dict[str, np.ndarray] = {}
+    for index, fixture in enumerate(fixtures):
+        if runtime_exhausted():
+            return _unavailable(team_list, n_runs, seed, "simulation exceeded its bounded runtime")
+        if _is_completed(fixture):
+            continue
+        home, away = _fixture_teams(fixture)
+        scores, probabilities, _ = _prepared_distribution(fixture, score_matrices, home, away, prepared_distributions)
+        fixture_key = _fixture_id(fixture, index)
+        sample_dtype = np.uint8 if len(scores) <= 256 else np.uint16 if len(scores) <= 65_536 else np.uint32
+        league_samples[fixture_key] = rng.choice(len(scores), size=n_runs, p=probabilities).astype(sample_dtype)
     stats = {
         team: {"points": 0.0, "rank": 0.0, "top8": 0, "top24": 0, "round_of_16": 0, "quarterfinal": 0, "semifinal": 0, "final": 0, "champion": 0}
         for team in team_list
     }
     sample_draw = None
-    for _ in range(n_runs):
+    for run_index in range(n_runs):
+        if runtime_exhausted():
+            return _unavailable(team_list, n_runs, seed, "simulation exceeded its bounded runtime")
         sampled_fixtures = []
-        for fixture in fixtures:
+        for fixture_index, fixture in enumerate(fixtures):
             copy = dict(fixture)
             if not _is_completed(fixture):
                 home, away = _fixture_teams(fixture)
-                home_score, away_score, _ = _sample_score(fixture, score_matrices, home, away, rng)
+                scores, _probabilities, _xg = _prepared_distribution(fixture, score_matrices, home, away, prepared_distributions)
+                selected = scores[int(league_samples[_fixture_id(fixture, fixture_index)][run_index])]
+                home_score, away_score = selected
                 copy["score_90"] = f"{home_score}:{away_score}"
                 copy["status"] = "completed"
             sampled_fixtures.append(copy)
         try:
-            table = build_ucl_table(team_list, sampled_fixtures, disciplinary_scores=disciplinary_scores, uefa_coefficients=uefa_coefficients, uefa_coefficient_ranks=uefa_coefficient_ranks, coefficient_version=coefficient_version)
+            table = build_ucl_table(
+                team_list, sampled_fixtures, disciplinary_scores=disciplinary_scores,
+                uefa_coefficients=uefa_coefficients, uefa_coefficient_ranks=uefa_coefficient_ranks,
+                coefficient_version=coefficient_version, require_complete_tiebreak=True,
+            )
+        except MissingModelInput as exc:
+            return _unavailable(team_list, n_runs, seed, str(exc))
         except ValueError as exc:
             if not validate_schedule:
                 return _unavailable(team_list, n_runs, seed, str(exc))
@@ -767,7 +1096,7 @@ def simulate_ucl_tournament(
             seeded_position = tie["seeded_position"]
             unseeded_position = tie["unseeded_position"]
             try:
-                winner, _ = _play_two_leg_tie(by_rank[seeded_position], by_rank[unseeded_position], score_matrices, rng, stage="playoff")
+                winner, _ = _play_two_leg_tie(by_rank[seeded_position], by_rank[unseeded_position], score_matrices, rng, stage="playoff", prepared=prepared_distributions)
             except MissingModelInput as exc:
                 return _unavailable(team_list, n_runs, seed, str(exc))
             playoff_winners[seeded_position] = winner
@@ -779,7 +1108,7 @@ def simulate_ucl_tournament(
             playoff_position = tie["playoff_seed_position"]
             seeded, challenger = by_rank[top_position], playoff_winners[playoff_position]
             try:
-                winner, _ = _play_two_leg_tie(seeded, challenger, score_matrices, rng, stage="round_of_16")
+                winner, _ = _play_two_leg_tie(seeded, challenger, score_matrices, rng, stage="round_of_16", prepared=prepared_distributions)
             except MissingModelInput as exc:
                 return _unavailable(team_list, n_runs, seed, str(exc))
             r16_winners.append(winner)
@@ -789,7 +1118,7 @@ def simulate_ucl_tournament(
         qf_winners = []
         for index in range(0, len(r16_winners), 2):
             try:
-                winner, _ = _play_two_leg_tie(r16_winners[index], r16_winners[index + 1], score_matrices, rng, stage="quarterfinal")
+                winner, _ = _play_two_leg_tie(r16_winners[index], r16_winners[index + 1], score_matrices, rng, stage="quarterfinal", prepared=prepared_distributions)
             except MissingModelInput as exc:
                 return _unavailable(team_list, n_runs, seed, str(exc))
             qf_winners.append(winner)
@@ -799,7 +1128,7 @@ def simulate_ucl_tournament(
         sf_winners = []
         for index in range(0, len(qf_winners), 2):
             try:
-                winner, _ = _play_two_leg_tie(qf_winners[index], qf_winners[index + 1], score_matrices, rng, stage="semifinal")
+                winner, _ = _play_two_leg_tie(qf_winners[index], qf_winners[index + 1], score_matrices, rng, stage="semifinal", prepared=prepared_distributions)
             except MissingModelInput as exc:
                 return _unavailable(team_list, n_runs, seed, str(exc))
             sf_winners.append(winner)
@@ -808,7 +1137,7 @@ def simulate_ucl_tournament(
 
         final_fixture = {"home_team": sf_winners[0], "away_team": sf_winners[1]}
         try:
-            final = _play_match(sf_winners[0], sf_winners[1], final_fixture, score_matrices, rng, stage="final", leg="single")
+            final = _play_match(sf_winners[0], sf_winners[1], final_fixture, score_matrices, rng, stage="final", leg="single", prepared=prepared_distributions)
         except MissingModelInput as exc:
             return _unavailable(team_list, n_runs, seed, str(exc))
         champion = final["winner"]

@@ -1,14 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { cn } from '../../lib/util'
 
-export function ViewTabs<T extends string>({ id, label, items, value, onChange }: {
+export function ViewTabs<T extends string>({ id, label, items, value, onChange, wrap = false }: {
   id: string
   label: string
   items: readonly { value: T; label: string; count?: number }[]
   value: T
   onChange: (value: T) => void
+  wrap?: boolean
 }) {
-  return <div id={id} className="view-tabs overflow-x-auto" role="tablist" aria-label={label}>
+  return <div id={id} className={cn('view-tabs', wrap && 'view-tabs-wrap')} role="tablist" aria-label={label}>
     {items.map((item, index) => <button key={item.value} type="button" role="tab"
       id={`${id}-tab-${item.value}`} aria-controls={`${id}-panel-${item.value}`}
       aria-selected={value === item.value} tabIndex={value === item.value ? 0 : -1}
