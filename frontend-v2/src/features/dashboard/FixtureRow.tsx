@@ -16,12 +16,13 @@ export function FixtureRow({ match, trailing, pendingResult = false, now, compac
 }) {
   const ct = match.raw_match?.commence_time
   const status = pendingResult ? 'pending' : fixtureStatus(match, now)
+  const clubCalculationPending = (competition === 'epl2026' || competition === 'ucl2026') && match.calculation_status === 'pending'
   const hasTip = Boolean(match.top_tip && match.top_tip !== 'N/A')
   const dated = ct && Number.isFinite(Date.parse(ct))
   const hint = buildMatchHint(match, now ?? Date.now(), competition === 'epl2026' || competition === 'ucl2026')
   const statusLabel = status === 'played' ? 'Abgeschlossen' : status === 'pending' ? 'Ergebnis ausstehend' : status === 'unscheduled' ? 'Anstoß offen' : 'Demnächst'
   const pickLabel = status === 'played' ? 'Ergebnis' : 'Modelltipp'
-  const pick = status === 'played' ? match.actual_score ?? '–' : status === 'upcoming' && hasTip ? match.top_tip : '–'
+  const pick = status === 'played' ? match.actual_score ?? '–' : status === 'upcoming' && !clubCalculationPending && hasTip ? match.top_tip : '–'
   return <article className={`match-card${compact ? ' match-card-compact' : ''}`}>
     <header className="match-card-top">
       <div className="match-card-time">
@@ -50,14 +51,16 @@ export function FixtureRow({ match, trailing, pendingResult = false, now, compac
     {status === 'upcoming' && savedTip?.trim() && <p className="match-card-note">Gemeinsamer Tipp: {savedTip}</p>}
 
     {status !== 'played' && <div className="match-card-outcome">
-      <OutcomeBar
-        probabilities={hint.probabilities}
-        homeTeam={match.home_disp || match.home_team}
-        awayTeam={match.away_disp || match.away_team}
-        sourceLabel={hint.sourceLabel}
-        observedAt={hint.observedAt}
-        compact
-      />
+      {clubCalculationPending
+        ? <p role="status" className="outcome-unavailable">Analyse wird vorbereitet.</p>
+        : <OutcomeBar
+          probabilities={hint.probabilities}
+          homeTeam={match.home_disp || match.home_team}
+          awayTeam={match.away_disp || match.away_team}
+          sourceLabel={hint.sourceLabel}
+          observedAt={hint.observedAt}
+          compact
+        />}
     </div>}
 
     {status === 'upcoming' && <div className="match-card-data"><MatchDataStatus match={match} now={now} compact /></div>}

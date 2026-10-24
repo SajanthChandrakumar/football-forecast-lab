@@ -443,6 +443,181 @@ def test_first_failed_refresh_upserts_throttle_state_without_advancing_success_t
     assert "last_successful_at" not in state
 
 
+def test_blocked_refresh_retries_share_bounded_workers_and_ignore_late_rosters(monkeypatch):
+    import threading
+    import time
+
+    from src.services import team_form
+
+    monkeypatch.setattr(team_form, "CLUB_FORM_REFRESH_DEADLINE_SECONDS", 0.12)
+    release = threading.Event()
+    started = threading.Event()
+    inactive = threading.Event()
+    active_lock = threading.Lock()
+    active = 0
+    peak_active = 0
+    roster = [
+        {"team": {"id": str(index), "name": f"Team {index}"}}
+        for index in range(1, 21)
+    ]
+
+    class BlockedRosterClient:
+        provider = "espn"
+
+        def request(self, path, params):
+            nonlocal active, peak_active
+            assert path == "/teams"
+            with active_lock:
+                active += 1
+                peak_active = max(peak_active, active)
+                inactive.clear()
+            started.set()
+            try:
+                release.wait()
+                return {"response": roster}
+            finally:
+                with active_lock:
+                    active -= 1
+                    if active == 0:
+                        inactive.set()
+
+    worker_count = team_form.CLUB_FORM_REFRESH_WORKERS + 8
+    barrier = threading.Barrier(worker_count + 1)
+    client = BlockedRosterClient()
+    caches = [MemoryCollection() for _ in range(worker_count)]
+    results = [None] * worker_count
+    finished = 0
+    finished_lock = threading.Lock()
+    all_finished = threading.Event()
+
+    def refresh(index):
+        nonlocal finished
+        barrier.wait(timeout=3)
+        try:
+            results[index] = TeamFormService(
+                caches[index], client, competition="epl2026",
+            ).refresh_all_competitions(now=NOW)
+        finally:
+            with finished_lock:
+                finished += 1
+                if finished == worker_count:
+                    all_finished.set()
+
+    callers = [threading.Thread(target=refresh, args=(i,)) for i in range(worker_count)]
+    for caller in callers:
+        caller.start()
+    started_at = time.monotonic()
+    barrier.wait(timeout=3)
+    snapshots = None
+    try:
+        assert started.wait(timeout=1)
+        assert all_finished.wait(timeout=1), "blocked roster calls outlived the provider deadline"
+        assert time.monotonic() - started_at < 1
+        assert all(result["status"] == "unavailable" for result in results)
+        assert all(result["provider_calls"] == 1 for result in results)
+        assert peak_active <= team_form.CLUB_FORM_REFRESH_WORKERS
+        snapshots = [dict(cache.documents) for cache in caches]
+        assert all("epl2026:team_form_teams" not in cache.documents for cache in caches)
+    finally:
+        release.set()
+        for caller in callers:
+            caller.join(timeout=2)
+
+    assert all(not caller.is_alive() for caller in callers)
+    assert inactive.wait(timeout=2)
+    assert [cache.documents for cache in caches] == snapshots
+    worker_threads = [
+        thread for thread in threading.enumerate()
+        if thread.name.startswith("club-form-refresh")
+    ]
+    assert len(worker_threads) <= team_form.CLUB_FORM_REFRESH_WORKERS
+    assert all(
+        cache.find_one({"_id": "epl2026:team_form_sync"})["status"] == "stale"
+        for cache in caches
+    )
+
+
+def test_blocked_schedule_timeout_preserves_good_forms_and_discards_late_payloads(monkeypatch):
+    import threading
+    import time
+
+    from src.services import team_form
+
+    monkeypatch.setattr(team_form, "CLUB_FORM_REFRESH_DEADLINE_SECONDS", 0.12)
+    release = threading.Event()
+    started = threading.Event()
+    inactive = threading.Event()
+    inactive.set()
+    active_lock = threading.Lock()
+    active = 0
+    old_success = "2026-10-23T10:00:00+00:00"
+    roster = [
+        {"team": {"id": str(index), "name": f"Team {index}"}}
+        for index in range(1, 21)
+    ]
+    documents = [{
+        "_id": "epl2026:team_form_teams", "scope": "all_competitions",
+        "provider_namespace": "espn:team-id", "teams": [
+            {"team_id": str(index), "name": f"Team {index}"}
+            for index in range(1, 21)
+        ],
+        "observed_at": old_success, "last_successful_at": old_success,
+    }, {
+        "_id": "epl2026:team_form_sync", "last_successful_at": old_success,
+        "observed_at": old_success,
+    }]
+    sentinel = {"fixture_id": "known-good", "played_at": "2026-10-20T12:00:00Z"}
+    documents.extend({
+        "_id": f"epl2026:team_form:{index}", "team_id": str(index),
+        "matches": [dict(sentinel)], "observed_at": old_success,
+        "last_successful_at": old_success, "scope": "all_competitions",
+    } for index in range(1, 21))
+    cache = MemoryCollection(documents)
+
+    class BlockedScheduleClient:
+        provider = "espn"
+
+        def request(self, path, params):
+            nonlocal active
+            if path == "/teams":
+                return {"response": roster}
+            assert path == "/fixtures"
+            with active_lock:
+                active += 1
+                inactive.clear()
+            started.set()
+            try:
+                release.wait()
+                return {"response": []}
+            finally:
+                with active_lock:
+                    active -= 1
+                    if active == 0:
+                        inactive.set()
+
+    started_at = time.monotonic()
+    try:
+        result = TeamFormService(cache, BlockedScheduleClient(), competition="epl2026").refresh_all_competitions(
+            now=NOW.replace(hour=13),
+        )
+        assert started.wait(timeout=1)
+        assert time.monotonic() - started_at < 1
+        assert result["status"] == "stale"
+        assert result["provider_calls"] == 17
+        assert result["teams_failed"] == 20
+        assert result["observed_at"] == old_success
+        assert cache.find_one({"_id": "epl2026:team_form:1"})["matches"] == [sentinel]
+        assert cache.find_one({"_id": "epl2026:team_form:1"})["last_successful_at"] == old_success
+        snapshot = dict(cache.documents)
+    finally:
+        release.set()
+
+    assert inactive.wait(timeout=2)
+    assert cache.documents == snapshot
+    assert cache.find_one({"_id": "epl2026:team_form_teams"})["last_successful_at"] == old_success
+    assert cache.find_one({"_id": "epl2026:team_form_sync"})["last_successful_at"] == old_success
+
+
 def test_verified_conference_league_and_qualifiers_are_competitive_european_form():
     service=TeamFormService(MemoryCollection(),EspnClient({}),competition='epl2026')
     matches=[fixture('conference',competition_id='20296',competition_slug='uefa.europa.conf',competition_name='UEFA Conference League'),

@@ -350,20 +350,28 @@ export function DetailView() {
   const archivedClubPrediction = isClubCompetition && !isUpcoming ? archive.data?.[match.id]?.prediction : undefined
   const clubPrediction = isClubCompetition ? (isUpcoming ? currentPrediction : archivedClubPrediction) : undefined
   const selectedPrediction = isClubCompetition ? clubPrediction : predict.data
+  const clubCachePending = Boolean(isClubCompetition && isUpcoming && match.calculation_status === 'pending')
+  const hasReadyClubPrediction = Boolean(currentPrediction && (
+    currentPrediction.probabilities
+    || (currentPrediction.model_tip && currentPrediction.model_tip !== 'N/A')
+    || (currentPrediction.top_tip && currentPrediction.top_tip !== 'N/A')
+  ))
+  const readyClubPrediction = hasReadyClubPrediction ? currentPrediction : undefined
+  const clubCalculationPending = clubCachePending && !hasReadyClubPrediction
   const predictionIsPending = isClubCompetition ? isUpcoming && requestMatchesCurrentMatch && predict.isPending : predict.isPending
   const predictionHasError = isClubCompetition ? isUpcoming && requestMatchesCurrentMatch && predict.isError : predict.isError
   const predictionIsSuccess = isClubCompetition ? isUpcoming && requestMatchesCurrentMatch && predict.isSuccess : predict.isSuccess
   const canRetryPrediction = Boolean(predictionInput && (!isClubCompetition || isUpcoming))
   const cachedModelTip = isClubCompetition && !isUpcoming
     ? archivedClubPrediction?.model_tip ?? archivedClubPrediction?.top_tip ?? null
-    : match.model_tip ?? match.top_tip
+    : clubCachePending ? null : match.model_tip ?? match.top_tip
   const predictionTip = selectedPrediction?.model_tip ?? selectedPrediction?.top_tip ?? null
   const modelTip = predictionTip ?? cachedModelTip
   const activeTip = modelTip && modelTip !== 'N/A' ? modelTip : null
   const canCopy = isUpcoming && Boolean(activeTip)
   const hasBookmakerOdds = Boolean(match.odds && [match.odds.home, match.odds.draw, match.odds.away].every((price) => Number.isFinite(price) && price > 1))
   const displayedPrediction = isClubCompetition
-    ? clubPrediction ?? (isUpcoming ? match : undefined)
+    ? clubPrediction ?? (isUpcoming && !clubCachePending ? match : undefined)
     : predict.data?.probabilities != null || predictionTip != null ? predict.data : match
   const displayedProbabilities = displayedPrediction?.probabilities ?? null
   const outcomeSource = outcomeSourceLabel(displayedPrediction?.source_mode, displayedPrediction?.source)
@@ -371,9 +379,12 @@ export function DetailView() {
   const marketProbabilities = hasBookmakerOdds ? computeImpliedProbs(match.odds) : null
   const tipInsights = rankedTipInsights(selectedPrediction?.xp_tips, selectedPrediction?.matrix)
   const recommendedInsight = tipInsights.find(item => item.tip === activeTip)
-  const expectedPoints = predictionTip != null ? (recommendedInsight?.expectedPoints ?? selectedPrediction?.max_xp) : (isClubCompetition && !isUpcoming ? archivedClubPrediction?.max_xp : match.max_xp)
-  const xgHome = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_home ?? match.xg_home)
-  const xgAway = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_away ?? match.xg_away)
+  const expectedPoints = predictionTip != null ? (recommendedInsight?.expectedPoints ?? selectedPrediction?.max_xp) : (isClubCompetition && !isUpcoming ? archivedClubPrediction?.max_xp : clubCachePending ? null : match.max_xp)
+  const xgHome = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_home ?? (clubCachePending ? null : match.xg_home))
+  const xgAway = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_away ?? (clubCachePending ? null : match.xg_away))
+  const hintMatch: Match = isClubCompetition && readyClubPrediction
+    ? { ...match, ...readyClubPrediction, top_tip: readyClubPrediction.top_tip ?? match.top_tip, max_xp: readyClubPrediction.max_xp ?? match.max_xp, odds: undefined, calculation_status: undefined }
+    : match
   const xgTotal = (xgHome ?? 0) + (xgAway ?? 0)
   const missing = Object.entries(match.lineup_diff ?? {}).filter(([, value]) => value.missing?.length)
   const lineup = lineupState(match.match_intelligence, match.home_team, match.away_team)
@@ -453,7 +464,8 @@ export function DetailView() {
               <button type="button" onClick={() => { void copyTip() }} disabled={!canCopy} className="copy-tip-button max-w-44">Tipp kopieren <span aria-hidden="true">↗</span></button>
             </div>
             {copyStatus && <p role="status" className="mt-2 text-xs text-fg-2">{copyStatus}</p>}
-            {predictionIsPending && <p role="status" className="mt-3 text-xs text-fg-3">Die Spielanalyse wird aktualisiert. Der vorhandene Spieltipp bleibt sichtbar.</p>}
+            {clubCalculationPending && <p role="status" className="mt-3 text-xs text-fg-3">Analyse wird vorbereitet.</p>}
+            {predictionIsPending && !clubCalculationPending && <p role="status" className="mt-3 text-xs text-fg-3">Die Spielanalyse wird aktualisiert. Der vorhandene Spieltipp bleibt sichtbar.</p>}
             {predictionHasError && <div className="mt-3 rounded-lg border border-line bg-surface-2 p-3 text-sm text-fg-2" role="alert">
               <p>Die Aktualisierung der Spielanalyse ist fehlgeschlagen{activeTip ? '; der vorhandene Spieltipp wird weiterhin angezeigt.' : '.'}</p>
               {canRetryPrediction && predictionInput && <button type="button" onClick={() => predict.mutate(predictionInput)} className="mt-2 min-h-11 font-semibold text-blue-a underline">Analyse erneut laden</button>}
@@ -610,13 +622,13 @@ export function DetailView() {
           <section className="match-card" aria-labelledby="other-tips-title"><div className="section-heading"><div><h2 id="other-tips-title" className="text-base font-bold text-fg">Weitere Modelltipps</h2><p className="mt-1 text-xs text-fg-3">Alternative Vorschläge nach erwarteten Punkten</p></div></div>
             {selectedPrediction?.xp_tips?.length ? <ol className="ranking-list mt-3">{selectedPrediction.xp_tips.slice(0, 5).map((item, index) => <li key={item.Tipp} className="ranking-row"><span className="text-fg-2">{index + 1}. <b className="ml-1 display-num text-lg text-fg">{item.Tipp}</b></span><span className="tabular-nums text-fg-2">{item.xP.toFixed(2)} erwartete Punkte</span></li>)}</ol> : <p className="mt-3 text-sm text-fg-2">Keine weiteren Modelltipps verfügbar.</p>}
           </section>
-          {match.bots && Object.keys(match.bots).length > 0 && <section className="match-card"><div className="section-heading"><h2 className="text-base font-bold text-fg">Bot-Vorschläge</h2></div><ul className="ranking-list mt-3">{(Object.keys(BOT_LABELS) as BotKey[]).map((key) => {
+          {(!isClubCompetition || !clubCachePending) && match.bots && Object.keys(match.bots).length > 0 && <section className="match-card"><div className="section-heading"><h2 className="text-base font-bold text-fg">Bot-Vorschläge</h2></div><ul className="ranking-list mt-3">{(Object.keys(BOT_LABELS) as BotKey[]).map((key) => {
             const tip = match.bots?.[key]?.tip
             return tip ? <li key={key} className="ranking-row"><span className="text-fg-2">{BOT_LABELS[key]}</span><b className="display-num text-fg">{tip}</b></li> : null
           })}</ul></section>}
         </div>
 
-        <section className="analysis-section match-card"><div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Zusätzlicher Kontext</p><h2 className="mt-1 text-lg font-bold text-fg">Spielhinweise</h2></div></div><div className="mt-3"><MatchHintCard match={match} competition={competition} /></div></section>
+        <section className="analysis-section match-card"><div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Zusätzlicher Kontext</p><h2 className="mt-1 text-lg font-bold text-fg">Spielhinweise</h2></div></div><div className="mt-3"><MatchHintCard match={clubCalculationPending ? { ...match, calculation_status: 'pending' } : hintMatch} competition={competition} /></div></section>
 
         <section className="analysis-section match-card" aria-labelledby="pool-context-title">
           <h2 id="pool-context-title" className="sr-only">Pool-Tipp und Rundendaten</h2>

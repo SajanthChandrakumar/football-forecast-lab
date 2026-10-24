@@ -169,6 +169,7 @@ export interface Match {
   pool_tip?: string | null
   pool_status?: string
   status?: string
+  calculation_status?: 'pending'
   source_status?: string
   source?: string | null
   observed_at?: string | null

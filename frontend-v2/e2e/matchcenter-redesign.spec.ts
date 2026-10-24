@@ -117,3 +117,66 @@ test('team comparison uses the same verified club form rows as match details', a
   await expect(history).toContainText('Arsenal')
   await expect(history).toContainText('2:0')
 })
+
+test('pending club calculations stay unavailable until prediction and cache refresh complete', async ({ page, api }, testInfo) => {
+  test.skip(testInfo.project.name !== 'phone-375', 'One phone flow covers the pending calculation state.')
+  const match = api.matches.ucl2026[0]
+  Object.assign(match, {
+    calculation_status: 'pending',
+    top_tip: 'N/A',
+    model_tip: null,
+    probabilities: null,
+    source_mode: 'unavailable',
+    status: 'unavailable',
+    odds: { home: 1.05, draw: 20, away: 50 },
+    bots: { broker: { tip: '0:9' } },
+  })
+  api.prediction = {
+    model_tip: '3:1', top_tip: '3:1',
+    probabilities: { home: .62, draw: .25, away: .13 },
+    source_mode: 'elo-only', status: 'fresh', observed_at: NOW.toISOString(),
+    input_provenance: { elo: { status: 'fresh', source: 'clubelo', observed_at: NOW.toISOString() } },
+  }
+  let releasePrediction!: () => void
+  api.predictionGate = new Promise<void>((resolve) => { releasePrediction = resolve })
+
+  await page.goto('/#/')
+  const row = page.locator('article.match-card').filter({ hasText: match.home_team }).first()
+  await expect(row.getByText('Analyse wird vorbereitet.', { exact: true })).toBeVisible()
+  await expect(row.locator('.match-card-pick-value')).toHaveText('–')
+  await expect(row).not.toContainText('92%')
+
+  await row.getByRole('link', { name: /Tipp ansehen/ }).click()
+  const recommendation = page.getByRole('region', { name: 'Empfohlener Ergebnistipp' })
+  await expect(recommendation.getByText('Analyse wird vorbereitet.', { exact: true })).toBeVisible()
+  await expect.poll(() => api.predictionRequests.map(({ matchId }) => matchId)).toEqual(['ucl-next'])
+  await page.getByRole('tab', { name: 'Modelldaten', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Bot-Vorschläge', exact: true })).toHaveCount(0)
+  const hints = page.locator('section.match-card').filter({ has: page.getByRole('heading', { name: 'Spielhinweise', exact: true }) })
+  await expect(hints.getByText('Analyse wird vorbereitet.', { exact: true })).toBeVisible()
+  await expect(hints.getByText('Hoch', { exact: true })).toHaveCount(0)
+
+  releasePrediction()
+  await expect.poll(() => api.predictionResponses).toBe(1)
+  await expect(page.getByRole('heading', { name: 'Bot-Vorschläge', exact: true })).toHaveCount(0)
+  await expect(hints).toContainText('Hoch')
+  await page.getByRole('tab', { name: 'Überblick', exact: true }).click()
+  await expect(recommendation.locator('.display-num')).toHaveText('3:1')
+
+  await page.goto('/#/')
+  await expect(row.getByText('Analyse wird vorbereitet.', { exact: true })).toBeVisible()
+  Object.assign(match, {
+    calculation_status: undefined,
+    top_tip: '3:1', model_tip: '3:1',
+    probabilities: { home: .62, draw: .25, away: .13 },
+    source_mode: 'elo-only', status: 'fresh', observed_at: NOW.toISOString(),
+  })
+  if ((page.viewportSize()?.width ?? 1440) < 1024) await page.getByRole('button', { name: 'Mehr', exact: true }).click()
+  else await page.getByRole('button', { name: 'Einstellungen', exact: true }).click()
+  await page.getByRole('button', { name: 'Gespeicherte Daten neu laden', exact: true }).click()
+  await expect(page.getByText(/Gespeicherte Daten für UCL/)).toBeVisible()
+  const closeMenu = page.getByRole('button', { name: 'Menü schliessen', exact: true })
+  if (await closeMenu.count()) await closeMenu.click()
+  await expect(row.getByText('Analyse wird vorbereitet.', { exact: true })).toHaveCount(0)
+  await expect(row.locator('.match-card-pick-value')).toHaveText('3:1')
+})

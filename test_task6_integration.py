@@ -87,9 +87,9 @@ def test_force_matches_uses_the_cached_presentation_path(monkeypatch):
 
     result = endpoint(force=True, competition="ucl2026")
 
-    assert result == [{"id": "e1", "presented": True}]
-    assert calls[0] == "reload"
-    assert calls[1][0]["id"] == "e1"
+    assert result[0]["id"] == "e1"
+    assert result[0]["calculation_status"] == "pending"
+    assert calls == []
 
 
 def test_cached_pending_wc_match_uses_full_prediction_contract_without_provider_calls():
@@ -1123,7 +1123,7 @@ def test_matches_serves_complete_ucl_prediction_without_recomputing_or_writing(m
     assert len(cache.updates) == before_updates
 
 
-def test_matches_recomputes_complete_looking_ucl_prediction_with_bad_distribution():
+def test_matches_does_not_publish_or_recompute_a_bad_club_distribution():
     matrix = {"0": {"0": 0.4, "1": 0.2}, "1": {"0": 0.3, "1": 0.1}}
     cache = MemoryCollection([{
         "_id": "ucl2026:matches_cache",
@@ -1170,8 +1170,9 @@ def test_matches_recomputes_complete_looking_ucl_prediction_with_bad_distributio
 
     result = endpoint(competition="ucl2026")
 
-    assert result[0]["probabilities"] != {"home": 0.6, "draw": 0.3, "away": 0.3}
-    assert sum(result[0]["probabilities"].values()) == pytest.approx(1.0)
+    assert result[0]["probabilities"] is None
+    assert result[0]["calculation_status"] == "pending"
+    assert result[0]["source_status"] == "unavailable"
 
 
 def test_maintenance_preserves_last_valid_ucl_matrix_when_refresh_has_no_inputs(monkeypatch):

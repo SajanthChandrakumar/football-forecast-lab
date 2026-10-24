@@ -130,7 +130,7 @@ def build_elo_snapshot(math_engine, home_team: str, away_team: str, competition=
     return {"home_rating": values[0], "away_rating": values[1]}
 
 
-def _sync_archive_tips(matches, archive, archive_collection, *, persist_pending=True):
+def _sync_archive_tips(matches, archive, archive_collection, *, persist_pending=True, competition=None):
     """Reconcile dashboard tips with the archive.
 
     Pending matches: the archive follows the latest recalculation (prediction
@@ -145,6 +145,10 @@ def _sync_archive_tips(matches, archive, archive_collection, *, persist_pending=
             continue
 
         if entry.get("post_match_result", {}).get("status") == "completed":
+            if get_competition(competition).is_club_competition:
+                m["post_match_result"] = deepcopy(entry["post_match_result"])
+                m["completed"] = True
+                m.pop("calculation_status", None)
             prediction = entry["prediction"]
             snapshot = entry.get("pre_match_snapshot") or {}
             frozen = prediction.get("top_tip") or prediction.get("model_tip")
@@ -265,35 +269,34 @@ def _present_cached_matches(
         return cached_data if isinstance(cached_data, list) else _unavailable_matches()
     comp = get_competition(competition)
     if comp.is_club_competition:
-        cached_data = deepcopy(cached_data)
-        # Predictions and matrices are persisted by maintenance. Enrich only
-        # legacy or incomplete open fixtures; reads do not persist that work.
-        needs_enrichment = [
-            dict(match) for match in cached_data
-            if isinstance(match, dict)
-            and not _is_completed_match(match)
-            and (not _has_complete_ucl_prediction(match) or match.get("model_version") != "prediction-club-v2")
-        ]
+        presented_data = deepcopy(cached_data)
+        for match in presented_data:
+            if not isinstance(match, dict):
+                continue
+            raw_match = match.get("raw_match") or {}
+            round_name = raw_match.get("round", match.get("round", "")) if isinstance(raw_match, dict) else match.get("round", "")
+            match["is_ko_phase"] = _is_ko_round(round_name)
+            if _is_completed_match(match):
+                continue
+            if _has_complete_ucl_prediction(match) and match.get("model_version") == "prediction-club-v2":
+                match.pop("calculation_status", None)
+                continue
+            # Cold/legacy caches are prepared by maintenance. A public list
+            # must never queue hundreds of costly fits or expose a legacy tip
+            # as the current club model while preparation is still running.
+            for key in ("model_tip", "top_tip", "pool_tip", "probabilities", "base_probabilities",
+                        "xg_home", "xg_away", "max_xp", "edge_home", "elo_home_share", "market_home_share"):
+                match[key] = None
+            match.update({"matrix": {}, "score_matrix": {}, "regulation_matrix": {}, "bots": {},
+                          "status": "unavailable", "source_status": "unavailable",
+                          "source_mode": "unavailable", "pool_status": "unavailable",
+                          "calculation_status": "pending"})
+            match.pop("model_version", None)
     else:
         needs_enrichment = [dict(match) if isinstance(match, dict) else match for match in cached_data]
-    presented_data = cached_data
-    if needs_enrichment:
         if hasattr(math_engine, "reload_elo_data"):
             math_engine.reload_elo_data()
-        enriched = _enrich_edge(needs_enrichment, math_engine, odds_engine, comp, cache_store)
-        if comp.is_club_competition:
-            by_id = {
-                str(match.get("id") or match.get("event_id")): match
-                for match in enriched
-                if isinstance(match, dict) and (match.get("id") or match.get("event_id"))
-            }
-            presented_data = [
-                by_id.get(str(match.get("id") or match.get("event_id")), match)
-                if isinstance(match, dict) else match
-                for match in cached_data
-            ]
-        else:
-            presented_data = enriched
+        presented_data = _enrich_edge(needs_enrichment, math_engine, odds_engine, comp, cache_store)
     presented_data = _propagate_team_logos(presented_data)
     if comp.is_club_competition:
         presented_data = _apply_cached_club_forms(presented_data, team_form_service)
@@ -304,6 +307,7 @@ def _present_cached_matches(
         archive,
         archive_store,
         persist_pending=not comp.is_club_competition,
+        competition=comp,
     ), comp)
 
 
@@ -327,7 +331,9 @@ def _apply_club_source_status(matches, competition, *, now=None):
             metadata["status"] = source_status(metadata.get("status"), metadata.get("observed_at"), now=now)
             if metadata["status"] not in {"failed", "unavailable"}:
                 statuses.append(metadata["status"])
-        if statuses:
+        if row.get("calculation_status") == "pending":
+            row["status"] = row["source_status"] = "unavailable"
+        elif statuses:
             row["status"] = row["source_status"] = "stale" if "stale" in statuses else "fresh"
         elif row.get("status") == "fresh" or row.get("source_status") == "fresh":
             row["status"] = row["source_status"] = "stale"
