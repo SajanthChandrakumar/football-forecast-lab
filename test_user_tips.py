@@ -12,12 +12,18 @@ class MemoryCollection:
     def __init__(self, documents=()):
         self.documents = {document["_id"]: document for document in documents}
         self.find_calls = []
+        self.bulk_find_calls = []
         self.update_calls = []
         self.replace_calls = 0
 
     def find_one(self, query):
         self.find_calls.append(query)
         return self.documents.get(query.get("_id"))
+
+    def find(self, query, projection=None):
+        self.bulk_find_calls.append((query, projection))
+        ids = set(query.get("_id", {}).get("$in", []))
+        return [{"_id": event_id} for event_id in ids if event_id in self.documents]
 
     def update_one(self, query, update, upsert=False):
         self.update_calls.append((query, update, upsert))

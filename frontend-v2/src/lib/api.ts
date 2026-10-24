@@ -8,6 +8,8 @@ import { DEFAULT_UCL_SIMULATION_RUNS, uclSimulationPath } from './simulation.mjs
 
 let editorToken = ""
 let editorKeyRequest: Promise<string | null> | null = null
+const DEFAULT_REQUEST_TIMEOUT_MS = 12_000
+const CLUB_MATCHES_TIMEOUT_MS = 45_000
 
 function askForEditorKey(): Promise<string | null> {
   if (!editorKeyRequest) {
@@ -18,7 +20,7 @@ function askForEditorKey(): Promise<string | null> {
   return editorKeyRequest ?? Promise.resolve(null)
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<T> {
   const headers = new Headers(init?.headers)
   headers.set('Content-Type', 'application/json')
   const sharedWrite = (init?.method === 'POST' || init?.method === 'PUT') &&
@@ -31,7 +33,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (!editorToken) throw new Error('Speichern benötigt einen Editor-Schlüssel.')
     headers.set('Authorization', `Bearer ${editorToken}`)
   }
-  const timeoutSignal = AbortSignal.timeout(12_000)
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
   const signal = init?.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal
   let res: Response
   try {
@@ -100,7 +102,11 @@ export const api = {
   competitions: () => request<CompetitionInfo[]>('/competitions'),
   quota: (competition: CompetitionId) => request<Quota>(competitionPath('/quota', competition)),
   matches: (competition: CompetitionId, force = false) =>
-    request<MatchesResponse>(competitionPath(`/matches${force ? '?force=true' : ''}`, competition)),
+    request<MatchesResponse>(
+      competitionPath(`/matches${force ? '?force=true' : ''}`, competition),
+      undefined,
+      competition === 'epl2026' || competition === 'ucl2026' ? CLUB_MATCHES_TIMEOUT_MS : undefined,
+    ),
   matchHistory: (competition: CompetitionId, eventId: string) =>
     request<MatchIntelligence>(competitionPath(`/match-history/${encodeURIComponent(eventId)}`, competition)),
   predict: (match: RawMatch, competition: CompetitionId) =>

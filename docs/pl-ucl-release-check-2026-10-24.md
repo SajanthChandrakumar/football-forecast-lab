@@ -53,3 +53,15 @@ Club responses optionally compress at gzip level 1 before transmission; the exis
 Compatibility checks cover native payload equality, lazy special-type encoding, NaN rejection, response headers, compression negotiation in both club routes, absence of double gzip, and the unchanged World Cup HTTP path. Final full suite: 520 passed. Live acceptance follows the third rollout.
 
 The final HTTP review caught and fixed explicit gzip rejection (`q=0`). Coding tokens and quality values are parsed; explicit gzip takes precedence over wildcards. Uncompressed club responses carry identity to prevent the outer Starlette middleware's substring check from recompressing them. Both accepted and rejected gzip paths, middleware interaction, and the unchanged WM response branch are covered. The full 520-test backend suite, Python compilation and whitespace checks passed; independent response/cache review found no blocker.
+
+## Warm-list and maintenance follow-up
+
+Third live rollout (`7b83e5f0ff30bf5f2af0fee17c77ad07aa226a26`) returned both lists successfully: 380 PL/144 UCL fixtures, 305/90 current open v2 forecasts, no detected identity/cutoff or probability/matrix errors. First measurements were 27.35/25.19 seconds, then a single warm UCL request completed in 17.59 seconds. This remained above the frontend's generic 12-second limit, so acceptance stayed open.
+
+PL/UCL match-list requests, including saved-cache reload, now have an explicit bounded 45-second timeout; WM/other generic requests retain 12 seconds and provider refresh retains 90 seconds. The actual API-client timeout test passed. Existing error/retry/loading behavior remains.
+
+Maintenance now reads existing archive IDs in one projected query and skips their no-op `$setOnInsert` writes. A 305-existing/one-new regression proves one bulk read, only one insert attempt, and unchanged user/frozen data. Public club lists read only the completed-tip fields they reconcile; the real PL archive query shrank from 1,369,297 BSON bytes (380 rows) to 55,900 bytes (75 completed rows). On store failure the previous archive fallback remains.
+
+Within one response, identical verified form samples share computation. Different historical cutoffs remain separate. Full live-data content equality was verified for all 380/144 fixtures; local form computation changed from 0.122 to 0.017 seconds for PL and 0.178 to 0.106 seconds for UCL. Club-only Server-Timing headers expose cache, form, intelligence, archive, status and serialization time for honest deployed diagnosis.
+
+Final verification before this rollout: 523 backend tests (14.46 seconds), Python compilation/diff checks, 125 frontend tests, app/E2E types, lint and production build passed. Independent review found no actionable regression. Five pre-existing lint warnings remain. Frontend artifact entry: `index-CivdC8bU.js`; aggregate SHA-256 `7d8f9557e3b88d33de59ee6259cb2a6da25ea1f831784910ca406cc3c2f8d98c`. This does not yet establish final live latency.

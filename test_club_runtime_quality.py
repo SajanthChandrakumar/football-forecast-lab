@@ -318,6 +318,23 @@ def test_http_encoding_optimization_is_limited_to_clubs(monkeypatch, competition
     assert json.loads(body)[0]["id"] == "pending"
     if competition == "wc2026":
         assert encoder_calls and "calculation_status" not in json.loads(body)[0]
+        assert not any(key == b"server-timing" for key, _ in start["headers"])
     else:
+        timings = next(value.decode() for key, value in start["headers"] if key == b"server-timing")
+        assert all(name + ";dur=" in timings for name in ("cache", "forms", "archive", "serialize"))
         assert not encoder_calls
         assert json.loads(body)[0]["calculation_status"] == "pending"
+
+
+def test_club_list_archive_read_projects_only_completed_tip_fields():
+    from src.routes.matches import _completed_club_archive
+    class Archive:
+        def find(self, query, projection):
+            assert query == {"post_match_result.status": "completed"}
+            assert projection["prediction.model_version"] == 1
+            assert projection["prediction.context"] == 1
+            assert projection["post_match_result"] == 1
+            assert "prediction.regulation_matrix" not in projection
+            assert "prediction.bots" not in projection
+            return [{"_id": "complete", "prediction": {"top_tip": "1:0"}, "post_match_result": {"status": "completed"}}]
+    assert _completed_club_archive(Archive())["complete"]["prediction"]["top_tip"] == "1:0"

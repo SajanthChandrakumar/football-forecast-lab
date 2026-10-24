@@ -1,6 +1,7 @@
 """API-Football client and competition-scoped team-form cache."""
 
 from collections import deque
+from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -1164,6 +1165,19 @@ class TeamFormService:
             str(team.get("team_id")): str(team.get("name") or "")
             for team in roster.get("teams", []) or [] if team.get("team_id") is not None
         }
+        verified_times_by_team = {}
+        for team_id in team_ids:
+            document = documents.get(self._id(f"team_form:{team_id}"), {})
+            expected_namespace = roster.get("provider_namespace") or document.get("provider_namespace")
+            verified_times_by_team[str(team_id)] = sorted(
+                played_at
+                for match in document.get("matches", []) or []
+                if document.get("scope") == "all_competitions"
+                and self._verified_match(match, expected_namespace, team_id=document.get("team_id"))
+                and (played_at := self._time(match.get("played_at"))) is not None
+            )
+
+        form_cache = {}
         presented = []
         for match in matches:
             if not isinstance(match, dict):
@@ -1174,11 +1188,18 @@ class TeamFormService:
             for side in ("home", "away"):
                 team_id = self._match_team_id(row, side, roster)
                 document = documents.get(self._id(f"team_form:{team_id}"), {}) if team_id else {}
-                form = self._display_form(document, roster, before=kickoff)
-                player_document = {**document, "matches": form.get("matches", [])}
-                form["player_form"] = self._player_form(
-                    player_document, team_names.get(str(team_id), row.get(f"{side}_team", "")), history_by_event,
-                )
+                cutoff = self._time(kickoff)
+                cutoff_count = bisect_left(verified_times_by_team.get(str(team_id), ()), cutoff) if cutoff else 0
+                cache_key = (str(team_id) if team_id is not None else None, cutoff_count)
+                form = form_cache.get(cache_key)
+                if form is None:
+                    form = self._display_form(document, roster, before=kickoff)
+                    player_document = {**document, "matches": form.get("matches", [])}
+                    form["player_form"] = self._player_form(
+                        player_document, team_names.get(str(team_id), row.get(f"{side}_team", "")),
+                        history_by_event,
+                    )
+                    form_cache[cache_key] = form
                 row[f"{side}_form"] = form
             presented.append(row)
         return presented

@@ -7,6 +7,7 @@ import { validPremierLeagueStandingsRows, validUclStandingsRows } from '../src/l
 import { hasScoreMatrix } from '../src/lib/prediction.mjs'
 import { hasUclSimulationResults } from '../src/lib/simulation.mjs'
 import * as simulation from '../src/lib/simulation.mjs'
+import { api } from '../src/lib/api.ts'
 
 let officialPerformance
 let commonPerformance
@@ -42,6 +43,43 @@ try {
 
 test('competitionPath URL-encodes the active competition', () => {
   assert.equal(competitionPath('/matches?force=true', 'ucl2026'), '/matches?force=true&competition=ucl2026')
+})
+
+test('only PL/UCL match reads use the extended timeout, including forced reloads', async () => {
+  const originalFetch = globalThis.fetch
+  const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout')
+  const paths = []
+  const timeouts = []
+  globalThis.fetch = async (url) => {
+    paths.push(new URL(url, 'http://localhost').pathname + new URL(url, 'http://localhost').search)
+    return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  Object.defineProperty(AbortSignal, 'timeout', {
+    configurable: true,
+    value: milliseconds => {
+      timeouts.push(milliseconds)
+      return new AbortController().signal
+    },
+  })
+  try {
+    await api.matches('ucl2026')
+    await api.matches('ucl2026', true)
+    await api.matches('epl2026')
+    await api.matches('wc2026')
+    await api.quota('ucl2026')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (timeoutDescriptor) Object.defineProperty(AbortSignal, 'timeout', timeoutDescriptor)
+  }
+
+  assert.deepEqual(paths, [
+    '/api/matches?competition=ucl2026',
+    '/api/matches?force=true&competition=ucl2026',
+    '/api/matches?competition=epl2026',
+    '/api/matches?competition=wc2026',
+    '/api/quota?competition=ucl2026',
+  ])
+  assert.deepEqual(timeouts, [45_000, 45_000, 45_000, 12_000, 12_000])
 })
 
 test('validCompetition defaults invalid storage values to UCL', () => {
