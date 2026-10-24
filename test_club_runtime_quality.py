@@ -273,3 +273,51 @@ def test_public_legacy_club_list_never_runs_a_full_forecast_calculation(monkeypa
     assert result[0]['probabilities'] is None
     assert result[0]['source_status']=='unavailable'
     assert old['top_tip']=='9:0'
+
+
+@pytest.mark.parametrize("competition", ["epl2026", "ucl2026", "wc2026"])
+@pytest.mark.parametrize("accept_encoding", [None, "gzip", "gzip;q=0", "br, gzip;q=0, deflate"])
+def test_http_encoding_optimization_is_limited_to_clubs(monkeypatch, competition, accept_encoding):
+    from fastapi import FastAPI
+    import asyncio
+    import json
+    from src.routes.matches import init_router
+    from test_result_refresh import MemoryCollection
+    cache = MemoryCollection([{"_id": competition + ":matches_cache", "data": [{"id": "pending", "home_team": "Home", "away_team": "Away"}]}])
+    app = FastAPI()
+    app.include_router(init_router(object(), None, {competition: cache}, {competition: MemoryCollection()}))
+    import fastapi.routing
+    original_encoder = fastapi.routing.jsonable_encoder
+    encoder_calls = []
+    def guarded_encoder(*args, **kwargs):
+        encoder_calls.append(True)
+        assert competition == "wc2026", "Native club lists must bypass the framework's recursive encoder"
+        return original_encoder(*args, **kwargs)
+    monkeypatch.setattr("fastapi.routing.jsonable_encoder", guarded_encoder)
+    if competition == "wc2026":
+        monkeypatch.setattr("src.routes.matches._enrich_edge", lambda matches, *args: matches)
+    messages = []
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+    async def send(message):
+        messages.append(message)
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET", "scheme": "http", "path": "/api/matches", "raw_path": b"/api/matches", "query_string": ("competition=" + competition).encode(), "headers": [(b"accept-encoding", accept_encoding.encode())] if accept_encoding else [], "client": ("test", 1), "server": ("test", 80), "root_path": ""}
+    asyncio.run(app(scope, receive, send))
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+    assert start["status"] == 200
+    assert (b"content-type", b"application/json") in start["headers"]
+    if competition != "wc2026" and accept_encoding == "gzip":
+        import gzip
+        assert (b"content-encoding", b"gzip") in start["headers"]
+        body = gzip.decompress(body)
+    elif competition == "wc2026":
+        assert not any(key == b"content-encoding" for key, _ in start["headers"])
+    else:
+        assert (b"content-encoding", b"identity") in start["headers"]
+    assert json.loads(body)[0]["id"] == "pending"
+    if competition == "wc2026":
+        assert encoder_calls and "calculation_status" not in json.loads(body)[0]
+    else:
+        assert not encoder_calls
+        assert json.loads(body)[0]["calculation_status"] == "pending"

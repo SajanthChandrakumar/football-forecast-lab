@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from src.constants import TEAM_MAPPING, DISPLAY_MAPPING, _is_ko_round
 from src.competitions import (
@@ -28,6 +28,7 @@ from src.services.match_intelligence import attach_cached_match_intelligence, ca
 from src.services.input_validation import bounded_match_id
 from src.services.source_freshness import source_status
 from src.services.prediction_cache import cached_prediction
+from src.services.club_json import ClubJSONResponse, accepts_gzip
 from src.math_engine import MathEngine
 
 logger = logging.getLogger(__name__)
@@ -262,14 +263,14 @@ def _team_form_service_for(team_form_service, competition):
 
 def _present_cached_matches(
     cached_data, math_engine, odds_engine, competition, archive_store, cache_store,
-    team_form_service=None,
+    team_form_service=None, *, as_response=False, gzip_enabled=False,
 ):
     """Apply one presentation path to normal and forced cache reads."""
     if not isinstance(cached_data, list) or not cached_data:
         return cached_data if isinstance(cached_data, list) else _unavailable_matches()
     comp = get_competition(competition)
     if comp.is_club_competition:
-        presented_data = deepcopy(cached_data)
+        presented_data = [dict(match) if isinstance(match, dict) else match for match in cached_data]
         for match in presented_data:
             if not isinstance(match, dict):
                 continue
@@ -302,23 +303,26 @@ def _present_cached_matches(
         presented_data = _apply_cached_club_forms(presented_data, team_form_service)
         presented_data = attach_cached_match_intelligence(presented_data, cache_store, comp)
     archive = load_archive_from_db(archive_store, force=True)
-    return _apply_club_source_status(_sync_archive_tips(
+    result = _apply_club_source_status(_sync_archive_tips(
         presented_data,
         archive,
         archive_store,
         persist_pending=not comp.is_club_competition,
         competition=comp,
     ), comp)
+    # Return a ready response for HTTP club reads: serializing a full season
+    # recursively on the event loop duplicates substantial work and memory.
+    return ClubJSONResponse(result, gzip_enabled=gzip_enabled) if as_response and comp.is_club_competition else result
 
 
 def _apply_club_source_status(matches, competition, *, now=None):
     if not get_competition(competition).is_club_competition:
         return matches
-    rows = deepcopy(matches)
+    rows = [dict(row) if isinstance(row, dict) else row for row in matches]
     for row in rows:
         if not isinstance(row, dict) or _is_completed_match(row):
             continue
-        provenance = row.get("input_provenance") or row.get("provenance") or {}
+        provenance = deepcopy(row.get("input_provenance") or row.get("provenance") or {})
         if not provenance:
             if row.get("status") == "fresh" or row.get("source_status") == "fresh":
                 row["status"] = row["source_status"] = "stale"
@@ -513,7 +517,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
     prediction_service = PredictionService(math_engine)
 
     @router.get("/matches")
-    def get_matches(force: bool = False, competition: str | None = None):
+    def get_matches(force: bool = False, competition: str | None = None, request: Request = None):
         comp = require_competition(competition)
         comp_team_form_service = _team_form_service_for(team_form_service, comp)
         cache_store = collection_for(cache_collection, comp)
@@ -530,13 +534,15 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
             if isinstance(cached_data, list):
                 return _present_cached_matches(
                     cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
-                    comp_team_form_service,
+                    comp_team_form_service, as_response=request is not None,
+                    gzip_enabled=request is not None and accepts_gzip(request.headers.get("accept-encoding", "")),
                 ) if cached_data else ([] if cached is not None else _unavailable_matches())
             return _unavailable_matches()
         if isinstance(cached_data, list) and cached_data:
             return _present_cached_matches(
                 cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
-                comp_team_form_service,
+                comp_team_form_service, as_response=request is not None,
+                gzip_enabled=request is not None and accepts_gzip(request.headers.get("accept-encoding", "")),
             )
         if cached is not None and cached_data == []:
             return []
