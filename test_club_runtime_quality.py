@@ -258,3 +258,18 @@ def test_lease_heartbeat_is_fenced_to_its_current_owner():
     assert cache.find_one({'_id':'epl2026:maintenance_lease'})['lease_until']==NOW.isoformat()
     assert _renew_maintenance_lease(cache,'epl2026:maintenance_lease','new-owner',NOW,300)
     assert cache.find_one({'_id':'epl2026:maintenance_lease'})['lease_until']==(NOW+timedelta(seconds=300)).isoformat()
+
+@pytest.mark.parametrize('competition',['epl2026','ucl2026'])
+def test_public_legacy_club_list_never_runs_a_full_forecast_calculation(monkeypatch,competition):
+    from src.routes.matches import _present_cached_matches
+    from test_result_refresh import MemoryCollection
+    old={'id':'legacy','home_team':'Home','away_team':'Away','model_version':'prediction-v1','top_tip':'9:0','bots':{'professor':{'tip':'9:0'}},'probabilities':{'home':.99,'draw':.005,'away':.005}}
+    def forbidden(*a,**kw):raise AssertionError('Public lists must not calculate forecasts')
+    monkeypatch.setattr('src.routes.matches._enrich_edge',forbidden)
+    result=_present_cached_matches([deepcopy(old)],object(),None,competition,MemoryCollection(),MemoryCollection())
+    assert result[0]['calculation_status']=='pending'
+    assert result[0]['bots']=={}
+    assert result[0]['model_tip'] is None and result[0]['top_tip'] is None
+    assert result[0]['probabilities'] is None
+    assert result[0]['source_status']=='unavailable'
+    assert old['top_tip']=='9:0'

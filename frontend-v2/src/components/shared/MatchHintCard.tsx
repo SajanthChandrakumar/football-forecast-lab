@@ -10,6 +10,7 @@ const confidenceStyle = {
 } as const
 
 export function MatchHintCard({ match, compact = false, competition }: { match: Match; compact?: boolean; competition?: CompetitionId }) {
+  if (match.calculation_status === 'pending') return <p role="status" className="text-sm text-fg-2">Analyse wird vorbereitet.</p>
   const hint = buildMatchHint(match, Date.now(), competition === 'epl2026' || competition === 'ucl2026')
   const badgeStyle = hint.confidence === 'unavailable' ? '' : confidenceStyle[hint.confidence]
 

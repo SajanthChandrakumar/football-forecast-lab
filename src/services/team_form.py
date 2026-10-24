@@ -16,6 +16,13 @@ from src.constants import TEAM_MAPPING
 from src.quota_store import write_quota
 from src import quota_store
 
+CLUB_FORM_REFRESH_DEADLINE_SECONDS = 45
+CLUB_FORM_REFRESH_WORKERS = 16
+_CLUB_FORM_REFRESH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=CLUB_FORM_REFRESH_WORKERS,
+    thread_name_prefix="club-form-refresh",
+)
+
 
 class ApiFootballClient:
     BASE_URL = "https://v3.football.api-sports.io"
@@ -787,11 +794,11 @@ class TeamFormService:
 
     def refresh_all_competitions(self, now=None):
         """Refresh verified ESPN senior-men form across each club's competitions."""
+        deadline = time.monotonic() + CLUB_FORM_REFRESH_DEADLINE_SECONDS
         current = now or self.now_fn()
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
         observed_at = current.isoformat()
-        deadline = time.monotonic() + 45
         client = self.history_client
         roster_id = self._id("team_form_teams")
         sync_id = self._id("team_form_sync")
@@ -819,9 +826,17 @@ class TeamFormService:
             client.enable_fotmob_fallback = False
         season = int(str(self.competition.season).split("/", 1)[0])
         provider_calls = 0
+        roster_future = None
         try:
+            if time.monotonic() >= deadline:
+                raise FuturesTimeoutError
             provider_calls += 1
-            scoreboard = client.request("/teams", {"season": season})
+            roster_future = _CLUB_FORM_REFRESH_EXECUTOR.submit(
+                client.request, "/teams", {"season": season},
+            )
+            scoreboard = roster_future.result(timeout=max(0, deadline - time.monotonic()))
+            if time.monotonic() >= deadline:
+                raise FuturesTimeoutError
             if getattr(client, "provider", None) != "espn":
                 raise RuntimeError("The club form roster was not returned by ESPN")
             teams = self.parse_teams(scoreboard, provider="espn")
@@ -831,6 +846,16 @@ class TeamFormService:
                     f"ESPN returned {len(teams)} provider-identified teams; "
                     f"expected {expected_teams} for {self.competition.id}"
                 )
+        except FuturesTimeoutError:
+            if roster_future is not None:
+                roster_future.cancel()
+            error = "ESPN team-roster refresh deadline exceeded"
+            self._mark_verified_refresh_failure(old_team_ids, error, observed_at)
+            return {
+                "status": "stale" if old_roster else "unavailable",
+                "source": "espn", "provider": "espn", "provider_calls": provider_calls,
+                "error": error, "observed_at": previous_observed_at,
+            }
         except Exception as exc:
             self._mark_verified_refresh_failure(old_team_ids, exc, observed_at)
             return {
@@ -845,55 +870,62 @@ class TeamFormService:
         remaining = iter(teams)
         unavailable = 0
         schedule_payloads = {}
-        pool = ThreadPoolExecutor(max_workers=16)
-        try:
-            while True:
-                batch = []
-                for _ in range(16):
-                    team = next(remaining, None)
-                    if team is None:
-                        break
-                    batch.append(team)
-                if not batch:
+        while True:
+            batch = []
+            for _ in range(CLUB_FORM_REFRESH_WORKERS):
+                team = next(remaining, None)
+                if team is None:
                     break
-                if time.monotonic() >= deadline:
-                    failed.extend(str(team["team_id"]) for team in batch)
-                    failed.extend(str(team["team_id"]) for team in remaining)
-                    break
+                batch.append(team)
+            if not batch:
+                break
+            if time.monotonic() >= deadline:
+                failed.extend(str(team["team_id"]) for team in batch)
+                failed.extend(str(team["team_id"]) for team in remaining)
+                break
 
-                futures = {
-                    pool.submit(client.request, "/fixtures", {"team": str(team["team_id"]), "season": season}): team
-                    for team in batch
-                }
-                provider_calls += len(futures)
-                try:
-                    for future in as_completed(futures, timeout=max(0, deadline - time.monotonic())):
-                        team = futures[future]
-                        team_id = str(team["team_id"])
-                        try:
-                            payload = future.result()
-                            if getattr(client, "provider", None) != "espn":
-                                raise RuntimeError("The team schedule was not returned by ESPN")
-                            schedule_payloads[team_id] = self.parse_fixtures(
-                                team_id, payload, provider="espn", now=current,
-                            )
-                        except Exception as exc:
-                            failed.append(team_id)
-                            self._mark_verified_refresh_failure([team_id], exc, observed_at)
-                except FuturesTimeoutError:
-                    for future, team in futures.items():
-                        if future.done():
-                            continue
-                        future.cancel()
-                        team_id = str(team["team_id"])
-                        failed.append(team_id)
-                        self._mark_verified_refresh_failure(
-                            [team_id], "ESPN team-schedule refresh deadline exceeded", observed_at,
+            futures = {
+                _CLUB_FORM_REFRESH_EXECUTOR.submit(
+                    client.request, "/fixtures", {"team": str(team["team_id"]), "season": season},
+                ): team
+                for team in batch
+            }
+            provider_calls += len(futures)
+            processed = set()
+            timed_out = False
+            try:
+                for future in as_completed(futures, timeout=max(0, deadline - time.monotonic())):
+                    if time.monotonic() >= deadline:
+                        timed_out = True
+                        break
+                    processed.add(future)
+                    team = futures[future]
+                    team_id = str(team["team_id"])
+                    try:
+                        payload = future.result()
+                        if getattr(client, "provider", None) != "espn":
+                            raise RuntimeError("The team schedule was not returned by ESPN")
+                        schedule_payloads[team_id] = self.parse_fixtures(
+                            team_id, payload, provider="espn", now=current,
                         )
-                    failed.extend(str(team["team_id"]) for team in remaining)
-                    break
-        finally:
-            pool.shutdown(wait=True, cancel_futures=True)
+                    except Exception as exc:
+                        failed.append(team_id)
+                        self._mark_verified_refresh_failure([team_id], exc, observed_at)
+            except FuturesTimeoutError:
+                timed_out = True
+
+            if timed_out:
+                for future, team in futures.items():
+                    if future in processed:
+                        continue
+                    future.cancel()
+                    team_id = str(team["team_id"])
+                    failed.append(team_id)
+                    self._mark_verified_refresh_failure(
+                        [team_id], "ESPN team-schedule refresh deadline exceeded", observed_at,
+                    )
+                failed.extend(str(team["team_id"]) for team in remaining)
+                break
 
         failed_set = set(failed)
         for team in teams:

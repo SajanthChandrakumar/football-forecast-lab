@@ -599,7 +599,10 @@ class PredictionService:
         probs, details, xg_home, xg_away, base_matrix = distribution
         matrix = build_aet_distribution(base_matrix, xg_home, xg_away, ctx)
         is_ko = ctx.stage != "league" or (ctx.competition == "wc2026" and ctx.extra_time_eligible)
-        xp = self.math_engine.calculate_expected_points(matrix, is_ko_phase=is_ko)
+        if comp.is_club_competition:
+            xp = self.math_engine.calculate_expected_points_vectorized(matrix, is_ko_phase=is_ko)
+        else:
+            xp = self.math_engine.calculate_expected_points(matrix, is_ko_phase=is_ko)
         model_tip = str(xp.iloc[0]["Tipp"]) if not xp.empty else None
         output.update({
             "xg_home": float(xg_home),

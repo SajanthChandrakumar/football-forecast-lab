@@ -3,6 +3,7 @@ import json
 import time
 import hashlib
 import logging
+from functools import lru_cache
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -408,6 +409,44 @@ class MathEngine:
         df_xp = pd.DataFrame(results)
         df_xp = df_xp.sort_values(by="xP", ascending=False).head(top_n).reset_index(drop=True)
         return df_xp
+
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def _expected_points_weights(home_axis: tuple[str, ...], away_axis: tuple[str, ...], is_ko_phase: bool) -> np.ndarray:
+        """Return cached SRF point weights for all 0:0..5:5 tips and matrix cells."""
+        weights = np.empty((36, len(home_axis) * len(away_axis)), dtype=np.float64)
+        candidate = 0
+        for tipped_home in range(6):
+            for tipped_away in range(6):
+                cell = 0
+                for actual_home in home_axis:
+                    for actual_away in away_axis:
+                        weights[candidate, cell] = MathEngine._tip_points(
+                            tipped_home, tipped_away, int(actual_home), int(actual_away), is_ko_phase,
+                        )
+                        cell += 1
+                candidate += 1
+        return weights
+
+    def calculate_expected_points_vectorized(
+        self,
+        score_matrix: pd.DataFrame,
+        is_ko_phase: bool = False,
+        top_n: int = 5,
+    ) -> pd.DataFrame:
+        """Calculate xP with cached SRF weights and one NumPy matrix product."""
+        home_axis = tuple(str(value) for value in score_matrix.index)
+        away_axis = tuple(str(value) for value in score_matrix.columns)
+        weights = self._expected_points_weights(home_axis, away_axis, is_ko_phase)
+        probabilities = score_matrix.to_numpy(dtype=np.float64, copy=False).reshape(-1)
+        positive = probabilities > 0
+        expected = weights[:, positive] @ probabilities[positive]
+        results = [
+            {"Tipp": f"{tipped_home}:{tipped_away}", "xP": float(expected[tipped_home * 6 + tipped_away])}
+            for tipped_home in range(6)
+            for tipped_away in range(6)
+        ]
+        return pd.DataFrame(results).sort_values(by="xP", ascending=False).head(top_n).reset_index(drop=True)
 
     def compute_bot_tips(
         self,

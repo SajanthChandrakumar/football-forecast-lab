@@ -256,8 +256,43 @@ def test_club_knockout_exposes_regulation_probabilities_and_after_extra_time_sco
     assert result["matrix_basis"] == "after_extra_time"
     assert result["probabilities"] == pytest.approx(expected_regulation)
     assert result["score_matrix"] == result["matrix"]
-    assert result["xp_tips"] == expected_xp
+    assert [tip["Tipp"] for tip in result["xp_tips"]] == [tip["Tipp"] for tip in expected_xp]
+    assert [tip["xP"] for tip in result["xp_tips"]] == pytest.approx(
+        [tip["xP"] for tip in expected_xp], abs=1e-12,
+    )
     assert not np.allclose(regulation, result["score_matrix_df"].to_numpy())
+
+
+@pytest.mark.parametrize(
+    ("context", "is_ko_phase"),
+    [
+        ({"stage": "league", "leg": "single"}, False),
+        ({"stage": "final", "leg": "single", "score_90": "0:0"}, True),
+    ],
+)
+def test_club_expected_points_fastpath_matches_all_legacy_candidates(context, is_ko_phase):
+    service = PredictionService(_engine())
+    result = service.predict(
+        odds={"home": 2.1, "draw": 3.4, "away": 3.7},
+        elo={"home_rating": 1800, "away_rating": 1700},
+        competition="ucl2026",
+        context=context,
+    )
+    matrix = result["score_matrix_df"]
+    fast_all = service.math_engine.calculate_expected_points_vectorized(
+        matrix, is_ko_phase=is_ko_phase, top_n=36,
+    )
+    legacy_all = service.math_engine.calculate_expected_points(
+        matrix, is_ko_phase=is_ko_phase, top_n=36,
+    )
+
+    assert fast_all["Tipp"].tolist() == legacy_all["Tipp"].tolist()
+    assert fast_all["xP"].to_numpy() == pytest.approx(legacy_all["xP"].to_numpy(), abs=1e-12)
+    legacy_top = legacy_all.head(5).to_dict(orient="records")
+    assert [tip["Tipp"] for tip in result["xp_tips"]] == [tip["Tipp"] for tip in legacy_top]
+    assert [tip["xP"] for tip in result["xp_tips"]] == pytest.approx(
+        [tip["xP"] for tip in legacy_top], abs=1e-12,
+    )
 
 
 def test_world_cup_prediction_keeps_legacy_model_vector_and_score_matrix():
@@ -765,6 +800,10 @@ def test_completed_matches_surface_archived_prediction_contract(monkeypatch):
     assert match["input_provenance"] == archived_provenance
     assert match["provenance"] == archived_provenance
     assert match["match_context"] == archived_context
+    assert match["completed"] is True
+    assert match["post_match_result"] == {"status": "completed", "actual_score": "1:0"}
+    assert "calculation_status" not in match
+    assert "completed" not in cache.find_one({"_id": "ucl2026:matches_cache"})["data"][0]
 
 
 @pytest.mark.parametrize("competition", ["wc2026", "ucl2026"])
