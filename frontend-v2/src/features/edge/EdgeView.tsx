@@ -9,6 +9,7 @@ import { PageTransition, PageHeader } from '../../components/shared/PageTransiti
 import { CardGridSkeleton } from '../../components/shared/Skeleton'
 import { QueryState } from '../../components/shared/QueryState'
 import type { Match } from '../../lib/types'
+import { hasVerifiedPreMatchEdge } from '../../lib/verified-edge.mjs'
 
 type EdgeGrade = 'hit' | 'miss' | 'close'
 
@@ -44,7 +45,7 @@ export function EdgeView() {
       const edgePp = match.edge_home * 100
       const status = fixtureStatus(match)
       if (status === 'upcoming') up.push({ match, edgePp, absEdge: Math.abs(edgePp) })
-      else if (status === 'played') hist.push({ match, edgePp, absEdge: Math.abs(edgePp), grade: gradeEdge(match, edgePp) })
+      else if (status === 'played') hist.push({ match, edgePp, absEdge: Math.abs(edgePp), grade: hasVerifiedPreMatchEdge(match) ? gradeEdge(match, edgePp) : undefined })
     }
 
     up.sort((a, b) => b.absEdge - a.absEdge)
@@ -56,7 +57,7 @@ export function EdgeView() {
     return {
       upcoming: up,
       historical: hist,
-      stats: { hits, misses, closes, hitRate: decisive ? hits / decisive * 100 : 0 },
+      stats: { hits, misses, closes, count: hits + misses + closes, hitRate: decisive ? hits / decisive * 100 : 0 },
     }
   }, [matches])
 
@@ -70,7 +71,7 @@ export function EdgeView() {
         Beide Werte teilen Sieg und Niederlage auf 100 % auf und lassen ein mögliches Remis heraus. Sie sind daher keine absoluten 1/X/2-Siegwahrscheinlichkeiten. „Prozentpunkte“ zeigen den Abstand zwischen den beiden Anteilen.
       </p></details>
       <details className="info-disclosure mb-4"><summary>Wie werden gespielte Spiele bewertet?</summary><p className="info-content">
-        Ein Spiel gilt als Treffer, wenn Elo und das tatsächliche Ergebnis auf dieselbe Seite zeigen. Bei Remis oder einer Kante unter zwei Prozentpunkten wird es als knapp oder Remis gewertet; alle übrigen auswertbaren Spiele gelten als verfehlt.
+        Treffer werden nur für Spiele mit gespeichertem Vorab-Capture, Modellversion und belegten Quoten- und Elo-Zeitpunkten gezählt. Nachträglich berechnete Kanten dienen höchstens als Vergleich und fliessen nicht in die Trefferquote ein.
       </p></details>
 
       <div className="analysis-section mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -83,12 +84,13 @@ export function EdgeView() {
           </button>
         </div>
 
-        {tab === 'history' && historical.length > 0 && (
+        {tab === 'history' && stats.count > 0 && (
           <div className="metric-strip flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-2">
             <span>Trefferquote bei klarer Modellkante: <b className="tabular-nums text-fg">{stats.hitRate.toFixed(0)}%</b></span>
             <span><b className="font-medium text-fg">{stats.hits}</b> Treffer · <b className="font-medium text-fg">{stats.closes}</b> knapp/Remis · <b className="font-medium text-fg">{stats.misses}</b> verfehlt</span>
           </div>
         )}
+        {tab === 'history' && historical.length > 0 && stats.count === 0 && <p role="status" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-fg-2">Für diese Spiele liegt kein verifizierter Vorab-Capture vor. Gespeicherte Modell- und Marktkanten werden deshalb nicht als Trefferquote bewertet.</p>}
       </div>
 
       {isLoading && <CardGridSkeleton count={4} />}
@@ -128,6 +130,7 @@ export function EdgeView() {
               </div>
 
               <p className="sr-only">{edgeCopy}</p>
+              {tab === 'history' && !grade && <p className="text-xs text-fg-3">Gespeicherte Kante · nicht als Vorab-Treffer gewertet</p>}
               <div className="edge-difference"><span>Elo − Markt<br />Prozentpunkte</span><strong>{edgePp > 0 ? '+' : ''}{edgePp.toFixed(1)}</strong></div>
               <div className="mt-4 space-y-3">
                 <Bar label="Markt · Heimsieg ohne Remis" value={market} color="var(--text-3)" />

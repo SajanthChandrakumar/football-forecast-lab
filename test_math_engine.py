@@ -83,3 +83,55 @@ def test_dixon_coles_adjustment():
 
     # Narrow wins (1:0) must be slightly penalized by the correction
     assert matrix_dc.loc["1", "0"] < matrix_indep.loc["1", "0"], "1:0 should be penalized by Dixon-Coles"
+
+
+def test_club_dixon_coles_policy_uses_away_lambda_for_one_nil():
+    legacy = MathEngine.generate_exact_score_matrix(2.0, 0.5, max_goals=3)
+    club = MathEngine.generate_exact_score_matrix(2.0, 0.5, max_goals=3, dc_policy="clubs")
+    independent = MathEngine.generate_exact_score_matrix(2.0, 0.5, max_goals=3, rho=0.0)
+
+    # Ratios against an untouched cell remove the common normalization factor.
+    legacy_tau_10 = (legacy.loc["1", "0"] / independent.loc["1", "0"]) / (legacy.loc["2", "2"] / independent.loc["2", "2"])
+    club_tau_10 = (club.loc["1", "0"] / independent.loc["1", "0"]) / (club.loc["2", "2"] / independent.loc["2", "2"])
+    club_tau_01 = (club.loc["0", "1"] / independent.loc["0", "1"]) / (club.loc["2", "2"] / independent.loc["2", "2"])
+
+    assert legacy_tau_10 == pytest.approx(1 + 2.0 * -0.15)
+    assert club_tau_10 == pytest.approx(1 + 0.5 * -0.15)
+    assert club_tau_01 == pytest.approx(1 + 2.0 * -0.15)
+
+
+def test_club_dixon_coles_xg_fit_uses_same_asymmetric_factors(monkeypatch):
+    observed = []
+
+    class Result:
+        success = True
+        x = np.array([2.0, 0.5])
+
+    def minimize(objective, *_args, **_kwargs):
+        observed.append(objective([2.0, 0.5]))
+        return Result()
+
+    monkeypatch.setattr("src.math_engine.optimize.minimize", minimize)
+    probs = {"home": 0.52, "draw": 0.28, "away": 0.20}
+    MathEngine.derive_xg_from_odds(**{
+        "prob_home": probs["home"], "prob_draw": probs["draw"], "prob_away": probs["away"],
+        "dc_policy": "clubs",
+    })
+
+    goals = np.arange(10)
+    matrix = np.outer(
+        __import__("scipy").stats.poisson.pmf(goals, 2.0),
+        __import__("scipy").stats.poisson.pmf(goals, 0.5),
+    )
+    rho = -0.15
+    matrix[0, 0] *= 1 - 2.0 * 0.5 * rho
+    matrix[1, 0] *= 1 + 0.5 * rho
+    matrix[0, 1] *= 1 + 2.0 * rho
+    matrix[1, 1] *= 1 - rho
+    matrix /= matrix.sum()
+    expected = (
+        (np.tril(matrix, -1).sum() - probs["home"]) ** 2
+        + (np.diag(matrix).sum() - probs["draw"]) ** 2
+        + (np.triu(matrix, 1).sum() - probs["away"]) ** 2
+    )
+    assert observed == pytest.approx([expected])

@@ -3,6 +3,7 @@ import { useMatches } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
 import { resolveInitialTeamSelection } from '../../lib/team-selection.mjs'
+import { clubFormForTeam, verifiedClubFormMatches } from '../../lib/team-form.mjs'
 import { GlassCard, SectionTitle } from '../../components/shared/GlassCard'
 import { TeamLogo } from '../../components/shared/Badges'
 import { PageTransition, PageHeader } from '../../components/shared/PageTransition'
@@ -10,6 +11,7 @@ import { ChartSkeleton, CardGridSkeleton } from '../../components/shared/Skeleto
 import { QueryState } from '../../components/shared/QueryState'
 import { useTeamFormData } from './useTeamFormData'
 import { EloChart } from './EloChart'
+import { ClubTeamFormHistory } from './ClubTeamFormHistory'
 
 const FORM_STYLE: Record<string, string> = {
   W: 'bg-emerald-dim text-emerald-a',
@@ -44,12 +46,18 @@ export function TeamFormView() {
     () => rows.filter((row) => row.team.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
     [rows, search],
   )
+  const clubForms = useMemo(() => new Map(rows.map((row) => [row.team, clubFormForTeam(row.team, fixtures ?? [])])), [rows, fixtures])
+  const clubRecentResults = useMemo(() => new Map(rows.map((row) => [
+    row.team,
+    verifiedClubFormMatches(clubForms.get(row.team)).slice(0, 5).reverse(),
+  ])), [rows, clubForms])
+  const clubCompetition = competition === 'epl2026' || competition === 'ucl2026'
 
   return (
     <PageTransition>
       <PageHeader title="Teamvergleich" subtitle="Teamstärke & Form · bis zu vier Teams" />
       <details className="info-disclosure mb-3"><summary>Was zeigt der Teamvergleich?</summary><p className="info-content">
-        Elo beschreibt die relative Teamstärke. Die Ergebnisse stammen aus dem Wettbewerbsarchiv.
+        Elo beschreibt die relative Teamstärke. {clubCompetition ? 'Die Form nutzt geprüfte Pflichtspiele aus Liga, Pokal und Europapokal.' : 'Die Ergebnisse stammen aus dem Wettbewerbsarchiv.'}
       </p></details>
       {competition === 'wc2026' && <p className="mb-4 text-xs text-fg-3">Gastgeber-Bonus: +80 Elo für USA, Kanada und Mexiko.</p>}
 
@@ -135,15 +143,20 @@ export function TeamFormView() {
                 return <div key={team} className="surface-panel min-w-0 rounded-lg border border-line bg-surface-2 px-3 py-3">
                   <div className="flex items-center gap-2 text-sm font-medium text-fg"><TeamLogo name={team} /><span className="min-w-0 break-words">{team}</span></div>
                   <div className="mt-2 text-2xl font-semibold tabular-nums text-fg">{Math.round(row.elo)} <span className="text-xs font-normal text-fg-3">Elo</span></div>
-                  <dl className="mt-3 grid grid-cols-3 gap-2 text-xs text-fg-3">{[['Siege', row.w], ['Remis', row.d], ['Niederlagen', row.l]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="mt-1 text-base font-semibold tabular-nums text-fg">{value}</dd></div>)}</dl>
-                  {row.w + row.d + row.l < 5 && <p className="mt-1 text-xs text-fg-3">Kleine Stichprobe: {row.w + row.d + row.l} {row.w + row.d + row.l === 1 ? 'abgeschlossenes Spiel' : 'abgeschlossene Spiele'}.</p>}
-                  {row.recentGames.length > 0 ? <details className="info-disclosure mt-2"><summary>Letzte Spiele ({row.recentGames.length})</summary><ol className="space-y-1.5 pb-3 text-xs text-fg-2">
+                  {!clubCompetition && <>
+                    <dl className="mt-3 grid grid-cols-3 gap-2 text-xs text-fg-3">{[['Siege', row.w], ['Remis', row.d], ['Niederlagen', row.l]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="mt-1 text-base font-semibold tabular-nums text-fg">{value}</dd></div>)}</dl>
+                    {row.w + row.d + row.l < 5 && <p className="mt-1 text-xs text-fg-3">Kleine Stichprobe: {row.w + row.d + row.l} {row.w + row.d + row.l === 1 ? 'abgeschlossenes Spiel' : 'abgeschlossene Spiele'}.</p>}
+                  </>}
+                  {!clubCompetition && row.recentGames.length > 0 ? <details className="info-disclosure mt-2"><summary>Letzte Spiele ({row.recentGames.length})</summary><ol className="space-y-1.5 pb-3 text-xs text-fg-2">
                     {[...row.recentGames].reverse().map((game, index) => <li key={`${team}-${game.playedAt ?? 'unknown'}-${game.score}-${index}`} className="flex min-w-0 flex-wrap justify-between gap-x-2">
                       <span className="min-w-0">{game.playedAt && Number.isFinite(Date.parse(game.playedAt)) ? new Date(game.playedAt).toLocaleDateString('de-CH', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Europe/Zurich' }) : 'Datum nicht verfügbar'} · {FORM_LABEL[game.result]} {game.score} gegen {game.opponent}</span>
                     </li>)}
-                  </ol></details> : <p className="mt-2 text-xs text-fg-3">Keine abgeschlossenen Spiele im Archiv.</p>}
+                  </ol></details> : !clubCompetition && <p className="mt-2 text-xs text-fg-3">Keine abgeschlossenen Spiele im Archiv.</p>}
                 </div>
               })}
+            </div>}
+            {clubCompetition && selectedTeams.length > 0 && <div className="mb-5 grid gap-3 md:grid-cols-2">
+              {selectedTeams.map((team) => <ClubTeamFormHistory key={team} team={team} form={clubForms.get(team)} />)}
             </div>}
             <EloChart teams={selectedTeams} history={history} matchInfo={matchInfo} />
           </GlassCard>
@@ -159,6 +172,7 @@ export function TeamFormView() {
             <div role="list" aria-label="Power-Rangliste der Teams" className="grid gap-2 p-3 sm:hidden">
               {rows.map((row, index) => {
                 const active = selectedTeams.includes(row.team)
+                const recent = clubCompetition ? (clubRecentResults.get(row.team) ?? []).map((game) => game.result) : row.last5
                 return <article key={row.team} role="listitem" className={cn('min-w-0 rounded-lg border border-line p-3', active && 'bg-surface-2')}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-fg"><span className="w-6 shrink-0 text-right tabular-nums text-fg-3">{index + 1}</span><TeamLogo name={row.team} /><span className="truncate">{row.team}</span></div>
@@ -166,12 +180,12 @@ export function TeamFormView() {
                   </div>
                   <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2 text-xs text-fg-2">
                     <span><b className="text-base tabular-nums text-fg">{Math.round(row.elo)}</b> Elo{row.delta != null && <> · Δ {row.delta > 0 ? '+' : ''}{Math.round(row.delta)}</>}</span>
-                    <span>S-U-N {row.w}-{row.d}-{row.l}</span>
+                    <span>{clubCompetition ? 'Form' : 'S-U-N'} {clubCompetition ? (recent.length ? recent.map((result) => result === 'W' ? 'S' : result === 'D' ? 'U' : 'N').join(' ') : '–') : `${row.w}-${row.d}-${row.l}`}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="text-[10px] text-fg-3">Letzte Resultate</span>
-                    <span className="flex gap-1" aria-label={`${row.team}: ${row.last5.map((result) => FORM_LABEL[result]).join(', ') || 'keine Resultate'}`}>
-                      {row.last5.map((result, resultIndex) => <span key={`${row.team}-${resultIndex}`} aria-hidden="true" className={cn('flex h-6 min-w-6 items-center justify-center rounded px-1 text-[10px] font-semibold', FORM_STYLE[result])}>{result === 'W' ? 'S' : result === 'D' ? 'U' : 'N'}</span>)}
+                    <span className="flex gap-1" aria-label={`${row.team}: ${recent.map((result) => FORM_LABEL[result]).join(', ') || (clubCompetition ? 'keine geprüften Resultate' : 'keine Resultate')}`}>
+                      {recent.map((result, resultIndex) => <span key={`${row.team}-${resultIndex}`} aria-hidden="true" className={cn('flex h-6 min-w-6 items-center justify-center rounded px-1 text-[10px] font-semibold', FORM_STYLE[result])}>{result === 'W' ? 'S' : result === 'D' ? 'U' : 'N'}</span>)}
                     </span>
                   </div>
                 </article>
@@ -184,14 +198,15 @@ export function TeamFormView() {
                 </tr></thead>
                 <tbody>{rows.map((row, index) => {
                   const active = selectedTeams.includes(row.team)
+                  const recent = clubCompetition ? (clubRecentResults.get(row.team) ?? []).map((game) => game.result) : row.last5
                   return <tr key={row.team} className={cn('border-b border-line last:border-0', active && 'bg-surface-2')}>
                     <td className="px-5 py-3 tabular-nums text-fg-2">{index + 1}</td>
                     <th scope="row" className="px-3 py-3 text-left font-medium text-fg"><button type="button" aria-pressed={active} disabled={!active && selectedTeams.length >= 4} onClick={() => toggleTeam(row.team)} className="inline-flex min-h-11 items-center gap-2 rounded px-1 text-left hover:text-[var(--blue)] disabled:cursor-not-allowed disabled:opacity-50"><TeamLogo name={row.team} />{row.team}</button></th>
                     <td className="px-3 py-3 text-right tabular-nums text-fg">{Math.round(row.elo)}</td>
                     <td className={cn('px-3 py-3 text-right tabular-nums', row.delta == null ? 'text-fg-3' : row.delta > 0 ? 'text-emerald-a' : row.delta < 0 ? 'text-red-a' : 'text-fg-2')}>{row.delta == null ? '–' : `${row.delta > 0 ? '+' : ''}${Math.round(row.delta)}`}</td>
-                    <td className="px-3 py-3 text-center tabular-nums text-fg-2 max-sm:hidden">{row.w}-{row.d}-{row.l}</td>
-                    <td className="px-5 py-3"><span className="flex justify-end gap-1" aria-label={`${row.team}: ${row.last5.map((result) => FORM_LABEL[result]).join(', ') || 'keine Resultate'}`}>
-                      {row.last5.map((result, index) => <span key={`${row.team}-${index}`} aria-hidden="true" className={cn('flex h-6 min-w-6 items-center justify-center rounded px-1 text-[10px] font-semibold', FORM_STYLE[result])}>{result === 'W' ? 'S' : result === 'D' ? 'U' : 'N'}</span>)}
+                    <td className="px-3 py-3 text-center tabular-nums text-fg-2 max-sm:hidden">{clubCompetition ? recent.map((result) => result === 'W' ? 'S' : result === 'D' ? 'U' : 'N').join(' ') || '–' : `${row.w}-${row.d}-${row.l}`}</td>
+                    <td className="px-5 py-3"><span className="flex justify-end gap-1" aria-label={`${row.team}: ${recent.map((result) => FORM_LABEL[result]).join(', ') || (clubCompetition ? 'keine geprüften Resultate' : 'keine Resultate')}`}>
+                      {recent.map((result, index) => <span key={`${row.team}-${index}`} aria-hidden="true" className={cn('flex h-6 min-w-6 items-center justify-center rounded px-1 text-[10px] font-semibold', FORM_STYLE[result])}>{result === 'W' ? 'S' : result === 'D' ? 'U' : 'N'}</span>)}
                     </span></td>
                   </tr>
                 })}</tbody>

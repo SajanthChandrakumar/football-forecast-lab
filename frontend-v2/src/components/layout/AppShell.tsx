@@ -4,6 +4,7 @@ import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
 import { competitionLabel } from '../../lib/competition.mjs'
 import { Brand, CompetitionSelect, MORE_NAV, NavIcon, PRIMARY_NAV, Settings } from './Navigation'
+import { EditorKeyDialog } from '../shared/EditorKeyDialog'
 
 function ScrollPosition() {
   const location = useLocation()
@@ -38,7 +39,8 @@ export function AppShell() {
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  const isAnalysis = MORE_NAV.some(item => item.to === location.pathname)
+  const visibleMoreNav = competition === 'epl2026' ? MORE_NAV.filter(item => item.to !== '/simulator') : MORE_NAV
+  const isAnalysis = visibleMoreNav.some(item => item.to === location.pathname)
   const closePanel = () => setPanel(null)
   const openPanel = (next: Panel, trigger: HTMLButtonElement) => {
     triggerRef.current = trigger
@@ -81,8 +83,9 @@ export function AppShell() {
   }, [panel])
 
   return <>
+    <EditorKeyDialog />
     <ScrollPosition />
-    <div ref={contentRef} className="min-h-dvh">
+    <div id="app-shell-content" ref={contentRef} className="min-h-dvh">
       <a href="#main-content" className="skip-link" onClick={event => {
         event.preventDefault()
         const main = document.getElementById('main-content')
@@ -113,7 +116,7 @@ export function AppShell() {
       <section id="shell-menu" role="dialog" aria-modal="true" aria-label={panelTitle} tabIndex={-1} ref={menuRef} onClick={event => event.stopPropagation()} className="shell-menu">
         <div className="shell-menu-heading"><h2>{panelTitle}</h2><button type="button" onClick={closePanel} aria-label="Menü schliessen" className="min-h-11 px-3 text-sm text-fg-2 hover:bg-surface-2">Schliessen ×</button></div>
         <nav hidden={panel === 'settings'} aria-label="Analysen" className="shell-analysis-links">
-          {MORE_NAV.map(({ to, label, description, icon }) => <NavLink key={to} to={to} onClick={closePanel} className="shell-analysis-link"><NavIcon name={icon} /><span><span className="block text-sm font-semibold">{label}</span><span className="mt-1 block text-xs text-fg-2">{description}</span></span></NavLink>)}
+          {visibleMoreNav.map(({ to, label, description, icon }) => <NavLink key={to} to={to} onClick={closePanel} className="shell-analysis-link"><NavIcon name={icon} /><span><span className="block text-sm font-semibold">{label}</span><span className="mt-1 block text-xs text-fg-2">{description}</span></span></NavLink>)}
         </nav>
         <div hidden={panel === 'analyses'} className="shell-menu-settings"><CompetitionSelect /><Settings /></div>
         <p className="mt-5 border-t border-line pt-4 text-xs text-fg-3">Football Forecast Lab · Von Sajanth Chandrakumar</p>

@@ -7,13 +7,21 @@ import type { Prediction } from '../../lib/types'
 export function ScoreHeatmap({ calc, modelTip, homeDisp, awayDisp }: {
   calc: Prediction; modelTip?: string | null; homeDisp: string; awayDisp: string
 }) {
-  const { light } = useAppState()
+  const { light, competition } = useAppState()
   const matrix = calc.matrix
   if (!matrix || !hasScoreMatrix(matrix)) return <p className="text-sm text-fg-3">Keine Ergebniswahrscheinlichkeiten verfügbar.</p>
   const maxP = calc.max_prob
     ?? Math.max(...Object.values(matrix).flatMap((row) => Object.values(row)), 0.0001)
   const goals = [0, 1, 2, 3, 4, 5]
   const summary = scoreProbabilitySummary(matrix, modelTip)
+  const isClubCompetition = competition === 'epl2026' || competition === 'ucl2026'
+  const matrixBasis = isClubCompetition
+    ? calc.matrix_basis === 'after_extra_time'
+      ? 'inklusive Verlängerung, ohne Elfmeterschiessen'
+      : calc.matrix_basis === 'regulation'
+        ? '90 Minuten'
+        : 'Zeitbezug nicht angegeben'
+    : ''
 
   return (
     <div>
@@ -35,6 +43,7 @@ export function ScoreHeatmap({ calc, modelTip, homeDisp, awayDisp }: {
           )}
         </div>
       )}
+      {matrixBasis && <p className="mb-3 text-xs text-fg-3">Einzelne Spielstände laut Score-Matrix ({matrixBasis})</p>}
       <details className="border-t border-line pt-3">
         <summary className="cursor-pointer text-sm font-semibold text-emerald-a">Alle Ergebniswahrscheinlichkeiten ansehen</summary>
         <div className="mt-4">

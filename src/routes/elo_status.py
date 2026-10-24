@@ -1,6 +1,7 @@
 """Read-only provenance for the current Elo ratings snapshot."""
 
 from fastapi import APIRouter
+from src.services.source_freshness import source_status
 
 from src.competitions import collection_for, find_competition_document, require_competition
 
@@ -25,7 +26,7 @@ def init_router(cache_collections):
                 "coverage": None,
             }
         return {
-            "status": doc.get("status", "unavailable"),
+            "status": source_status(doc.get("status", "unavailable"), doc.get("observed_at")) if comp.is_club_competition else doc.get("status", "unavailable"),
             "source": doc.get("source", "clubelo" if comp.is_club_competition else "unknown"),
             "observed_at": doc.get("observed_at"),
             "error": doc.get("error"),

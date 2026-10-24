@@ -1,8 +1,9 @@
 import os
+import asyncio
 import sys
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from functools import partial
 from datetime import datetime, timezone
 
@@ -56,7 +57,7 @@ from src.services.team_form import (
     TeamFormService,
 )
 from src.services.match_intelligence import refresh_match_intelligence
-from src.services.user_tips import save_shared_tip
+from src.services.user_tips import save_shared_tip, save_historical_tip
 from src.routes.matches import init_router as matches_router
 from src.routes.predict import init_router as predict_router
 from src.routes.custom_bot import init_router as custom_bot_router
@@ -76,7 +77,21 @@ async def lifespan(_app):
         logger.info("Shared historical UCL tips: %s", result)
     except Exception:
         logger.exception("Shared historical UCL tip backfill failed")
-    yield
+    from src.services.forecast_worker import run_forecast_worker, run_result_worker, run_club_maintenance_worker
+    worker = asyncio.create_task(run_forecast_worker(cache_collections, archive_collections, math_engine))
+    result_worker = asyncio.create_task(run_result_worker(cache_collections, archive_collections))
+    maintenance_worker = asyncio.create_task(run_club_maintenance_worker(
+        cache_collections, archive_collections, global_odds_engine, math_engine, team_form_services,
+        partial(refresh_match_intelligence, api_football_client=_form_primary),
+    ))
+    try:
+        yield
+    finally:
+        for task in (worker, result_worker, maintenance_worker):
+            task.cancel()
+        for task in (worker, result_worker, maintenance_worker):
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(title="Football Forecast Lab API", lifespan=lifespan)
@@ -200,8 +215,8 @@ team_form_service = TeamFormService(
 )
 team_form_services = {
     "ucl2026": team_form_service,
-    # EPL form is derived from the cached season results, not paid team calls.
-    "epl2026": TeamFormService(cache_collections["epl2026"], None, competition="epl2026"),
+    # EPL and UCL collect the same verified senior-men all-competition form.
+    "epl2026": TeamFormService(cache_collections["epl2026"], EspnTeamFormClient(season=2026, competition="epl2026", enable_fotmob_fallback=False), competition="epl2026"),
 }
 
 # ── Wire routers ─────────────────────────────────────────────
@@ -226,14 +241,14 @@ app.include_router(maintenance_router(
 app.include_router(pool_router(cache_collections, archive_collections))
 app.include_router(elo_status_router(cache_collections))
 app.include_router(odds_history_router(cache_collections, archive_collections))
-app.include_router(model_evaluation_router(archive_collections))
+app.include_router(model_evaluation_router(archive_collections, cache_collections=cache_collections))
 
 # ── Small endpoints (not worth extracting) ───────────────────
 
 @app.get("/api/ping")
 def ping():
     """Lightweight keep-alive endpoint — call every 5 min to prevent Render cold starts."""
-    return {"ok": True}
+    return {"ok": True, "revision": os.getenv("RENDER_GIT_COMMIT")}
 
 
 @app.get("/api/competitions")
@@ -280,6 +295,13 @@ def set_user_tip(request: Request, payload: dict, competition: str | None = None
         archive_store, collection_for(cache_collections, comp), match_id,
         user_tip, comp, now=datetime.now(timezone.utc),
     )
+
+@app.post("/api/archive/historical_tip")
+@limiter.limit("30/minute")
+def set_historical_tip(request: Request, payload: dict, competition: str | None = None):
+    comp = require_competition(competition or payload.get("competition"))
+    return save_historical_tip(archive_collections, payload.get("match_id"), payload.get("user_tip"), comp)
+
 
 @app.get("/api/archive")
 def get_archive(competition: str | None = None):

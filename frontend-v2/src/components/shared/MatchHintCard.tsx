@@ -1,4 +1,4 @@
-import type { Match } from '../../lib/types'
+import type { CompetitionId, Match } from '../../lib/types'
 import { buildMatchHint } from '../../lib/matchHint'
 import { formatObservedAt } from '../../lib/observed-at.mjs'
 import { cn } from '../../lib/util'
@@ -9,8 +9,8 @@ const confidenceStyle = {
   low: 'bg-orange-a/10 text-orange-a',
 } as const
 
-export function MatchHintCard({ match, compact = false }: { match: Match; compact?: boolean }) {
-  const hint = buildMatchHint(match)
+export function MatchHintCard({ match, compact = false, competition }: { match: Match; compact?: boolean; competition?: CompetitionId }) {
+  const hint = buildMatchHint(match, Date.now(), competition === 'epl2026' || competition === 'ucl2026')
   const badgeStyle = hint.confidence === 'unavailable' ? '' : confidenceStyle[hint.confidence]
 
   return (
@@ -29,6 +29,7 @@ export function MatchHintCard({ match, compact = false }: { match: Match; compac
         <span className="min-w-0"><b className="block text-fg">{Math.round(hint.probabilities.away * 100)}%</b>{match.away_disp || match.away_team}</span>
       </div>}
       <p className={cn('mt-1 text-fg-3', compact ? 'text-[10px]' : 'text-xs')}>Quelle: {hint.sourceLabel} · {formatObservedAt(hint.observedAt)}</p>
+      {hint.freshnessWarning && <p role="status" className="mt-2 text-xs font-semibold text-amber-a">{hint.freshnessWarning}</p>}
       {!compact && <p className="mt-2 text-xs text-fg-3">Die Werte betreffen Sieg, Remis oder Niederlage und sagen nichts über ein exaktes Ergebnis aus.</p>}
 
       {!compact && hint.reasons.length > 0 && (

@@ -33,7 +33,7 @@ function sourceRow(key: string, label: string, available: boolean, metadata: Rec
   let status: DataStatus
   if (!available || metadata.status === 'unavailable') status = 'unavailable'
   else if (metadata.status === 'failed') status = 'failed'
-  else if (metadata.status === 'stale' || (observedAt && now - timestamp > 86_400_000)) status = 'stale'
+  else if (metadata.status === 'stale' || (observedAt !== null && now - timestamp > 86_400_000)) status = 'stale'
   else if (metadata.status === 'fresh' && observedAt) status = 'fresh'
   else status = 'unknown'
   const message = {

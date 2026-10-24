@@ -24,6 +24,7 @@ const EMPTY_SCORE = { home: '', away: '' }
 
 function tipErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : ''
+  if (message.startsWith('401')) return 'Editor-Schlüssel ungültig. Bitte erneut versuchen.'
   if (message.startsWith('409')) return 'Die gemeinsame Tippabgabe ist fünf Minuten vor Anpfiff geschlossen.'
   if (message.startsWith('404')) return 'Dieses Spiel ist nicht im Tipp-Archiv gespeichert.'
   return 'Der Tipp konnte nicht gespeichert werden. Bitte prüfe die Verbindung und versuche es erneut.'

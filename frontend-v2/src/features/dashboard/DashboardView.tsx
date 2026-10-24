@@ -130,7 +130,7 @@ export function DashboardView() {
   return (
     <PageTransition>
       <PageHeader title="Spiele & Tipps" subtitle={roundSummary} />
-      <ViewTabs id="matchcenter" label="Spielansicht" items={MATCHCENTER_TABS} value={view} onChange={setView} />
+      <ViewTabs id="matchcenter" label="Spielansicht" items={MATCHCENTER_TABS} value={view} onChange={setView} wrap={competition !== 'wc2026'} />
 
       <ViewPanel id="matchcenter" value="games" active={view}>
         <div className="fixture-toolbar">

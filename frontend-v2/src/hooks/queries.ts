@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAppState } from '../state/AppState'
-import type { CustomBotParams, Match, MatchesResponse, PoolContext, RawMatch, UnavailablePayload } from '../lib/types'
+import type { CompetitionId, CustomBotParams, KnockoutSimulation, Match, MatchesResponse, PoolContext, RawMatch, UclSimulationResponse, UnavailablePayload } from '../lib/types'
 
 /** The cache can hold the same fixture under two ids (provider switch) —
  *  keep the entry with the richer prediction per team-pair + kickoff. */
@@ -31,6 +31,7 @@ export const useMatches = () => {
     queryKey: ['matches', competition],
     queryFn: async () => normalizeMatches(await api.matches(competition)),
     staleTime: 60_000,
+    refetchInterval: 60_000,
     select: (result) => ({ ...result, matches: dedupeMatches(result.matches) }),
   })
   return { ...query, data: query.data?.matches, availability: query.data }
@@ -49,12 +50,12 @@ export const useMatchHistory = (eventId: string, enabled: boolean) => {
 
 export const useArchive = () => {
   const { competition } = useAppState()
-  return useQuery({ queryKey: ['archive', competition], queryFn: () => api.archive(competition), staleTime: 60_000 })
+  return useQuery({ queryKey: ['archive', competition], queryFn: () => api.archive(competition), staleTime: 60_000, refetchInterval: 60_000 })
 }
 
 export const useModelEvaluation = () => {
   const { competition } = useAppState()
-  return useQuery({ queryKey: ['modelEvaluation', competition], queryFn: () => api.modelEvaluation(competition), staleTime: 60_000 })
+  return useQuery({ queryKey: ['modelEvaluation', competition], queryFn: () => api.modelEvaluation(competition), staleTime: 60_000, refetchInterval: 60_000 })
 }
 
 export const useStandings = () => {
@@ -89,9 +90,9 @@ export const useEloRatingsStatus = () => {
 
 export const useKnockoutSimulation = () => {
   const { competition } = useAppState()
-  return useQuery({
+  return useQuery<UclSimulationResponse | KnockoutSimulation>({
     queryKey: ['knockoutSim', competition],
-    queryFn: () => competition === 'ucl2026' ? api.simulateUcl(competition) : api.simulateKnockout(competition),
+    queryFn: ({ signal }) => competition === 'ucl2026' ? api.simulateUcl(competition, undefined, signal) : api.simulateKnockout(competition),
     enabled: competition === 'ucl2026' || competition === 'wc2026',
     staleTime: 300_000,
   })
@@ -115,7 +116,7 @@ export const usePoolContext = (matchId: string | undefined) => {
 export const usePredict = () => {
   const { competition } = useAppState()
   return useMutation({
-    mutationFn: ({ match }: { match: RawMatch }) => api.predict(match, competition),
+    mutationFn: ({ match, targetCompetition = competition }: { match: RawMatch; targetCompetition?: CompetitionId }) => api.predict(match, targetCompetition),
   })
 }
 
@@ -123,8 +124,8 @@ export const useSaveUserTip = () => {
   const { competition } = useAppState()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ matchId, tip, targetCompetition }: { matchId: string; tip: string; targetCompetition?: typeof competition }) =>
-      api.saveUserTip(targetCompetition ?? competition, matchId, tip),
+    mutationFn: ({ matchId, tip, targetCompetition, historical = false }: { matchId: string; tip: string; targetCompetition?: typeof competition; historical?: boolean }) =>
+      historical ? api.saveHistoricalTip(targetCompetition ?? competition, matchId, tip) : api.saveUserTip(targetCompetition ?? competition, matchId, tip),
     onSuccess: (_, { targetCompetition }) => {
       const savedCompetition = targetCompetition ?? competition
       qc.invalidateQueries({ queryKey: ['archive', savedCompetition] })

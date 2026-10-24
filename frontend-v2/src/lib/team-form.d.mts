@@ -1,4 +1,4 @@
-import type { CompetitionId, EloHistory, EloRatingsStatus, StandingsRow } from './types'
+import type { CompetitionId, EloHistory, EloRatingsStatus, Match, StandingsRow, TeamForm, TeamFormMatch } from './types'
 
 export interface TeamFormEntry {
   /** Official standings name shown in the UI. */
@@ -31,5 +31,9 @@ export declare function teamFormSnapshotState(ratingCoverage: TeamFormCoverage, 
 export declare function teamFormEntries(competition: CompetitionId, teams: string[], standingsRows?: StandingsRow[]): TeamFormEntry[]
 export declare function teamFormTeamNames(competition: CompetitionId, teams: string[], standingsRows?: StandingsRow[]): string[]
 export declare function teamsWithoutHistory(teams: string[], history?: EloHistory): string[]
+export declare function verifiedClubFormMatches(form: TeamForm | null | undefined, options?: { before?: string | null; competition?: 'all' | 'league' | 'cup' | 'europe' }): TeamFormMatch[]
+export declare function clubFormSummary(matches: TeamFormMatch[]): { played: number; wins: number; draws: number; losses: number; goalsFor: number; goalsAgainst: number }
+export declare function clubFormHomeAwayScore(match: TeamFormMatch): string | null
+export declare function clubFormForTeam(team: string, fixtures?: Match[]): TeamForm | null
 export declare function chronologicalRecentMatches<T extends { playedAt?: string | null }>(matches: T[], limit?: number): T[]
 export declare function formatEloTimestamp(timestamp: number): string

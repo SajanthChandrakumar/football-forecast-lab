@@ -42,3 +42,22 @@ test('separates high-confidence tips from open and unavailable matches', () => {
   assert.match(radar.matches[2].reason, /Noch nicht genug Daten/)
   assert.equal(radar.tipCard, ['Spieltag-Radar', 'Heim safe – Gast safe: 2:1', 'Heim open – Gast open: 2:1', 'Heim missing – Gast missing: –'].join('\n'))
 })
+
+test('club radar never calls stale inputs safe or a model-market gap a surprise', () => {
+  const now = Date.parse('2026-09-22T12:00:00Z')
+  const radar = buildMatchdayRadar([
+    match('stale-safe', '2026-09-22T18:00:00Z', {
+      observed_at: '2026-09-20T11:00:00Z',
+      input_provenance: { elo: { observed_at: '2026-09-20T11:00:00Z' } },
+    }),
+    match('unknown-gap', '2026-09-22T20:00:00Z', {
+      source_mode: 'odds+elo', odds: { home: 2.8, draw: 3.2, away: 2.3 },
+      probabilities: { home: 0.56, draw: 0.24, away: 0.2 }, elo_home_share: 0.62,
+      market_home_share: 0.45, edge_home: 0.17,
+      input_provenance: { odds: { observed_at: '2026-09-22T11:00:00Z' } },
+    }),
+  ], now, true)
+  assert.deepEqual(radar.matches.map(({ category }) => category), ['open', 'open'])
+  assert.match(radar.matches[0].reason, /älter als 24 Stunden/)
+  assert.match(radar.matches[1].reason, /Elo-Zeitpunkt fehlt/)
+})

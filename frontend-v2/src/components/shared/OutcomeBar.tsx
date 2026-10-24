@@ -1,13 +1,14 @@
 import type { Probabilities } from '../../lib/types'
 import { formatObservedAt } from '../../lib/observed-at.mjs'
 
-export function OutcomeBar({ probabilities, homeTeam = 'Heim', awayTeam = 'Auswärts', sourceLabel, observedAt, compact = false }: {
+export function OutcomeBar({ probabilities, homeTeam = 'Heim', awayTeam = 'Auswärts', sourceLabel, observedAt, compact = false, basisLabel }: {
   probabilities?: Probabilities | null
   homeTeam?: string
   awayTeam?: string
   sourceLabel?: string
   observedAt?: string | null
   compact?: boolean
+  basisLabel?: string
 }) {
   const values = probabilities && [probabilities.home, probabilities.draw, probabilities.away]
   const valid = values && values.every(value => Number.isFinite(value) && value >= 0 && value <= 1)
@@ -16,7 +17,7 @@ export function OutcomeBar({ probabilities, homeTeam = 'Heim', awayTeam = 'Ausw�
   const labels = [homeTeam, 'Remis', awayTeam]
   const names = ['home', 'draw', 'away']
   return <div className={compact ? 'outcome-summary compact' : 'outcome-summary'}>
-    <div role="img" aria-label={`Spielausgangschancen: ${labels.map((label, index) => `${label} ${Math.round(values[index] * 100)}%`).join(', ')}`} className="outcome-bar">
+    <div role="img" aria-label={`${basisLabel ? `${basisLabel}. ` : ''}Spielausgangschancen: ${labels.map((label, index) => `${label} ${Math.round(values[index] * 100)}%`).join(', ')}`} className="outcome-bar">
       {values.map((value, index) => <span key={names[index]} className={`outcome-${names[index]}`} style={{ width: `${value / total * 100}%` }} />)}
     </div>
     <div className="outcome-labels">

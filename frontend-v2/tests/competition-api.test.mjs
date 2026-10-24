@@ -118,9 +118,9 @@ test('hasUclSimulationResults rejects unavailable and malformed payloads', () =>
   assert.equal(hasUclSimulationResults({ status: 'fresh', results: [] }), true)
 })
 
-test('UCL simulation API path defaults to 100 runs and respects an explicit count', () => {
+test('UCL simulation API path defaults to 5000 runs and respects an explicit count', () => {
   assert.equal(typeof simulation.uclSimulationPath, 'function')
-  assert.equal(simulation.uclSimulationPath(), '/simulate_ucl?runs=100')
+  assert.equal(simulation.uclSimulationPath(), '/simulate_ucl?runs=5000')
   assert.equal(simulation.uclSimulationPath(500), '/simulate_ucl?runs=500')
 })
 
@@ -537,4 +537,27 @@ test('shared-tip comparison uses only completed matches with both pre-match tips
     algoTendency: 1,
     matchIds: ['shared'],
   })
+})
+
+test('a complete immutable maintenance capture supports the common comparison without rewriting visible predictions', () => {
+  const entry = {
+    metadata: { commence_time: '2026-10-01T12:00:00Z' },
+    prediction: {
+      user_tip: '1:1', top_tip: '2:1',
+      evaluation_forecast: { capture_source: 'maintenance', captured_at: '2026-10-01T11:50:00Z', probabilities: { model: { home: 0.6, draw: 0.25, away: 0.15 } } },
+    },
+    post_match_result: { status: 'completed', actual_score: '2:1', points_earned: 0, algo_points: 10 },
+  }
+  assert.equal(commonPerformance({ game: entry }).matches, 1)
+  assert.equal(performanceEntryKind(entry), 'verified')
+})
+
+test('retrospectively entered personal tips never enter the fair pre-match comparison', () => {
+  const entry = {
+    metadata: { commence_time: '2026-10-01T12:00:00Z' },
+    prediction: { user_tip: '2:1', top_tip: '2:1', frozen_at: '2026-10-01T11:50:00Z', probabilities: { home: 0.6, draw: 0.25, away: 0.15 }, user_tip_source: 'manual_historical' },
+    post_match_result: { status: 'completed', actual_score: '2:1', points_earned: 10, algo_points: 10 },
+  }
+  assert.equal(commonPerformance({game:entry}).matches, 0)
+  assert.equal(officialPerformance({game:entry}, []).algoAllCount, 1)
 })

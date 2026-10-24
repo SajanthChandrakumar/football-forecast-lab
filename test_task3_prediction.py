@@ -37,7 +37,11 @@ class MemoryCollection:
         values = list(self.documents.values())
         if not query:
             return values
-        return [doc for doc in values if all(doc.get(key) == value for key, value in query.items())]
+        def matches(doc, key, value):
+            if isinstance(value, dict) and "$in" in value:
+                return doc.get(key) in value["$in"]
+            return doc.get(key) == value
+        return [doc for doc in values if all(matches(doc, key, value) for key, value in query.items())]
 
     def replace_one(self, query, document, upsert=False):
         self.documents[query["_id"]] = dict(document)
@@ -207,6 +211,107 @@ def test_invalid_field_counts_only_disable_pool_tip():
     assert result["input_provenance"]
 
 
+def test_club_prediction_version_and_probabilities_come_from_corrected_regulation_matrix():
+    service = PredictionService(_engine())
+    odds = {"home": 2.1, "draw": 3.4, "away": 3.7}
+    elo = {"home_rating": 1800, "away_rating": 1700}
+    result = service.predict(odds=odds, elo=elo, competition="ucl2026")
+    matrix = pd.DataFrame.from_dict(result["regulation_matrix"], orient="index").to_numpy()
+
+    expected = {
+        "home": float(np.tril(matrix, -1).sum()),
+        "draw": float(np.diag(matrix).sum()),
+        "away": float(np.triu(matrix, 1).sum()),
+    }
+    assert result["model_version"] == "prediction-club-v2"
+    assert result["probability_basis"] == "regulation"
+    assert result["matrix_basis"] == "regulation"
+    assert result["probabilities"] == pytest.approx(expected)
+    assert result["base_probabilities"] == pytest.approx(
+        MathEngine.remove_margin(odds["home"], odds["draw"], odds["away"])
+    )
+
+
+def test_club_knockout_exposes_regulation_probabilities_and_after_extra_time_scoring_matrix():
+    service = PredictionService(_engine())
+    odds = {"home": 2.1, "draw": 3.4, "away": 3.7}
+    result = service.predict(
+        odds=odds,
+        elo={"home_rating": 1800, "away_rating": 1700},
+        competition="ucl2026",
+        context={"stage": "final", "leg": "single", "score_90": "0:0"},
+    )
+
+    regulation = pd.DataFrame.from_dict(result["regulation_matrix"], orient="index").to_numpy()
+    expected_regulation = {
+        "home": float(np.tril(regulation, -1).sum()),
+        "draw": float(np.diag(regulation).sum()),
+        "away": float(np.triu(regulation, 1).sum()),
+    }
+    expected_xp = service.math_engine.calculate_expected_points(
+        result["score_matrix_df"], is_ko_phase=True,
+    ).to_dict(orient="records")
+
+    assert result["probability_basis"] == "regulation"
+    assert result["matrix_basis"] == "after_extra_time"
+    assert result["probabilities"] == pytest.approx(expected_regulation)
+    assert result["score_matrix"] == result["matrix"]
+    assert result["xp_tips"] == expected_xp
+    assert not np.allclose(regulation, result["score_matrix_df"].to_numpy())
+
+
+def test_world_cup_prediction_keeps_legacy_model_vector_and_score_matrix():
+    service = PredictionService(_engine())
+    odds = {"home": 2.1, "draw": 3.4, "away": 3.7}
+    elo = {"home_rating": 1800, "away_rating": 1700}
+    legacy_probabilities, _ = service._probabilities(odds, elo)
+    xg_home, xg_away = service.math_engine.derive_xg_from_odds(
+        legacy_probabilities["home"], legacy_probabilities["draw"], legacy_probabilities["away"]
+    )
+    legacy_matrix = service.math_engine.generate_exact_score_matrix(xg_home, xg_away, max_goals=10)
+
+    result = service.predict(odds=odds, elo=elo, competition="wc2026")
+
+    assert result["model_version"] == "prediction-v1"
+    assert "regulation_matrix" not in result
+    assert "matrix_basis" not in result
+    assert "probability_basis" not in result
+    assert result["probabilities"] == pytest.approx(legacy_probabilities)
+    assert result["score_matrix_df"].to_numpy() == pytest.approx(legacy_matrix.to_numpy())
+    assert result["probabilities"] == pytest.approx({
+        "home": 0.45808019421003526, "draw": 0.2826482357220808, "away": 0.25927157006788404,
+    })
+    assert result["xg_home"] == pytest.approx(1.6140977115755297)
+    assert result["xg_away"] == pytest.approx(1.1484153793570897)
+    assert result["score_matrix_df"].loc["0", "0"] == pytest.approx(0.08085303906533957)
+    assert result["score_matrix_df"].loc["1", "0"] == pytest.approx(0.07738957243929505)
+    assert result["score_matrix_df"].loc["0", "1"] == pytest.approx(0.06013687403357209)
+
+
+def test_frozen_prediction_v1_is_immutable_under_club_model_upgrade():
+    kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
+    frozen_prediction = {
+        "frozen_at": (kickoff - timedelta(minutes=10)).isoformat(),
+        "model_version": "prediction-v1",
+        "model_tip": "2:0",
+        "top_tip": "2:0",
+        "probabilities": {"home": 0.61, "draw": 0.23, "away": 0.16},
+    }
+    archive = MemoryCollection([{
+        "_id": "m1",
+        "metadata": {"commence_time": kickoff.isoformat()},
+        "prediction": frozen_prediction,
+    }])
+
+    saved = freeze_prediction(
+        MemoryCollection(), archive, PredictionService(_engine()), "m1",
+        competition="ucl2026", now=kickoff - timedelta(minutes=9),
+    )
+
+    assert saved["prediction"] == frozen_prediction
+    assert archive.replacements == 0
+
+
 def test_freeze_uses_latest_eligible_t15_snapshot_and_is_idempotent():
     kickoff = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
     cache = MemoryCollection([
@@ -328,6 +433,7 @@ def test_prediction_maps_pool_tip_without_overwriting_source_status():
         odds={"home": 2.0, "draw": 3.2, "away": 4.0},
         elo=None,
         competition="ucl2026",
+        observed_at=datetime.now(timezone.utc).isoformat(),
         field_counts={"0:0": 3, "1:0": 1},
         user_points=10,
         leader_points=20,

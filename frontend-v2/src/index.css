@@ -193,7 +193,9 @@ button:disabled { cursor: default; }
 
 /* Shared matchcenter views. Hidden panels keep drafts and pending mutations alive. */
 .view-tabs { display: flex; flex-wrap: nowrap; gap: 14px; margin-bottom: 20px; padding: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; scrollbar-color: var(--border-2) transparent; scrollbar-width: thin; }
+.view-tabs-wrap { flex-wrap: wrap; gap: 4px 14px; overflow: visible; }
 .view-tab { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin-bottom: -1px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--text-2); transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.view-tabs-wrap .view-tab { flex: 0 1 auto; white-space: normal; text-align: center; }
 .view-tab:focus-visible { position: relative; z-index: 1; outline: 2px solid var(--emerald); outline-offset: -3px; border-radius: 3px; }
 .view-tab[aria-selected='true'] { border-bottom-color: var(--emerald); color: var(--text-1); }
 .view-tab-count { padding: 1px 6px; border-radius: 4px; background: rgb(128 148 125 / 18%); font-size: 11px; }

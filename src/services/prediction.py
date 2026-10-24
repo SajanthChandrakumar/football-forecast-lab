@@ -19,15 +19,17 @@ import pandas as pd
 from scipy.stats import poisson
 
 from src.competitions import competition_document_id, get_competition
-from src.math_engine import MathEngine
+from src.math_engine import CLUB_DC_POLICY, LEGACY_DC_POLICY, MathEngine
 from src.services.snapshots import normalize_status, select_t15_snapshot, parse_time
 from src.services.ucl_providers import compose_match_sources
+from src.services.source_freshness import source_status as fresh_source_status
 
 
 VALID_STAGES = {"league", "playoff", "round_of_16", "quarterfinal", "semifinal", "final"}
 VALID_LEGS = {"single", "first", "second"}
 SCORE_RE = re.compile(r"^\s*(\d+)\s*:\s*(\d+)\s*$")
 MODEL_VERSION = "prediction-v1"
+CLUB_MODEL_VERSION = "prediction-club-v2"
 
 
 def infer_stage(round_name: Any) -> str:
@@ -360,12 +362,61 @@ def _matrix_dict(matrix: pd.DataFrame) -> dict[str, dict[str, float]]:
     }
 
 
+def _matrix_outcome_probabilities(matrix: pd.DataFrame) -> dict[str, float]:
+    values = matrix.to_numpy(dtype=float)
+    return {
+        "home": float(np.tril(values, -1).sum()),
+        "draw": float(np.diag(values).sum()),
+        "away": float(np.triu(values, 1).sum()),
+    }
+
+
 class PredictionService:
     """Build model and pool predictions from already-collected inputs."""
 
     def __init__(self, math_engine, *, model_version: str = MODEL_VERSION):
         self.math_engine = math_engine
         self.model_version = model_version
+
+    def model_version_for(self, competition=None) -> str:
+        """Resolve the current version per competition without changing legacy callers."""
+        if self.model_version != MODEL_VERSION:
+            return self.model_version
+        return CLUB_MODEL_VERSION if get_competition(competition).is_club_competition else MODEL_VERSION
+
+    @staticmethod
+    def _dc_policy(competition) -> str:
+        return CLUB_DC_POLICY if get_competition(competition).is_club_competition else LEGACY_DC_POLICY
+
+    def _regulation_distribution(self, odds, elo, competition):
+        """Build the shared regulation-time distribution used by prediction and capture."""
+        model = self._probabilities(odds, elo)
+        if model is None:
+            return None
+        model_probabilities, details = model
+        prob_over25 = None
+        if odds and "over25" in odds and "under25" in odds:
+            raw_over, raw_under = 1.0 / odds["over25"], 1.0 / odds["under25"]
+            prob_over25 = raw_over / (raw_over + raw_under)
+        policy = self._dc_policy(competition)
+        xg_home, xg_away = self.math_engine.derive_xg_from_odds(
+            model_probabilities["home"], model_probabilities["draw"], model_probabilities["away"],
+            prob_over25, dc_policy=policy,
+        )
+        base_matrix = self.math_engine.generate_exact_score_matrix(
+            xg_home, xg_away, max_goals=10, dc_policy=policy,
+        )
+        display_probabilities = (
+            _matrix_outcome_probabilities(base_matrix)
+            if get_competition(competition).is_club_competition
+            else model_probabilities
+        )
+        return display_probabilities, details, float(xg_home), float(xg_away), base_matrix
+
+    def regulation_distribution(self, odds=None, elo=None, competition=None):
+        """Expose the exact base matrix shared by club prediction and simulation."""
+        comp = get_competition(competition)
+        return self._regulation_distribution(_safe_odds(odds), _safe_elo(elo), comp)
 
     def _probabilities(self, odds: dict[str, float] | None, elo: dict[str, float] | None) -> tuple[dict[str, float], dict[str, Any]] | None:
         if odds is not None:
@@ -397,12 +448,18 @@ class PredictionService:
         self,
         odds: Mapping[str, Any] | None,
         elo: Mapping[str, Any] | None,
+        competition=None,
     ) -> dict[str, dict[str, float]] | None:
         """Return model, no-margin market, and pure Elo 1X2 vectors."""
         clean_odds, clean_elo = _safe_odds(odds), _safe_elo(elo)
         if clean_odds is None or clean_elo is None:
             return None
-        model = self._probabilities(clean_odds, clean_elo)
+        comp = get_competition(competition)
+        if comp.is_club_competition:
+            distribution = self._regulation_distribution(clean_odds, clean_elo, comp)
+            model = (distribution[0], distribution[1]) if distribution else None
+        else:
+            model = self._probabilities(clean_odds, clean_elo)
         market = self._probabilities(clean_odds, None)
         elo_only = self._probabilities(None, clean_elo)
         if model is None or market is None or elo_only is None:
@@ -443,6 +500,9 @@ class PredictionService:
         effective_observed_at = observed_at or odds_observed_at or elo_observed_at
         if effective_observed_at is None:
             effective_observed_at = datetime.now(timezone.utc).isoformat()
+        if comp.is_club_competition:
+            odds_status = fresh_source_status(odds_status, odds_observed_at, now=datetime.now(timezone.utc))
+            elo_status = fresh_source_status(elo_status, elo_observed_at, now=datetime.now(timezone.utc))
         source_errors = {}
         for label, payload in (("odds", odds), ("elo", elo)):
             if isinstance(payload, Mapping) and payload.get("error"):
@@ -497,7 +557,7 @@ class PredictionService:
             "source_mode": sources["source_mode"],
             "source": sources["source"],
             "observed_at": sources.get("observed_at"),
-            "model_version": self.model_version,
+            "model_version": self.model_version_for(comp),
             "context": ctx.as_dict(),
             "input_provenance": input_provenance,
             "provenance": input_provenance,
@@ -533,18 +593,10 @@ class PredictionService:
             "shootout_winner": ctx.shootout_winner,
             "extra_time_eligible": eligible,
         })
-        probabilities = self._probabilities(clean_odds, clean_elo)
-        if probabilities is None:
+        distribution = self._regulation_distribution(clean_odds, clean_elo, comp)
+        if distribution is None:
             return output
-        probs, details = probabilities
-        prob_over25 = None
-        if clean_odds and "over25" in clean_odds and "under25" in clean_odds:
-            raw_over, raw_under = 1.0 / clean_odds["over25"], 1.0 / clean_odds["under25"]
-            prob_over25 = raw_over / (raw_over + raw_under)
-        xg_home, xg_away = self.math_engine.derive_xg_from_odds(
-            probs["home"], probs["draw"], probs["away"], prob_over25
-        )
-        base_matrix = self.math_engine.generate_exact_score_matrix(xg_home, xg_away, max_goals=10)
+        probs, details, xg_home, xg_away, base_matrix = distribution
         matrix = build_aet_distribution(base_matrix, xg_home, xg_away, ctx)
         is_ko = ctx.stage != "league" or (ctx.competition == "wc2026" and ctx.extra_time_eligible)
         xp = self.math_engine.calculate_expected_points(matrix, is_ko_phase=is_ko)
@@ -564,6 +616,12 @@ class PredictionService:
             "probabilities": probs,
             "base_probabilities": details.get("true_probs"),
         })
+        if comp.is_club_competition:
+            output.update({
+                "regulation_matrix": _matrix_dict(base_matrix),
+                "matrix_basis": "after_extra_time" if eligible else "regulation",
+                "probability_basis": "regulation",
+            })
         pool = pool_tip_from_field(
             matrix,
             field_counts,

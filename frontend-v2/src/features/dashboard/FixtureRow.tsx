@@ -18,7 +18,7 @@ export function FixtureRow({ match, trailing, pendingResult = false, now, compac
   const status = pendingResult ? 'pending' : fixtureStatus(match, now)
   const hasTip = Boolean(match.top_tip && match.top_tip !== 'N/A')
   const dated = ct && Number.isFinite(Date.parse(ct))
-  const hint = buildMatchHint(match)
+  const hint = buildMatchHint(match, now ?? Date.now(), competition === 'epl2026' || competition === 'ucl2026')
   const statusLabel = status === 'played' ? 'Abgeschlossen' : status === 'pending' ? 'Ergebnis ausstehend' : status === 'unscheduled' ? 'Anstoß offen' : 'Demnächst'
   const pickLabel = status === 'played' ? 'Ergebnis' : 'Modelltipp'
   const pick = status === 'played' ? match.actual_score ?? '–' : status === 'upcoming' && hasTip ? match.top_tip : '–'

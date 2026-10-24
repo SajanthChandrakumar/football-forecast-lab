@@ -1,10 +1,11 @@
 import { lazy, Suspense, type ComponentType } from 'react'
-import { HashRouter, Route, Routes } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
 import { AppStateProvider } from './state/AppState'
 import { useTheme } from './hooks/useTheme'
 import { CardGridSkeleton } from './components/shared/Skeleton'
 import { TeamVisualsProvider } from './components/shared/TeamVisuals'
+import { useAppState } from './state/AppState'
 
 // Route-level code splitting: each view (and its heavy deps like recharts)
 // loads on demand instead of bloating the initial bundle.
@@ -23,6 +24,11 @@ const suspend = (View: ComponentType) => (
   </Suspense>
 )
 
+function CompetitionSimulator() {
+  const { competition } = useAppState()
+  return competition === 'epl2026' ? <Navigate to="/team-form" replace /> : suspend(SimulatorView)
+}
+
 export default function App() {
   const { light, toggle } = useTheme()
   return (
@@ -38,7 +44,7 @@ export default function App() {
               <Route path="/team-form" element={suspend(TeamFormView)} />
               <Route path="/groups" element={suspend(GroupsView)} />
               <Route path="/performance" element={suspend(PerformanceView)} />
-              <Route path="/simulator" element={suspend(SimulatorView)} />
+              <Route path="/simulator" element={<CompetitionSimulator />} />
             </Route>
           </Routes>
         </HashRouter>

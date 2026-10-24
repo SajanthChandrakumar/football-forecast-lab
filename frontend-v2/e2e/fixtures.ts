@@ -8,15 +8,27 @@ const plTeams = ['Arsenal', 'Chelsea', 'Liverpool', 'Manchester City', ...Array.
 
 export function fixture(id: string, home: string, away: string, offset = day): Match {
   const kickoff = new Date(NOW.getTime() + offset).toISOString()
+  const worldCupFixture = id.startsWith('wc')
   return {
     id, home_team: home, away_team: away, home_disp: home, away_disp: away,
     raw_match: { id, home_team: home, away_team: away, commence_time: kickoff },
     top_tip: '2:1', model_tip: '2:1', max_xp: 3.9,
     odds: { home: 1.9, draw: 3.4, away: 4.2 }, probabilities: { home: .5, draw: .27, away: .23 },
     status: 'fresh', source: 'odds_api', observed_at: NOW.toISOString(), xg_home: 1.7, xg_away: 1.1,
-    home_form: { on_fire: false, status: 'fresh', scope: 'league', source: 'espn', form: ['W', 'D', 'L'], matches: [
-      { fixture_id: 'history-1', opponent_name: 'Chelsea', score: '2:1', result: 'W', competition_name: 'Premier League', venue: 'home', played_at: new Date(NOW.getTime() - day).toISOString() },
-    ] },
+    home_form: {
+      on_fire: false, status: 'fresh', scope: worldCupFixture ? 'league' : 'all_competitions', source: 'espn', form: ['W', 'D', 'L'],
+      ...(!worldCupFixture ? { coverage: { available: 1, required: 10, complete: false }, validation_version: 'senior-men-v1' } : {}),
+      matches: [worldCupFixture
+        ? { fixture_id: 'history-1', opponent_name: 'Chelsea', score: '2:1', result: 'W', competition_name: 'Premier League', venue: 'home', played_at: new Date(NOW.getTime() - day).toISOString() }
+        : {
+          fixture_id: 'history-1', opponent_name: 'Chelsea', opponent_id: 'history-opponent',
+          home_id: 'home-team-id', home_team: home, away_id: 'history-opponent', away_team: 'Chelsea',
+          score: '2:1', goals_for: 2, goals_against: 1, result: 'W', competition_id: 'premier-league',
+          competition_name: 'Premier League', competition_kind: 'league', result_type: 'FT', venue: 'home',
+          provider: 'espn', provider_namespace: 'espn:team-id', identity_verified: true,
+          played_at: new Date(NOW.getTime() - day).toISOString(),
+        }],
+    },
   }
 }
 
@@ -50,6 +62,10 @@ export async function installApi(page: Page) {
   }
   const state = {
     matches, archive, prediction: undefined as Prediction | undefined, failArchive: false, failHistory: false, failSave: 0, unavailableRefresh: false,
+    requireEditorKey: false, validEditorKey: 'fixture-editor-key', editorKeyAttempts: [] as string[],
+    simulationResponses: [] as { body: unknown; status?: number }[], simulationRequests: [] as string[],
+    predictionRequests: [] as { competition: CompetitionId; matchId?: string }[], predictionResponses: 0,
+    predictionGate: undefined as Promise<void> | undefined,
     saveGate: undefined as Promise<void> | undefined,
     matchesGate: undefined as Promise<void> | undefined,
     saves: [] as { match_id: string; user_tip: string; competition: CompetitionId }[],
@@ -73,8 +89,24 @@ export async function installApi(page: Page) {
       return respond(matches[competition])
     }
     if (endpoint === 'archive') return state.failArchive ? respond({ detail: 'Archive unavailable' }, 503) : respond(archive[competition])
+    if (endpoint === 'archive/historical_tip') {
+      const tip = request.postDataJSON()
+      state.saves.push(tip)
+      if (state.failSave) return respond({ detail: 'Save rejected' }, state.failSave)
+      const entry = archive[competition][tip.match_id]
+      if (!entry || entry.post_match_result.status !== 'completed') return respond({detail:'Completed games only'},409)
+      entry.prediction.user_tip = tip.user_tip
+      entry.prediction.user_tip_source = 'manual_historical'
+      entry.post_match_result.points_earned = tip.user_tip === entry.post_match_result.actual_score ? 10 : 0
+      return respond({ok:true,points_earned:entry.post_match_result.points_earned})
+    }
     if (endpoint === 'archive/user_tip') {
       const tip = request.postDataJSON()
+      if (state.requireEditorKey) {
+        const authorization = request.headers()['authorization'] ?? ''
+        state.editorKeyAttempts.push(authorization.replace(/^Bearer\s+/i, ''))
+        if (authorization !== `Bearer ${state.validEditorKey}`) return respond({ detail: 'Editor-Schlüssel ist ungültig.' }, 401)
+      }
       state.saves.push(tip)
       await state.saveGate
       if (state.failSave) return respond({ detail: 'Save rejected' }, state.failSave)
@@ -86,7 +118,11 @@ export async function installApi(page: Page) {
       return respond({ ok: true })
     }
     if (endpoint === 'predict') {
-      const cached = matches[competition].find(match => match.id === request.postDataJSON().match.id)
+      const requestBody = request.postDataJSON()
+      state.predictionRequests.push({ competition, matchId: requestBody.match.id })
+      await state.predictionGate
+      state.predictionResponses += 1
+      const cached = matches[competition].find(match => match.id === requestBody.match.id)
       return respond(state.prediction ?? {
         model_tip: '2:1', top_tip: '2:1', probabilities: { home: .5, draw: .27, away: .23 },
         matrix: { 2: { 1: .11 } }, xp_tips: [{ Tipp: '2:1', xP: 3.9 }],
@@ -110,7 +146,12 @@ export async function installApi(page: Page) {
     if (endpoint.startsWith('odds-history/')) return respond({ snapshots: [] })
     if (endpoint === 'model-evaluation') return respond({ competition, completed_count: 2, captured_count: 2, common_sample_count: 2, coverage_rate: 1, exclusions: {}, metrics: { model: { brier_score: .25, log_loss: .5 }, market: { brier_score: .25, log_loss: .5 }, elo: { brier_score: .25, log_loss: .5 } } })
     if (endpoint === 'model-comparison') return respond({ counts: { total_completed: 0, verified_model: 0, paired: 0, missing_baselines: 0, excluded: 0 }, models: [] })
-    if (endpoint.startsWith('simulate')) return respond({ status: 'unavailable', n_runs: 0, teams: [], results: [], bracket: [], round_labels: [] })
+    if (endpoint.startsWith('simulate')) {
+      state.simulationRequests.push(`${endpoint}?${url.searchParams.toString()}`)
+      const next = state.simulationResponses.shift()
+      if (next) return respond(next.body, next.status ?? ((next.body as { status?: string })?.status === 'processing' ? 202 : 200))
+      return respond({ status: 'unavailable', n_runs: 0, teams: [], results: [], bracket: [], round_labels: [] })
+    }
     state.unexpected.push(`${request.method()} ${endpoint}`)
     return respond({ detail: 'Unconfigured test endpoint' }, 404)
   })
@@ -130,4 +171,12 @@ export { expect }
 export async function chooseCompetition(page: Page, competition: CompetitionId) {
   if (await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Menü schliessen' }).click()
   await page.getByRole('banner').getByRole('combobox', { name: 'Wettbewerb', exact: true }).selectOption(competition)
+}
+
+export async function enterEditorKey(page: Page, key = 'fixture-editor-key') {
+  const dialog = page.getByRole('dialog', { name: 'Editor-Schlüssel' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel('Schlüssel zum Speichern gemeinsamer Änderungen eingeben.').fill(key)
+  await dialog.getByRole('button', { name: 'Weiter' }).click()
+  await expect(dialog).toHaveCount(0)
 }

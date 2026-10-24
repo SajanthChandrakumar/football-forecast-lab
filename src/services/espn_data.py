@@ -114,7 +114,8 @@ def _fetch_scoreboard_dates(
     comp = get_competition(competition)
     endpoint = _scoreboard_endpoint(competition)
     params = {"dates": dates}
-    if comp.id == "epl2026":
+    if comp.is_club_competition:
+        # Annual scoreboards otherwise stop at 100 events, omitting recent results.
         params["limit"] = 1000
     key = f"{endpoint}|{tuple(sorted(params.items()))}"
     cached = _scoreboard_cache.get(key) if use_cache else None
@@ -258,6 +259,9 @@ def get_scoreboard(
             "away_team": away_name,
             "home_logo": _team_logo(home_team),
             "away_logo": _team_logo(away_team),
+            **({"home_team_id": str(home_team["id"]) if home_team.get("id") is not None else None,
+                "away_team_id": str(away_team["id"]) if away_team.get("id") is not None else None,
+                "provider_namespace": "espn:team-id"} if resolved_competition.is_club_competition else {}),
             "commence_time": e.get("date", ""),
             "round": round_name,
             "completed": is_final,

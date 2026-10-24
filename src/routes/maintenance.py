@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from src.competitions import require_competition
 from src.services import espn_data
 from src.services.auth import require_cron_secret
-from src.services.maintenance import run_maintenance
+from src.services.maintenance import run_tracked_maintenance as run_maintenance
 from src.services.ucl_providers import ingest_clubelo
 
 

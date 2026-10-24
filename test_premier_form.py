@@ -5,8 +5,9 @@ from src.odds_engine_apifootball import OddsApiEngine
 from test_task2_providers import MemoryCollection
 
 
-def test_premier_form_uses_completed_cached_league_results_only():
-    service = TeamFormService(MemoryCollection(), None, competition="epl2026")
+def test_premier_league_ingestion_cannot_replace_verified_club_form():
+    cache = MemoryCollection()
+    service = TeamFormService(cache, None, competition="epl2026")
     now = datetime(2026, 10, 1, tzinfo=timezone.utc)
     fixtures = [{
         "id": "pl1", "home_team": "AFC Bournemouth", "away_team": "Arsenal",
@@ -15,16 +16,16 @@ def test_premier_form_uses_completed_cached_league_results_only():
         "id": "pl2", "home_team": "Arsenal", "away_team": "AFC Bournemouth",
         "commence_time": "2026-10-03T14:00:00Z", "completed": False,
     }]
-    assert service.ingest_league_fixtures(fixtures, now=now)["provider_calls"] == 0
+    result = service.ingest_league_fixtures(fixtures, now=now)
+    assert result == {
+        "status": "skipped", "source": "cache", "provider_calls": 0,
+        "reason": "club_form_requires_verified_all_competitions_refresh",
+    }
     home = service.cached_form_for_match("Bournemouth")
     away = service.cached_form_for_match("Arsenal")
-    assert home["scope"] == away["scope"] == "league"
-    assert home["form"] == ["W"] and away["form"] == ["L"]
-    assert home["matches"][0]["score"] == "2:1"
-    assert away["matches"][0]["score"] == "1:2"
-    assert away["source"] == "espn"
-    assert service.ingest_league_fixtures([], now=now)["status"] == "unavailable"
-    assert len(service.cached_form_for_match("Arsenal")["matches"]) == 1
+    assert home["matches"] == away["matches"] == []
+    assert home["scope"] == away["scope"] == "all_competitions"
+    assert not any("team_form" in key for key in cache.documents)
 
 
 def test_alternative_odds_provider_selects_epl_without_mutating_shared_engine(monkeypatch):

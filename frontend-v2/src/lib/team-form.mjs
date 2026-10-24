@@ -120,6 +120,77 @@ export function teamsWithoutHistory(teams, history = {}) {
   return teams.filter((team) => !history[team]?.length)
 }
 
+export function verifiedClubFormMatches(form, { before, competition = 'all' } = {}) {
+  if (form?.scope !== 'all_competitions') return []
+  const cutoff = before === undefined ? Infinity : Date.parse(before)
+  if (!Number.isFinite(cutoff) && cutoff !== Infinity) return []
+  const ordered = (form.matches ?? [])
+    .filter((match) => {
+      const playedAt = Date.parse(match?.played_at ?? '')
+      if (match?.identity_verified !== true || !['league', 'cup', 'europe'].includes(match?.competition_kind)
+        || !match.fixture_id || !match.home_id || !match.home_team || !match.away_id || !match.away_team
+        || !['W', 'D', 'L'].includes(match.result) || !['home', 'away'].includes(match.venue)
+        || typeof match.score !== 'string'
+        || !Number.isFinite(playedAt) || playedAt >= cutoff
+        || (competition !== 'all' && match.competition_kind !== competition)) return false
+      return true
+    })
+    .sort((a, b) => Date.parse(b.played_at) - Date.parse(a.played_at) || a.fixture_id.localeCompare(b.fixture_id))
+  const seen = new Set()
+  return ordered.filter((match) => {
+    if (seen.has(match.fixture_id)) return false
+    seen.add(match.fixture_id)
+    return true
+  })
+}
+
+export function clubFormSummary(matches) {
+  return (matches ?? []).reduce((summary, match) => {
+    summary.played += 1
+    if (match.result === 'W') summary.wins += 1
+    else if (match.result === 'D') summary.draws += 1
+    else if (match.result === 'L') summary.losses += 1
+    if (Number.isFinite(match.goals_for)) summary.goalsFor += match.goals_for
+    if (Number.isFinite(match.goals_against)) summary.goalsAgainst += match.goals_against
+    return summary
+  }, { played: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0 })
+}
+
+export function clubFormHomeAwayScore(match) {
+  const [first, second] = typeof match?.score === 'string' ? match.score.split(':').map(Number) : []
+  const goalsFor = Number.isFinite(match?.goals_for) ? match.goals_for : first
+  const goalsAgainst = Number.isFinite(match?.goals_against) ? match.goals_against : second
+  if (!Number.isFinite(goalsFor) || !Number.isFinite(goalsAgainst) || !['home', 'away'].includes(match?.venue)) return null
+  return match.venue === 'home' ? `${goalsFor}:${goalsAgainst}` : `${goalsAgainst}:${goalsFor}`
+}
+
+export function clubFormForTeam(team, fixtures = []) {
+  const target = teamFormCanonicalName(team)
+  const forms = fixtures.flatMap((fixture) => {
+    const rows = []
+    if (teamFormCanonicalName(fixture.home_team ?? '') === target && fixture.home_form) rows.push(fixture.home_form)
+    if (teamFormCanonicalName(fixture.away_team ?? '') === target && fixture.away_form) rows.push(fixture.away_form)
+    return rows
+  }).filter((form) => form.scope === 'all_competitions')
+  if (!forms.length) return null
+  const matches = verifiedClubFormMatches({ scope: 'all_competitions', matches: forms.flatMap((form) => form.matches ?? []) })
+  const coverage = forms.reduce((best, form) => {
+    if (!form.coverage) return best
+    return !best || form.coverage.available > best.available ? form.coverage : best
+  }, null)
+  return {
+    form: matches.slice(0, 10).reverse().map((match) => match.result),
+    on_fire: matches.length >= 3 && matches.slice(0, 3).every((match) => match.result === 'W'),
+    scope: 'all_competitions',
+    status: forms.some((form) => form.status === 'stale') ? 'stale' : forms.find((form) => form.status)?.status ?? 'unavailable',
+    source: [...new Set(forms.map((form) => form.source).filter(Boolean))].join(' + ') || undefined,
+    observed_at: forms.map((form) => form.observed_at).filter(Boolean).sort().at(-1) ?? null,
+    coverage,
+    validation_version: forms.find((form) => form.validation_version)?.validation_version,
+    matches,
+  }
+}
+
 export function chronologicalRecentMatches(matches, limit = 5) {
   const chronological = (matches ?? []).map((match, index) => ({
     match,

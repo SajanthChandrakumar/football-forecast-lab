@@ -65,6 +65,19 @@ test('labels forecast sources in German, marks stale data, and does not prefill 
   ])
 })
 
+test('club assistant marks unknown or old input timestamps without treating them as current', () => {
+  const now = Date.parse('2026-09-30T12:00:00Z')
+  const rows = buildAssistantRows([
+    match('unknown', { source_mode: 'elo-only', observed_at: null, probabilities: { home: 0.6, draw: 0.2, away: 0.2 } }),
+    match('old', { source_mode: 'elo-only', observed_at: '2026-09-28T10:00:00Z' }),
+    match('fresh', { source_mode: 'elo-only', observed_at: '2026-09-30T11:00:00Z' }),
+  ], {}, {}, {}, now, 'epl2026')
+  assert.deepEqual(rows.map(({ stale }) => stale), [true, true, false])
+  assert.match(rows[0].freshnessMessage, /Zeitpunkt fehlt/)
+  assert.match(rows[1].freshnessMessage, /älter als 24 Stunden/)
+  assert.equal(rows[2].freshnessMessage, '')
+})
+
 test('saves only changed, valid, currently editable tips', () => {
   const rows = buildAssistantRows(
     [match('suggestion'), match('saved'), match('invalid')],

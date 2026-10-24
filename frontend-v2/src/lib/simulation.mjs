@@ -1,4 +1,4 @@
-export const DEFAULT_UCL_SIMULATION_RUNS = 100
+export const DEFAULT_UCL_SIMULATION_RUNS = 5_000
 
 export function uclSimulationPath(runs = DEFAULT_UCL_SIMULATION_RUNS) {
   return `/simulate_ucl?runs=${runs}`

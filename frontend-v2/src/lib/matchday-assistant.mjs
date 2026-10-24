@@ -1,4 +1,5 @@
 import { fixtureStatus, sharedTipIsOpen } from './fixture-status.mjs'
+import { modelInputFreshness } from './match-freshness.mjs'
 
 export const TIP_BATCH_LIMIT = 18
 export const TIP_SAVE_CONCURRENCY = 3
@@ -13,7 +14,7 @@ export function isValidScoreTip(value) {
   return normalizeScoreTip(value) !== null
 }
 
-export function buildAssistantRows(matches, archive, drafts, savedOverrides, now = Date.now()) {
+export function buildAssistantRows(matches, archive, drafts, savedOverrides, now = Date.now(), competition = '') {
   return matches.map((match) => {
     const savedTip = savedOverrides[match.id]
       ?? archive?.[match.id]?.prediction?.user_tip
@@ -32,6 +33,7 @@ export function buildAssistantRows(matches, archive, drafts, savedOverrides, now
     const observedAt = typeof match.observed_at === 'string' && Number.isFinite(Date.parse(match.observed_at))
       ? match.observed_at
       : ''
+    const freshness = ['epl2026', 'ucl2026'].includes(competition) ? modelInputFreshness(match, now) : null
 
     return {
       match,
@@ -40,7 +42,8 @@ export function buildAssistantRows(matches, archive, drafts, savedOverrides, now
       savedTip,
       suggestion,
       sourceLabel,
-      stale: match.status === 'stale' || match.source_status === 'stale',
+      stale: match.status === 'stale' || match.source_status === 'stale' || (freshness != null && freshness.status !== 'fresh'),
+      freshnessMessage: freshness && freshness.status !== 'fresh' ? `Datenstand nicht bestätigt: ${freshness.message}` : '',
       observedAt,
       value,
       editable: status === 'upcoming' && sharedTipIsOpen(match.raw_match?.commence_time, now),
