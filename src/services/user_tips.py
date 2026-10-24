@@ -217,10 +217,25 @@ def archive_cached_model_tips(archive_store, cache_store, competition, *, now=No
     current = parse_time(now or datetime.now(timezone.utc))
     document = find_competition_document(cache_store, comp, "matches_cache") or {}
     recover_ids = set(map(str, recover_event_ids))
+    fixtures = document.get("data") or []
+    candidate_ids = {
+        str(fixture.get("id") or fixture.get("event_id"))
+        for fixture in fixtures
+        if isinstance(fixture, Mapping)
+        and (fixture.get("id") or fixture.get("event_id"))
+        and (not recover_ids or str(fixture.get("id") or fixture.get("event_id")) in recover_ids)
+    }
+    existing_ids = {
+        str(row["_id"])
+        for row in archive_store.find({"_id": {"$in": sorted(candidate_ids)}}, {"_id": 1})
+        if isinstance(row, Mapping) and row.get("_id") is not None
+    } if candidate_ids else set()
     created = 0
-    for fixture in document.get("data") or []:
+    for fixture in fixtures:
         event_id = str(fixture.get("id") or fixture.get("event_id") or "")
         if recover_ids and event_id not in recover_ids:
+            continue
+        if not event_id or event_id in existing_ids:
             continue
         raw = fixture.get("raw_match") or {}
         kickoff_value = fixture.get("commence_time") or raw.get("commence_time")
@@ -259,7 +274,9 @@ def archive_cached_model_tips(archive_store, cache_store, competition, *, now=No
         try:
             result = archive_store.update_one({"_id": event_id}, {"$setOnInsert": fields}, upsert=True)
         except DuplicateKeyError:
+            existing_ids.add(event_id)
             continue  # Another writer's user tip or frozen forecast remains authoritative.
+        existing_ids.add(event_id)
         created += int(getattr(result, "upserted_id", None) is not None)
     if created:
         invalidate_archive_mem_cache(archive_store)

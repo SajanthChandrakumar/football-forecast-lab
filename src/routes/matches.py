@@ -261,14 +261,31 @@ def _team_form_service_for(team_form_service, competition):
     return team_form_service.get(competition.id) if isinstance(team_form_service, Mapping) else team_form_service
 
 
+def _completed_club_archive(archive_store):
+    """Read only the frozen-tip fields that a public club list reconciles."""
+    fields = ("top_tip", "model_tip", "max_xp", "pool_tip", "pool_status",
+              "source_mode", "status", "source_status", "source", "observed_at",
+              "model_version", "input_provenance", "provenance", "context")
+    projection = {f"{part}.{key}": 1 for part in ("prediction", "pre_match_snapshot") for key in fields}
+    projection.update({"metadata": 1, "post_match_result": 1})
+    try:
+        return {document["_id"]: document for document in archive_store.find(
+            {"post_match_result.status": "completed"}, projection,
+        )}
+    except Exception:
+        # Retain the existing last-known archive behavior during store outages.
+        return load_archive_from_db(archive_store, force=True)
+
+
 def _present_cached_matches(
     cached_data, math_engine, odds_engine, competition, archive_store, cache_store,
-    team_form_service=None, *, as_response=False, gzip_enabled=False,
+    team_form_service=None, *, as_response=False, gzip_enabled=False, cache_read_ms=0.0,
 ):
     """Apply one presentation path to normal and forced cache reads."""
     if not isinstance(cached_data, list) or not cached_data:
         return cached_data if isinstance(cached_data, list) else _unavailable_matches()
     comp = get_competition(competition)
+    started = time.perf_counter()
     if comp.is_club_competition:
         presented_data = [dict(match) if isinstance(match, dict) else match for match in cached_data]
         for match in presented_data:
@@ -299,10 +316,15 @@ def _present_cached_matches(
             math_engine.reload_elo_data()
         presented_data = _enrich_edge(needs_enrichment, math_engine, odds_engine, comp, cache_store)
     presented_data = _propagate_team_logos(presented_data)
+    prepared = time.perf_counter()
+    forms_done = intelligence_done = prepared
     if comp.is_club_competition:
         presented_data = _apply_cached_club_forms(presented_data, team_form_service)
+        forms_done = time.perf_counter()
         presented_data = attach_cached_match_intelligence(presented_data, cache_store, comp)
-    archive = load_archive_from_db(archive_store, force=True)
+        intelligence_done = time.perf_counter()
+    archive = _completed_club_archive(archive_store) if comp.is_club_competition else load_archive_from_db(archive_store, force=True)
+    archive_done = time.perf_counter()
     result = _apply_club_source_status(_sync_archive_tips(
         presented_data,
         archive,
@@ -312,7 +334,18 @@ def _present_cached_matches(
     ), comp)
     # Return a ready response for HTTP club reads: serializing a full season
     # recursively on the event loop duplicates substantial work and memory.
-    return ClubJSONResponse(result, gzip_enabled=gzip_enabled) if as_response and comp.is_club_competition else result
+    if not as_response or not comp.is_club_competition:
+        return result
+    presentation_done = time.perf_counter()
+    response = ClubJSONResponse(result, gzip_enabled=gzip_enabled)
+    timings = {"cache": cache_read_ms, "prepare": (prepared - started) * 1000,
+               "forms": (forms_done - prepared) * 1000,
+               "intelligence": (intelligence_done - forms_done) * 1000,
+               "archive": (archive_done - intelligence_done) * 1000,
+               "status": (presentation_done - archive_done) * 1000,
+               "serialize": (time.perf_counter() - presentation_done) * 1000}
+    response.headers["Server-Timing"] = ", ".join(f"{name};dur={duration:.2f}" for name, duration in timings.items())
+    return response
 
 
 def _apply_club_source_status(matches, competition, *, now=None):
@@ -523,11 +556,13 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
         cache_store = collection_for(cache_collection, comp)
         archive_store = collection_for(archive_collection, comp)
         cache_id = competition_document_id(comp, "matches_cache")
+        cache_started = time.perf_counter()
         try:
             cached = find_competition_document(cache_store, comp, "matches_cache")
             cached_data = (cached or {}).get("data")
         except Exception:
             cached_data = None
+        cache_read_ms = (time.perf_counter() - cache_started) * 1000
         # Public refresh flags are intentionally cache-only. Provider credits
         # and writes belong to the authenticated maintenance scheduler.
         if force:
@@ -536,6 +571,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
                     cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
                     comp_team_form_service, as_response=request is not None,
                     gzip_enabled=request is not None and accepts_gzip(request.headers.get("accept-encoding", "")),
+                    cache_read_ms=cache_read_ms,
                 ) if cached_data else ([] if cached is not None else _unavailable_matches())
             return _unavailable_matches()
         if isinstance(cached_data, list) and cached_data:
@@ -543,6 +579,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
                 cached_data, math_engine, odds_engine, comp, archive_store, cache_store,
                 comp_team_form_service, as_response=request is not None,
                 gzip_enabled=request is not None and accepts_gzip(request.headers.get("accept-encoding", "")),
+                cache_read_ms=cache_read_ms,
             )
         if cached is not None and cached_data == []:
             return []

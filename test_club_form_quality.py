@@ -351,6 +351,79 @@ def test_bulk_form_rejects_same_numeric_ids_from_a_different_provider_namespace(
     assert row["home_form"]["matches"] == []
 
 
+def test_bulk_form_reuses_identical_history_cutoffs_and_keeps_historical_cutoffs_exact(monkeypatch):
+    def history_match(team_id, fixture_id, played_at, result):
+        opponent_id = "20" if team_id == "10" else "10"
+        return {
+            "fixture_id": fixture_id, "played_at": played_at, "result": result,
+            "provider": "espn", "provider_namespace": "espn:team-id", "identity_verified": True,
+            "home_id": team_id, "away_id": opponent_id,
+            "competition_id": "eng.1", "competition_name": "English Premier League",
+            "competition_kind": "league",
+        }
+
+    team_10_history = [
+        history_match("10", "a", "2026-09-10T00:00:00Z", "W"),
+        history_match("10", "b", "2026-09-20T00:00:00Z", "D"),
+        history_match("10", "edge", "2026-09-21T00:00:00Z", "L"),
+        history_match("10", "c", "2026-09-30T00:00:00Z", "W"),
+        history_match("10", "cutoff", "2026-10-01T00:00:00Z", "D"),
+        history_match("10", "future", "2026-10-02T00:00:00Z", "W"),
+    ]
+    team_20_history = [history_match("20", "opponent-edge", "2026-09-21T00:00:00Z", "D")]
+    cache = MemoryCollection([
+        {"_id": "epl2026:team_form_teams", "provider_namespace": "espn:team-id", "teams": [
+            {"team_id": "10", "name": "Arsenal"}, {"team_id": "20", "name": "Chelsea"},
+        ]},
+        {"_id": "epl2026:team_form:10", "team_id": "10", "provider": "espn",
+         "provider_namespace": "espn:team-id", "scope": "all_competitions", "status": "fresh",
+         "matches": team_10_history},
+        {"_id": "epl2026:team_form:20", "team_id": "20", "provider": "espn",
+         "provider_namespace": "espn:team-id", "scope": "all_competitions", "status": "fresh",
+         "matches": team_20_history},
+    ])
+    service = TeamFormService(cache, client=None, competition="epl2026")
+    display_calls, player_calls = [], []
+    original_display, original_player = service._display_form, service._player_form
+
+    def count_display(document, roster, *, before=None):
+        display_calls.append((document.get("team_id"), before))
+        return original_display(document, roster, before=before)
+
+    def count_player(document, team_name, history_by_event):
+        player_calls.append((document.get("team_id"), tuple(
+            match.get("fixture_id") for match in document.get("matches", [])
+        )))
+        return original_player(document, team_name, history_by_event)
+
+    monkeypatch.setattr(service, "_display_form", count_display)
+    monkeypatch.setattr(service, "_player_form", count_player)
+    matches = [
+        {"home_team": "Arsenal", "away_team": "Chelsea", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id", "commence_time": "2026-10-01T00:00:00Z"},
+        {"home_team": "Arsenal", "away_team": "Chelsea", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id", "commence_time": "2026-10-01T00:00:00Z"},
+        {"home_team": "Arsenal", "away_team": "Chelsea", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id", "commence_time": "2026-09-21T00:00:00Z"},
+        {"home_team": "Arsenal", "away_team": "Chelsea", "home_team_id": "10", "away_team_id": "20",
+         "provider_namespace": "espn:team-id"},
+    ]
+
+    rows = service.cached_forms_for_matches(matches)
+
+    assert rows[0]["home_form"] is rows[1]["home_form"]
+    assert rows[0]["away_form"] is rows[1]["away_form"]
+    assert len(display_calls) == len(player_calls) == 5
+    assert [match["fixture_id"] for match in rows[0]["home_form"]["matches"]] == ["c", "edge", "b", "a"]
+    assert [match["fixture_id"] for match in rows[0]["away_form"]["matches"]] == ["opponent-edge"]
+    assert [match["fixture_id"] for match in rows[2]["home_form"]["matches"]] == ["b", "a"]
+    assert rows[2]["away_form"]["matches"] == []
+    assert rows[3]["home_form"]["matches"] == []
+    assert rows[3]["away_form"]["matches"] == []
+    assert "cutoff" not in {match["fixture_id"] for match in rows[0]["home_form"]["matches"]}
+    assert "future" not in {match["fixture_id"] for match in rows[0]["home_form"]["matches"]}
+
+
 def test_refresh_all_competitions_stores_verified_coverage_and_preserves_last_good_rows_on_failure():
     schedules = {
         "10": [fixture("new", date="2026-10-20T18:00:00Z"), fixture("old", date="2026-10-19T18:00:00Z")],
