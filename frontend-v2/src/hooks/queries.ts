@@ -63,6 +63,11 @@ export const useStandings = () => {
   return useQuery({ queryKey: ['standings', competition], queryFn: () => api.standings(competition), staleTime: 60_000 })
 }
 
+export const useDataStatus = () => {
+  const { competition } = useAppState()
+  return useQuery({ queryKey: ['dataStatus', competition], queryFn: ({ signal }) => api.dataStatus(competition, signal), staleTime: 60_000, refetchInterval: 60_000, retry: false })
+}
+
 export const useQuota = () => {
   const { competition } = useAppState()
   return useQuery({ queryKey: ['quota', competition], queryFn: () => api.quota(competition), staleTime: 60_000 })
@@ -180,6 +185,7 @@ export const useRefreshData = () => {
       qc.setQueryData(['matches', refreshedCompetition], data)
       qc.invalidateQueries({ queryKey: ['archive', refreshedCompetition] })
       qc.invalidateQueries({ queryKey: ['quota', refreshedCompetition] })
+      qc.invalidateQueries({ queryKey: ['dataStatus', refreshedCompetition] })
       qc.invalidateQueries({ queryKey: ['modelEvaluation', refreshedCompetition] })
     },
   })

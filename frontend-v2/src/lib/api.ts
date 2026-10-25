@@ -1,5 +1,5 @@
 import type {
-  Archive, BotSimulation, CompetitionId, CompetitionInfo, CustomBot, CustomBotParams, EloHistory,
+  Archive, DataStatus, BotSimulation, CompetitionId, CompetitionInfo, CustomBot, CustomBotParams, EloHistory,
   EloRatings, EloRatingsStatus, KnockoutSimulation, MatchIntelligence, MatchesResponse, PoolContext, Prediction, Quota, RawMatch,
   StandingsGroup, UclSimulation, UclSimulationProcessing, UclSimulationResponse, ModelEvaluation, ManualRefreshResult,
 } from './types'
@@ -100,6 +100,7 @@ export const api = {
     return res.json() as Promise<ManualRefreshResult>
   },
   competitions: () => request<CompetitionInfo[]>('/competitions'),
+  dataStatus: (competition: CompetitionId, signal?: AbortSignal) => request<DataStatus>(competitionPath('/data-status', competition), { signal }),
   quota: (competition: CompetitionId) => request<Quota>(competitionPath('/quota', competition)),
   matches: (competition: CompetitionId, force = false) =>
     request<MatchesResponse>(

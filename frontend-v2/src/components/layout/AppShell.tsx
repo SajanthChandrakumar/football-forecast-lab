@@ -118,7 +118,7 @@ export function AppShell() {
         <nav hidden={panel === 'settings'} aria-label="Analysen" className="shell-analysis-links">
           {visibleMoreNav.map(({ to, label, description, icon }) => <NavLink key={to} to={to} onClick={closePanel} className="shell-analysis-link"><NavIcon name={icon} /><span><span className="block text-sm font-semibold">{label}</span><span className="mt-1 block text-xs text-fg-2">{description}</span></span></NavLink>)}
         </nav>
-        <div hidden={panel === 'analyses'} className="shell-menu-settings"><CompetitionSelect /><Settings /></div>
+        <div hidden={panel === 'analyses'} className="shell-menu-settings"><CompetitionSelect /><Settings showDataLink={panel !== 'more'} /></div>
         <p className="mt-5 border-t border-line pt-4 text-xs text-fg-3">Football Forecast Lab · Von Sajanth Chandrakumar</p>
       </section>
     </div>

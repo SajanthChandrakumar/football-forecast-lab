@@ -16,7 +16,7 @@ for (const competition of competitions) {
         localStorage.setItem('competition', id)
         localStorage.setItem('theme', appearance)
       }, { id: competition.id, appearance })
-      const routes = ['', `match/${competition.match}`, 'groups', 'team-form', 'value-bets', 'edge', 'performance', ...(competition.id === 'epl2026' ? [] : ['simulator'])]
+      const routes = ['', `match/${competition.match}`, 'groups', 'data-sources', 'team-form', 'value-bets', 'edge', 'performance', ...(competition.id === 'epl2026' ? [] : ['simulator'])]
       const fits = async (where: string) => {
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
         const outside = await page.evaluate(() => {

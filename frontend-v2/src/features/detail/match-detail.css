@@ -1,0 +1,219 @@
+.match-detail .match-card {
+  gap: 8px;
+}
+
+.match-detail .match-card > * {
+  margin-block-start: 0;
+}
+
+.match-detail .section-heading {
+  margin-bottom: 0;
+}
+
+.match-detail .view-panel > .analysis-section + .analysis-section {
+  margin-top: 12px;
+}
+
+.match-detail .match-grid.analysis-section {
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.match-detail .detail-xg-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.match-detail .detail-xg-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.match-detail .detail-xg-team {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--text-1);
+}
+
+.match-detail .detail-xg-team > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.match-detail .detail-xg-value {
+  font-size: 22px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+
+.match-detail .detail-xg-label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.match-detail .detail-team-forms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.club-team-form-history {
+  container: club-form / inline-size;
+  min-width: 0;
+}
+
+.club-form-metrics-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.club-form-metrics-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.club-form-scoreline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.club-form-home {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.club-form-score {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.club-form-away {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.club-form-side-away {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.match-detail .market-outcomes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.match-detail .market-outcome {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.match-detail .market-outcome-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-1);
+}
+
+.match-detail .market-outcome-values {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .match-detail .detail-xg-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .match-detail .detail-xg-team > span {
+    overflow-wrap: normal;
+  }
+
+  .match-detail .detail-xg-value {
+    justify-self: end;
+  }
+}
+
+@container club-form (min-width: 26rem) {
+  .club-form-scoreline {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: 1fr;
+    gap: 8px;
+  }
+
+  .club-form-home {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .club-form-score {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .club-form-away {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .club-form-side-away {
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+    text-align: right;
+  }
+}
+
+@media (min-width: 640px) {
+  .match-detail .market-outcomes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .match-detail .market-outcome {
+    min-height: 96px;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: space-between;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .match-detail .market-outcome-values {
+    justify-items: start;
+  }
+}
+
+@media (min-width: 1024px) {
+  .match-detail .detail-team-forms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

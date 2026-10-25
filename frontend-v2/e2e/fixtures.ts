@@ -1,3 +1,4 @@
+import { dataStatusFixture } from './data-status-fixture'
 import { test as base, expect, type Page } from '@playwright/test'
 import type { Archive, CompetitionId, Match, Prediction } from '../src/lib/types'
 
@@ -80,6 +81,7 @@ export async function installApi(page: Page) {
     const competition = (url.searchParams.get('competition') ?? 'ucl2026') as CompetitionId
     const teams = competition === 'ucl2026' ? uclTeams : competition === 'epl2026' ? plTeams : ['England', 'Switzerland', 'France', 'Germany']
     const respond = (json: unknown, status = 200) => route.fulfill({ json, status })
+    if (endpoint === 'data-status') return respond(dataStatusFixture(competition, NOW.toISOString()))
     if (endpoint === 'competitions') return respond([
       { id: 'ucl2026', short_name: 'UCL 2026/27', display_name: 'UEFA Champions League 2026/27' },
       { id: 'epl2026', short_name: 'PL 2026/27', display_name: 'Premier League 2026/27' },

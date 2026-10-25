@@ -67,6 +67,7 @@ from src.routes.pool import init_router as pool_router
 from src.routes.elo_status import init_router as elo_status_router
 from src.routes.odds_history import init_router as odds_history_router
 from src.routes.model_evaluation import init_router as model_evaluation_router
+from src.routes.data_status import init_router as data_status_router
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -242,6 +243,22 @@ app.include_router(pool_router(cache_collections, archive_collections))
 app.include_router(elo_status_router(cache_collections))
 app.include_router(odds_history_router(cache_collections, archive_collections))
 app.include_router(model_evaluation_router(archive_collections, cache_collections=cache_collections))
+_odds_provider_id = {
+    "src.odds_engine": "odds_api",
+    "src.odds_engine_apifootball": "api_football",
+}.get(global_odds_engine.__class__.__module__)
+_configured_club_providers = {
+    "ucl2026": (["api_football"] if _form_primary is not None else []) + ["espn"],
+    "epl2026": ["espn"],
+}
+app.include_router(data_status_router(
+    cache_collections,
+    odds_provider=_odds_provider_id,
+    team_form_providers=_configured_club_providers,
+    lineup_providers=_configured_club_providers,
+    ucl_standings_validator=lambda data: _valid_ucl_standings(data),
+    ucl_standings_deriver=lambda cached: _derive_ucl_standings(cached),
+))
 
 # ── Small endpoints (not worth extracting) ───────────────────
 

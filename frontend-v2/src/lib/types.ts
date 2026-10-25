@@ -498,3 +498,28 @@ export interface ManualRefreshResult {
     message?: string | null
   }[]
 }
+
+
+export interface DataStatusDataset {
+  id: string
+  label: string
+  providers: { configured: string[]; observed: string[] }
+  source_kind: 'provider' | 'derived' | 'local'
+  status: 'fresh' | 'stale' | 'partial' | 'failed' | 'unavailable' | 'unknown'
+  observed_at: string | null
+  last_attempt_at: string | null
+  last_successful_at: string | null
+  error: string | null
+  coverage: { available: number; required: number | null; unit?: 'teams' | 'matches' | 'rows' } | null
+}
+export interface ProviderQuotaStatus {
+  reported: { remaining: number | null; used: number | null; limit: number | null; observed_at: string | null; status: 'fresh' | 'stale' | 'unknown' }
+  app_budget: { used: number | null; remaining: number | null; limit: number; unit: 'credits' | 'requests'; window_seconds: number; headroom: number; status: 'available' | 'unknown' }
+}
+export interface DataStatus {
+  competition: CompetitionId
+  generated_at: string
+  datasets: DataStatusDataset[]
+  maintenance: { status: string | null; last_run_at: string | null; last_successful_at: string | null; next_due_at: string | null; interval_seconds: number | null; error: string | null; running: boolean }
+  quotas: { scope: 'global_shared_all_competitions'; providers: { odds: ProviderQuotaStatus; football: ProviderQuotaStatus } }
+}

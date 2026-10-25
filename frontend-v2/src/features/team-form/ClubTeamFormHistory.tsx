@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { clubFormHomeAwayScore, clubFormSummary, verifiedClubFormMatches } from '../../lib/team-form.mjs'
 import { formatObservedAt } from '../../lib/observed-at.mjs'
 import type { TeamForm, TeamFormMatch } from '../../lib/types'
+import '../detail/match-detail.css'
 
 type CompetitionFilter = 'all' | 'league' | 'cup' | 'europe'
 const FILTERS: { value: CompetitionFilter; label: string }[] = [
@@ -29,23 +30,24 @@ export function ClubTeamFormHistory({ team, form, beforeKickoff }: { team: strin
   const summary = clubFormSummary(visible)
   const hasCompleteScores = visible.length > 0 && visible.every((match) => Number.isFinite(match.goals_for) && Number.isFinite(match.goals_against))
   const cutoffUnknown = beforeKickoff != null && !Number.isFinite(Date.parse(beforeKickoff))
+  const selectedFilterLabel = FILTERS.find((item) => item.value === competition)?.label ?? FILTERS[0].label
 
-  return <section className="rounded-xl border border-line bg-surface p-4 text-left" aria-label={`${team} Pflichtspielform`}>
+  return <section className="club-team-form-history rounded-xl border border-line bg-surface p-4 text-left" aria-label={`${team} Pflichtspielform`}>
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div>
         <h3 className="text-base font-bold text-fg">{team}</h3>
-        <p className="mt-1 text-xs text-fg-2">Geprüfte Pflichtspiele · alle Wettbewerbe{sourceLabel(form?.source) ? ` · Quelle: ${sourceLabel(form?.source)}` : ''}</p>
+        <p className="mt-1 text-xs text-fg-2">Geprüfte Pflichtspiele · {selectedFilterLabel}{sourceLabel(form?.source) ? ` · Quelle: ${sourceLabel(form?.source)}` : ''}</p>
       </div>
       {form?.status === 'stale' && <span className="text-xs font-semibold text-amber-a">Formdaten älter</span>}
     </div>
-    {form?.coverage && <p className="mt-2 text-xs text-fg-3">Abdeckung: {form.coverage.available} von {form.coverage.required} geprüften Spielen{form.observed_at ? ` · Stand ${formatObservedAt(form.observed_at)}` : ''}</p>}
+    {form?.coverage && <p className="mt-2 text-xs text-fg-3">Abdeckung: {form.coverage.available} von {form.coverage.required} geprüften Spielen{form.observed_at ? ` · ${formatObservedAt(form.observed_at)}` : ''}</p>}
     {form?.scope !== 'all_competitions' && <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs text-fg-2">Für diese Ansicht liegen noch keine geprüften Formdaten aus allen Wettbewerben vor.</p>}
     {form?.scope === 'all_competitions' && <>
       <div role="group" aria-label={`${team}: Form nach Wettbewerb`} className="mt-3 flex flex-wrap gap-2">
         {FILTERS.map((item) => <button key={item.value} type="button" aria-pressed={competition === item.value} onClick={() => { setCompetition(item.value); setExpanded(false) }} className={`min-h-11 rounded-full border px-3 text-xs font-semibold ${competition === item.value ? 'border-action bg-action text-on-action' : 'border-line text-fg-2 hover:bg-surface-2'}`}>{item.label}</button>)}
       </div>
       {visible.length > 0 ? <>
-        <dl className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+        <dl aria-label="Formstatistik" className={`club-form-metrics mt-3 grid gap-2 text-center ${hasCompleteScores ? 'club-form-metrics-three' : 'club-form-metrics-two'}`}>
           <Metric label="Spiele" value={`${visible.length}${matches.length > visible.length ? ` von ${matches.length}` : ''}`} />
           <Metric label="Siege · Remis · Niederlagen" value={`${summary.wins} · ${summary.draws} · ${summary.losses}`} />
           {hasCompleteScores && <Metric label="Tore" value={`${summary.goalsFor}:${summary.goalsAgainst}`} />}
@@ -76,10 +78,10 @@ function ClubFormMatchRow({ match }: { match: TeamFormMatch }) {
   const result = match.result
   const resultClass = result === 'W' ? 'text-emerald-a' : result === 'L' ? 'text-red-a' : 'text-fg-2'
   return <li className="rounded-lg border border-line bg-surface-2 px-3 py-2.5">
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:grid-rows-1 sm:gap-2">
-      <ClubSide name={home} logo={match.home_logo} selected={isHome} align="left" className="col-start-1 row-start-1" />
-      <span className="col-start-2 row-span-2 row-start-1 text-center font-bold tabular-nums text-fg sm:row-span-1">{displayedScore}</span>
-      <ClubSide name={away} logo={match.away_logo} selected={isAway} align="right" className="col-start-1 row-start-2 sm:col-start-3 sm:row-start-1" />
+    <div className="club-form-scoreline">
+      <ClubSide name={home} logo={match.home_logo} selected={isHome} align="left" className="club-form-home" />
+      <span className="club-form-score text-center font-bold tabular-nums text-fg">{displayedScore}</span>
+      <ClubSide name={away} logo={match.away_logo} selected={isAway} align="right" className="club-form-away" />
     </div>
     <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-fg-2">
       <span>{new Date(match.played_at).toLocaleString('de-CH', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich' })} · {match.competition_name} · {COMPETITION_LABEL[match.competition_kind!]}</span>
@@ -94,7 +96,7 @@ function ClubFormMatchRow({ match }: { match: TeamFormMatch }) {
 }
 
 function ClubSide({ name, logo, selected, align, className }: { name: string; logo?: string | null; selected: boolean; align: 'left' | 'right'; className: string }) {
-  return <span role="group" aria-label={`${name}, ${selected ? 'ausgewählte Mannschaft' : 'Gegner'}`} className={`flex min-w-0 items-center gap-2 ${align === 'right' ? 'sm:flex-row-reverse sm:justify-end sm:text-right' : ''} ${selected ? 'font-bold text-accent' : 'font-medium text-fg'} ${className}`}>
+  return <span role="group" aria-label={`${name}, ${selected ? 'ausgewählte Mannschaft' : 'Gegner'}`} className={`club-form-side flex min-w-0 items-center gap-2 ${align === 'right' ? 'club-form-side-away' : ''} ${selected ? 'font-bold text-accent' : 'font-medium text-fg'} ${className}`}>
     <ClubCrest name={name} logo={logo} />
     <span className="min-w-0 flex-1 break-words">{name}</span>
   </span>
