@@ -26,11 +26,11 @@ export function MatchDataStatus({ match, prediction, now = Date.now(), compact =
       </div>
     </details>
   </>
-  if (compact) return <details className="fixture-data">
+  if (compact) return <details className="fixture-data" data-status={data.status}>
     <summary className={color}><span aria-hidden="true" className="status-dot" />Datenlage: {data.title}<span aria-hidden="true" className="disclosure-arrow">⌄</span></summary>
     <div className="pb-2">{content}</div>
   </details>
-  return <section aria-label="Datenlage" className="match-data-panel">
+  return <section aria-label="Datenlage" className="match-data-panel" data-status={data.status}>
     <div className="match-data-heading"><h3>Datenlage</h3><span className={`status-label ${color}`}><span aria-hidden="true" className="status-dot" />{data.title}</span></div>
     {content}
   </section>

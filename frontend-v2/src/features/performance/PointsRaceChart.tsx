@@ -63,7 +63,7 @@ export function PointsRaceChart({ completed, commonMatchIds, extraBots }: {
         <span className="text-xs text-fg-3">{commonMatchIds ? 'Nur gemeinsame Vergleichsspiele' : 'Alle gespeicherten Tipps, einschließlich älterer und rekonstruierter Tipps'}</span>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-2" aria-label="Kurven auswählen">
+      <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Kurven auswählen">
         {series.map((item) => {
           const isHidden = hidden.has(item.key)
           return (
@@ -84,7 +84,7 @@ export function PointsRaceChart({ completed, commonMatchIds, extraBots }: {
         })}
       </div>
 
-      <div className="h-72">
+      <div className="chart-region h-72" role="region" aria-label="Gespeicherter Punkteverlauf">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows} margin={{ top: 4, right: 16, bottom: 12, left: -4 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -99,7 +99,7 @@ export function PointsRaceChart({ completed, commonMatchIds, extraBots }: {
               tickLine={false}
               axisLine={{ stroke: 'var(--border)' }}
             />
-            <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+            <YAxis tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={54} label={{ value: 'Punkte', angle: -90, position: 'insideLeft', fill: 'var(--text-2)', fontSize: 11 }} />
             <Tooltip
               contentStyle={{
                 background: 'var(--surface-2)', border: '1px solid var(--border-2)',

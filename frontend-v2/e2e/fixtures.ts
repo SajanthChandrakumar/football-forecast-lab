@@ -68,6 +68,8 @@ export async function installApi(page: Page) {
     predictionGate: undefined as Promise<void> | undefined,
     saveGate: undefined as Promise<void> | undefined,
     matchesGate: undefined as Promise<void> | undefined,
+    matchRequests: [] as { competition: CompetitionId; force: boolean }[],
+    forcedMatchRequests: [] as { competition: CompetitionId; force: boolean }[],
     saves: [] as { match_id: string; user_tip: string; competition: CompetitionId }[],
     unexpected: [] as string[],
   }
@@ -84,6 +86,9 @@ export async function installApi(page: Page) {
       { id: 'wc2026', short_name: 'WM 2026', display_name: 'FIFA World Cup 2026' },
     ])
     if (endpoint === 'matches') {
+      const matchRequest = { competition, force: url.searchParams.get('force') === 'true' }
+      state.matchRequests.push(matchRequest)
+      if (matchRequest.force) state.forcedMatchRequests.push(matchRequest)
       await state.matchesGate
       if (state.unavailableRefresh && url.searchParams.get('force') === 'true') return respond({ status: 'unavailable', data: [], error: 'Cache temporarily unavailable' })
       return respond(matches[competition])
@@ -170,7 +175,9 @@ export { expect }
 
 export async function chooseCompetition(page: Page, competition: CompetitionId) {
   if (await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Menü schliessen' }).click()
-  await page.getByRole('banner').getByRole('combobox', { name: 'Wettbewerb', exact: true }).selectOption(competition)
+  const label = { wc2026: 'WM', ucl2026: 'UCL', epl2026: 'PL' }[competition]
+  if (!label) throw new Error(`No competition button label is configured for ${competition}`)
+  await page.getByRole('banner').getByRole('button', { name: label, exact: true }).click()
 }
 
 export async function enterEditorKey(page: Page, key = 'fixture-editor-key') {

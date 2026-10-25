@@ -53,7 +53,7 @@ export function ClubTeamFormHistory({ team, form, beforeKickoff }: { team: strin
         <ol className="mt-3 space-y-2">
           {visible.map((match) => <ClubFormMatchRow key={match.fixture_id} match={match} />)}
         </ol>
-        {matches.length > 5 && <button type="button" onClick={() => setExpanded((value) => !value)} className="mt-2 min-h-11 text-sm font-semibold text-emerald-a underline underline-offset-4">{expanded ? 'Weniger Spiele' : `Weitere Spiele (${Math.min(10, matches.length)})`}</button>}
+        {matches.length > 5 && <button type="button" onClick={() => setExpanded((value) => !value)} className="mt-2 min-h-11 text-sm font-semibold text-accent underline underline-offset-4">{expanded ? 'Weniger Spiele' : `Weitere Spiele (${Math.min(10, matches.length)})`}</button>}
       </> : <p role="status" className="mt-3 text-sm text-fg-2">{cutoffUnknown ? 'Der Anstoßzeitpunkt fehlt; Formspiele lassen sich zeitlich nicht sicher zuordnen.' : 'Für diesen Filter sind keine geprüften Formspiele verfügbar.'}</p>}
     </>}
   </section>
@@ -94,7 +94,7 @@ function ClubFormMatchRow({ match }: { match: TeamFormMatch }) {
 }
 
 function ClubSide({ name, logo, selected, align, className }: { name: string; logo?: string | null; selected: boolean; align: 'left' | 'right'; className: string }) {
-  return <span role="group" aria-label={`${name}, ${selected ? 'ausgewählte Mannschaft' : 'Gegner'}`} className={`flex min-w-0 items-center gap-2 ${align === 'right' ? 'sm:flex-row-reverse sm:justify-end sm:text-right' : ''} ${selected ? 'font-bold text-emerald-a' : 'font-medium text-fg'} ${className}`}>
+  return <span role="group" aria-label={`${name}, ${selected ? 'ausgewählte Mannschaft' : 'Gegner'}`} className={`flex min-w-0 items-center gap-2 ${align === 'right' ? 'sm:flex-row-reverse sm:justify-end sm:text-right' : ''} ${selected ? 'font-bold text-accent' : 'font-medium text-fg'} ${className}`}>
     <ClubCrest name={name} logo={logo} />
     <span className="min-w-0 flex-1 break-words">{name}</span>
   </span>

@@ -159,7 +159,7 @@ test('a pending refresh cannot replace another competition’s cached fixtures',
   else await page.getByRole('button', { name: 'Einstellungen', exact: true }).click()
   await page.getByRole('button', { name: 'Gespeicherte Daten neu laden', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Wird geladen…', exact: true })).toBeDisabled()
-  await page.getByRole('dialog').getByRole('combobox', { name: 'Wettbewerb', exact: true }).selectOption('epl2026')
+  await page.getByRole('dialog').getByRole('button', { name: 'PL', exact: true }).click()
   finishLoad()
   await expect(page.getByRole('status').filter({ hasText: 'Gespeicherte Daten für UCL 2026/27 geladen.' })).toBeVisible()
   await page.getByRole('button', { name: 'Menü schliessen' }).click()

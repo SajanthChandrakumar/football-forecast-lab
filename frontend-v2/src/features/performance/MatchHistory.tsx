@@ -143,7 +143,7 @@ function MatchCard({ cm }: { cm: CompletedMatch }) {
               aria-invalid={Boolean(draft) && !normalized}
               className="min-h-11 w-full rounded-lg border border-line-2 bg-surface-2 px-3 text-center font-mono text-base font-bold text-fg" />
           </label>
-          <button type="submit" disabled={!normalized || !changed || save.isPending} className="min-h-11 rounded-lg bg-emerald-a px-3 text-xs font-semibold text-on-action disabled:opacity-50">{save.isPending ? 'Speichert …' : 'Speichern'}</button>
+          <button type="submit" disabled={!normalized || !changed || save.isPending} className="min-h-11 rounded-lg bg-action px-3 text-xs font-semibold text-on-action disabled:opacity-50">{save.isPending ? 'Speichert …' : 'Speichern'}</button>
         </form>
         <p className="pb-2 text-xs text-fg-3">Nachträgliche Eingabe · für alle sichtbar · zählt nicht zum Vorab-Vergleich.</p>
         {save.isError && <p role="alert" className="pb-2 text-xs text-red-a">Speichern fehlgeschlagen. Bitte neu laden und erneut versuchen.</p>}

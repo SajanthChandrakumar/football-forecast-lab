@@ -51,9 +51,12 @@ test('cards keep unavailable chances honest and label zero probabilities', async
   api.matches.ucl2026[1].source_mode = 'elo-only'
   api.matches.ucl2026[1].probabilities = { home: 1, draw: 0, away: 0 }
   await page.goto('/#/')
-  await expect(page.locator('article.match-card').first()).toContainText(/Chancen.*nicht verfügbar/i)
+  const unavailableCard = page.locator('article.match-card').first()
+  await unavailableCard.locator('.fixture-probabilities > summary').click()
+  await expect(unavailableCard.getByText('Spielausgangschancen nicht verfügbar.', { exact: true })).toBeVisible()
   await page.locator('summary').filter({ hasText: 'Spielwoche 2' }).click()
   const card = page.locator('article.match-card').filter({ hasText: 'Borussia Mönchengladbach' })
+  await card.locator('.fixture-probabilities > summary').click()
   await expect(card.getByText('0%', { exact: true })).toHaveCount(2)
   await expect(card).toContainText('Elo')
 })

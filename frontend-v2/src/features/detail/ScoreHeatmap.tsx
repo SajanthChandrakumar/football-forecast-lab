@@ -45,7 +45,7 @@ export function ScoreHeatmap({ calc, modelTip, homeDisp, awayDisp }: {
       )}
       {matrixBasis && <p className="mb-3 text-xs text-fg-3">Einzelne Spielstände laut Score-Matrix ({matrixBasis})</p>}
       <details className="border-t border-line pt-3">
-        <summary className="cursor-pointer text-sm font-semibold text-emerald-a">Alle Ergebniswahrscheinlichkeiten ansehen</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-accent">Alle Ergebniswahrscheinlichkeiten ansehen</summary>
         <div className="mt-4">
       <div className="mb-1 text-center text-[10px] font-bold uppercase tracking-widest text-fg-3">
         {awayDisp}: Tore →

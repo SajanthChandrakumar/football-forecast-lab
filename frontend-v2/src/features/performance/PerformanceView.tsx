@@ -45,7 +45,7 @@ export function PerformanceView() {
   return (
     <PageTransition>
       <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
-      <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} wrap={competition !== 'wc2026'} />
+      <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} wrap />
 
       <ViewPanel id="performance" value="tips" active={view}>
         <div className="analysis-section space-y-4">

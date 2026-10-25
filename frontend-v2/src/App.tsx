@@ -6,6 +6,7 @@ import { useTheme } from './hooks/useTheme'
 import { CardGridSkeleton } from './components/shared/Skeleton'
 import { TeamVisualsProvider } from './components/shared/TeamVisuals'
 import { useAppState } from './state/AppState'
+import './data-views.css'
 
 // Route-level code splitting: each view (and its heavy deps like recharts)
 // loads on demand instead of bloating the initial bundle.

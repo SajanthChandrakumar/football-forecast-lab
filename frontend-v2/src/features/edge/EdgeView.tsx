@@ -116,7 +116,7 @@ export function EdgeView() {
           const kickoff = match.raw_match?.commence_time
 
           return (
-            <button key={match.id} type="button" onClick={() => navigate(`/match/${match.id}`)} className="match-card surface-panel rounded-xl border border-line bg-surface p-4 text-left transition hover:border-line-2 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue)]">
+            <button key={match.id} type="button" onClick={() => navigate(`/match/${match.id}`)} className="match-card surface-panel rounded-xl border border-line bg-surface p-4 text-left transition hover:border-line-2 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold text-fg">
@@ -145,7 +145,7 @@ export function EdgeView() {
 }
 
 function tabButtonClass(active: boolean) {
-  return cn('min-h-11 rounded-lg border px-4 py-2 text-sm font-medium transition', active ? 'border-line-2 bg-surface-2 text-fg' : 'border-line bg-surface text-fg-2 hover:bg-surface-2')
+  return cn('min-h-11 rounded-lg border px-4 py-2 text-sm font-medium transition', active ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-surface text-fg-2 hover:bg-surface-2')
 }
 
 function GradeBadge({ grade, actualScore }: { grade: EdgeGrade; actualScore?: string | null }) {

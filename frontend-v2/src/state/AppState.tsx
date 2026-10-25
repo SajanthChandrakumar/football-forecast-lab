@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import { validCompetition } from '../lib/competition.mjs'
+import { FALLBACK_COMPETITIONS, validCompetition } from '../lib/competition.mjs'
 import { readTeamSelection, sanitizeTeamSelection, writeTeamSelection } from '../lib/team-selection.mjs'
 import type { CompetitionId, CompetitionInfo } from '../lib/types'
 
@@ -53,6 +53,9 @@ export function AppStateProvider({
     try { localStorage.setItem(STORAGE_KEY, competition) }
     catch { /* Keep the selected competition in memory. */ }
   }, [competition])
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute('data-competition', competition)
+  }, [competition])
   useEffect(() => {
     for (const [id, teams] of Object.entries(selectedTeamsByCompetition)) {
       if (teams !== null) writeTeamSelection(id, teams)
@@ -61,7 +64,8 @@ export function AppStateProvider({
 
   const setCompetition = useCallback((value: CompetitionId) => {
     storedCompetition.current = null
-    setCompetitionState(validCompetition(value, competitions.length ? competitions.map((item) => item.id) : undefined))
+    const registered = [...new Set([...competitions.map((item) => item.id), ...FALLBACK_COMPETITIONS.map((item) => item.id)])]
+    setCompetitionState(validCompetition(value, registered))
   }, [competitions])
 
   const setSelectedTeams = useCallback((teams: string[]) => {
