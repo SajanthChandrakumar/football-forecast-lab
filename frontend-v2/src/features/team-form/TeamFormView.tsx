@@ -114,7 +114,7 @@ export function TeamFormView() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Teamname eingeben"
-                className="min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-[var(--blue)] sm:max-w-xs"
+                className="min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent sm:max-w-xs"
               />
               <div className="flex max-h-48 flex-wrap gap-2 overflow-y-auto">
                 {filtered.map((row) => {
@@ -201,7 +201,7 @@ export function TeamFormView() {
                   const recent = clubCompetition ? (clubRecentResults.get(row.team) ?? []).map((game) => game.result) : row.last5
                   return <tr key={row.team} className={cn('border-b border-line last:border-0', active && 'bg-surface-2')}>
                     <td className="px-5 py-3 tabular-nums text-fg-2">{index + 1}</td>
-                    <th scope="row" className="px-3 py-3 text-left font-medium text-fg"><button type="button" aria-pressed={active} disabled={!active && selectedTeams.length >= 4} onClick={() => toggleTeam(row.team)} className="inline-flex min-h-11 items-center gap-2 rounded px-1 text-left hover:text-[var(--blue)] disabled:cursor-not-allowed disabled:opacity-50"><TeamLogo name={row.team} />{row.team}</button></th>
+                    <th scope="row" className="px-3 py-3 text-left font-medium text-fg"><button type="button" aria-pressed={active} disabled={!active && selectedTeams.length >= 4} onClick={() => toggleTeam(row.team)} className="inline-flex min-h-11 items-center gap-2 rounded px-1 text-left hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"><TeamLogo name={row.team} />{row.team}</button></th>
                     <td className="px-3 py-3 text-right tabular-nums text-fg">{Math.round(row.elo)}</td>
                     <td className={cn('px-3 py-3 text-right tabular-nums', row.delta == null ? 'text-fg-3' : row.delta > 0 ? 'text-emerald-a' : row.delta < 0 ? 'text-red-a' : 'text-fg-2')}>{row.delta == null ? '–' : `${row.delta > 0 ? '+' : ''}${Math.round(row.delta)}`}</td>
                     <td className="px-3 py-3 text-center tabular-nums text-fg-2 max-sm:hidden">{clubCompetition ? recent.map((result) => result === 'W' ? 'S' : result === 'D' ? 'U' : 'N').join(' ') || '–' : `${row.w}-${row.d}-${row.l}`}</td>

@@ -131,7 +131,7 @@ function TeamFormHistory({ team, form, kickoff, showHistoricalLineups = true }: 
       ) : items.length > 0 && kickoff && Date.parse(kickoff) > Date.now() ? (
         <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs font-semibold text-fg-2">Belastung kurz vor Anpfiff verfügbar</p>
       ) : null}
-      {analysis && <p className="mt-3 rounded-lg border border-emerald-a/20 bg-emerald-a/5 px-3 py-2 text-xs font-semibold leading-relaxed text-fg">Unsere Analyse: {analysis}</p>}
+      {analysis && <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs font-semibold leading-relaxed text-fg">Unsere Analyse: {analysis}</p>}
       {metrics && (
         <dl className="mt-3 grid grid-cols-2 gap-2 text-center">
           <div className="rounded-lg bg-surface-2 px-2 py-2"><dt className="text-[11px] text-fg-3">Tore</dt><dd className="mt-1 font-bold tabular-nums text-fg">{metrics.goalsFor}:{metrics.goalsAgainst}</dd></div>
@@ -181,7 +181,7 @@ function HistoricalMatchRow({ item, showLineup = true }: { item: TeamFormMatch; 
         <span>{item.competition_name} · {item.venue === 'home' ? 'Heim' : 'Auswärts'}</span>
         <span>{shortDate(item.played_at)}</span>
       </div>
-      {showLineup && <button type="button" onClick={() => setOpen((value) => !value)} className="mt-2 min-h-9 text-xs font-bold text-emerald-a underline underline-offset-4">
+      {showLineup && <button type="button" onClick={() => setOpen((value) => !value)} className="mt-2 min-h-9 text-xs font-bold text-accent underline underline-offset-4">
         {open ? 'Aufstellung schließen' : 'Aufstellung ansehen'}
       </button>}
       {open && (
@@ -447,14 +447,14 @@ export function DetailView() {
         </h1>
       </header>
 
-      <ViewTabs id="match-analysis" label="Spielanalyse" items={MATCH_VIEWS} value={view} onChange={setView} wrap={isClubCompetition} />
+      <ViewTabs id="match-analysis" label="Spielanalyse" items={MATCH_VIEWS} value={view} onChange={setView} wrap />
 
       <ViewPanel id="match-analysis" value="overview" active={view}>
         <div className="match-grid">
           <section className="match-card match-card-recommendation" aria-labelledby="recommendation-title">
             <div className="section-heading">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Empfehlung</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Empfehlung</p>
                 <h2 id="recommendation-title" className="mt-1 text-lg font-bold text-fg" aria-label="Empfohlener Ergebnistipp">Modelltipp</h2>
               </div>
               <MatchDataStatus match={match} prediction={predictionTip != null ? selectedPrediction : undefined} now={now} badge />
@@ -497,7 +497,7 @@ export function DetailView() {
 
       <ViewPanel id="match-analysis" value="form" active={view}>
         <section className="analysis-section match-card" aria-labelledby="form-title">
-          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Teamleistung</p><h2 id="form-title" className="mt-1 text-lg font-bold text-fg">Tore & Form</h2></div></div>
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Teamleistung</p><h2 id="form-title" className="mt-1 text-lg font-bold text-fg">Tore & Form</h2></div></div>
           {xgHome != null && xgAway != null && xgTotal > 0 ? (
             <div className="metric-strip mt-4">
               {[
@@ -518,7 +518,7 @@ export function DetailView() {
         </section>
 
         <section className="analysis-section match-card" aria-labelledby="history-title">
-          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Vergangene Spiele</p><h2 id="history-title" className="mt-1 text-lg font-bold text-fg">Letzte Pflichtspiele</h2></div></div>
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Vergangene Spiele</p><h2 id="history-title" className="mt-1 text-lg font-bold text-fg">Letzte Pflichtspiele</h2></div></div>
           {!isClubCompetition && <p className="mt-2 text-xs text-fg-3">{match.home_form?.scope === 'league' || match.away_form?.scope === 'league' ? 'Die Form umfasst zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe.' : 'Die Form umfasst zuletzt erfasste Pflichtspiele aller Wettbewerbe.'}</p>}
           <div className="match-grid mt-4">
             {[{ team: match.home_team, form: match.home_form }, { team: match.away_team, form: match.away_form }].map(({ team, form }) => (
@@ -542,7 +542,7 @@ export function DetailView() {
 
         <GlassCard className="analysis-section match-card match-card-lineup">
           <div className="section-heading">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Kurz vor Anpfiff</p><SectionTitle className="mt-1 text-lg">Aufstellungen & Spieler</SectionTitle></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Kurz vor Anpfiff</p><SectionTitle className="mt-1 text-lg">Aufstellungen & Spieler</SectionTitle></div>
             {lineup.kind === 'confirmed' && <span className="rounded-full bg-emerald-a/10 px-3 py-1 text-xs font-bold text-emerald-a">Bestätigt · {lineup.source === 'api_football' ? 'API-Football' : 'ESPN'}</span>}
           </div>
           {lineup.kind === 'confirmed' ? (
@@ -562,7 +562,7 @@ export function DetailView() {
         </GlassCard>
 
         <section className="analysis-section match-card" aria-labelledby="historical-lineups-title">
-          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Archiv</p><h2 id="historical-lineups-title" className="mt-1 text-lg font-bold text-fg">Historische Aufstellungen</h2></div></div>
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Archiv</p><h2 id="historical-lineups-title" className="mt-1 text-lg font-bold text-fg">Historische Aufstellungen</h2></div></div>
           <div className="match-grid mt-4">
             {[{ team: match.home_team, form: match.home_form }, { team: match.away_team, form: match.away_form }].map(({ team, form }) => {
               const history = (isClubCompetition ? verifiedClubFormMatches(form, { before: kickoff ?? null }) : form?.matches ?? []).slice(0, 10)
@@ -576,7 +576,7 @@ export function DetailView() {
 
       <ViewPanel id="match-analysis" value="market" active={view}>
         <section className="analysis-section match-card" aria-labelledby="market-title">
-          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Buchmacher</p><h2 id="market-title" className="mt-1 text-lg font-bold text-fg">Aktuelle Quoten</h2></div></div>
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Buchmacher</p><h2 id="market-title" className="mt-1 text-lg font-bold text-fg">Aktuelle Quoten</h2></div></div>
           {hasBookmakerOdds && marketProbabilities ? <>
             <p className="mt-2 text-sm text-fg-2">Dezimalquoten für Sieg, Remis und Sieg. Die danebenstehenden Chancen werden aus diesen drei Quoten normalisiert und sind keine Modellprognose.</p>
             <p className="mt-2 text-xs text-fg-3">Quelle: {match.odds_provenance?.source === 'odds_api' ? 'The Odds API' : String(match.odds_provenance?.source ?? 'Quelle nicht belegt')} · {match.odds_observed_at ? formatObservedAt(match.odds_observed_at) : 'Zeitpunkt nicht verfügbar'}</p>
@@ -605,7 +605,7 @@ export function DetailView() {
 
       <ViewPanel id="match-analysis" value="model" active={view}>
         <section className="analysis-section match-card" aria-labelledby="model-title">
-          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Ergebnismodell</p><h2 id="model-title" className="mt-1 text-lg font-bold text-fg">Ergebnis-Alternativen</h2></div></div>
+          <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Ergebnismodell</p><h2 id="model-title" className="mt-1 text-lg font-bold text-fg">Ergebnis-Alternativen</h2></div></div>
           <p className="mt-2 text-xs text-fg-3">Nach erwarteten Tippspielpunkten. Die Chance für den exakten Treffer ist davon getrennt.</p>
           {activeTip && <div className="metric-strip mt-4">
             <div className="surface-panel"><span className="block text-xs text-fg-3">Modelltipp</span><strong className="mt-1 block display-num text-2xl text-fg">{activeTip}</strong></div>
@@ -628,7 +628,7 @@ export function DetailView() {
           })}</ul></section>}
         </div>
 
-        <section className="analysis-section match-card"><div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-a">Zusätzlicher Kontext</p><h2 className="mt-1 text-lg font-bold text-fg">Spielhinweise</h2></div></div><div className="mt-3"><MatchHintCard match={clubCalculationPending ? { ...match, calculation_status: 'pending' } : hintMatch} competition={competition} /></div></section>
+        <section className="analysis-section match-card"><div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Zusätzlicher Kontext</p><h2 className="mt-1 text-lg font-bold text-fg">Spielhinweise</h2></div></div><div className="mt-3"><MatchHintCard match={clubCalculationPending ? { ...match, calculation_status: 'pending' } : hintMatch} competition={competition} /></div></section>
 
         <section className="analysis-section match-card" aria-labelledby="pool-context-title">
           <h2 id="pool-context-title" className="sr-only">Pool-Tipp und Rundendaten</h2>

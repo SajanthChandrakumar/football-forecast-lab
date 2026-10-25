@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-theme="light" data-competition="ucl2026">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Football Forecast Lab | WM 2026</title>
-    <meta name="description" content="Statistische Fussballprognosen und transparente Modellanalyse für die WM 2026 und die UEFA Champions League 2026/27." />
+    <title>Football Forecast Lab | WM · UCL · Premier League</title>
+    <meta name="description" content="Statistische Fussballprognosen und transparente Modellanalyse für WM, UEFA Champions League und Premier League." />
     <meta property="og:site_name" content="Football Forecast Lab" />
     <meta property="og:title" content="Football Forecast Lab" />
     <meta property="og:description" content="Statistische Fussballprognosen und transparente Modellanalyse." />
@@ -14,10 +14,23 @@
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="Football Forecast Lab" />
     <meta name="twitter:description" content="Statistische Fussballprognosen und transparente Modellanalyse." />
-    <script type="module" crossorigin src="/assets/index-CivdC8bU.js"></script>
+    <script>
+      (() => {
+        const root = document.documentElement
+        try {
+          root.dataset.theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light'
+          const competition = localStorage.getItem('competition')
+          root.dataset.competition = ['wc2026', 'ucl2026', 'epl2026'].includes(competition || '') ? competition : 'ucl2026'
+        } catch {
+          root.dataset.theme = 'light'
+          root.dataset.competition = 'ucl2026'
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="/assets/index-DC0gXaCu.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-BWaJ3C7D.js">
     <link rel="modulepreload" crossorigin href="/assets/react-BLjxY8kc.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CVYb_nxO.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-BSKJHjeE.css">
   </head>
   <body>
     <div id="root"></div>

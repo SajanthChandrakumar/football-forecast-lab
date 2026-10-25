@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import {
-  CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { useAppState } from '../../state/AppState'
 import { QueryState } from '../../components/shared/QueryState'
@@ -30,7 +30,7 @@ const OUTCOMES: { key: Outcome; label: string }[] = [
 const BUCKET_LABEL: Record<string, string> = {
   t24h: 'T−24 h', t6h: 'T−6 h', t75m: 'T−75 min', t30m: 'T−30 min', t15m: 'T−15 min', manual: 'Manuell',
 }
-const COLORS: Record<Outcome, string> = { home: '#547a63', draw: '#778078', away: '#ae895c' }
+const COLORS: Record<Outcome, string> = { home: 'var(--outcome-home)', draw: 'var(--outcome-draw)', away: 'var(--outcome-away)' }
 
 function probability(value: number) {
   return `${(value * 100).toLocaleString('de-CH', { maximumFractionDigits: 1 })} %`
@@ -60,10 +60,11 @@ function OddsHistoryChart({ observations, homeTeam, awayTeam }: {
   return (
     <div role="img" aria-label={`Bereinigte 1X2-Wahrscheinlichkeit für ${homeTeam}, Remis und ${awayTeam}`} className="mt-4 h-44 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
           <XAxis type="number" dataKey="observedTimestamp" scale="time" domain={['dataMin', 'dataMax']} tickFormatter={graphTime} tick={{ fill: 'var(--text-3)', fontSize: 10 }} tickLine={false} axisLine={false} />
-          <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} tick={{ fill: 'var(--text-3)', fontSize: 10 }} tickLine={false} axisLine={false} />
+          <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} tick={{ fill: 'var(--text-3)', fontSize: 10 }} tickLine={false} axisLine={false} width={54} label={{ value: 'Wahrscheinlichkeit', angle: -90, position: 'insideLeft', fill: 'var(--text-2)', fontSize: 10 }} />
+          <Legend wrapperStyle={{ color: 'var(--text-2)', fontSize: 11 }} />
           <Tooltip formatter={(value) => `${Number(value).toFixed(1)} %`} contentStyle={{ borderRadius: 12, borderColor: 'var(--border)', background: 'var(--surface)' }} />
           {OUTCOMES.map(({ key, label }) => (
             <Line key={key} type="monotone" dataKey={label} stroke={COLORS[key]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} />
@@ -126,8 +127,8 @@ export function OddsHistory({ matchId, homeTeam, awayTeam, enabled = true }: {
         <p className="mt-1 text-xs leading-relaxed text-fg-2">Gespeicherte Buchmacherquoten vor Anpfiff · Wahrscheinlichkeiten ohne Buchmachermarge</p>
       </div>
       {homeTrend ? (
-        <div className="mt-3 rounded-lg border border-emerald-a/20 bg-emerald-a/5 px-3 py-2.5">
-          <p className="text-sm font-semibold text-fg">{homeTrend} {homeChange !== undefined && <span className="text-emerald-a">({signedPoints(homeChange)})</span>}</p>
+        <div className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
+          <p className="text-sm font-semibold text-fg">{homeTrend} {homeChange !== undefined && <span className={homeChange > 0.05 ? 'text-emerald-a' : homeChange < -0.05 ? 'text-red-a' : 'text-fg-2'}>({signedPoints(homeChange)})</span>}</p>
           <dl className="mt-2 grid grid-cols-1 gap-1 text-xs text-fg-2 sm:grid-cols-3">
             {OUTCOMES.map(({ key, label }) => (
               <div key={key} className="flex justify-between gap-2 sm:block">

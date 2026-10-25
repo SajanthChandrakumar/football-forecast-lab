@@ -50,12 +50,22 @@ test('fresh, pending, played and missing-data fixtures keep their result and sou
   await expect(pendingRow.locator('.match-card-pick-label')).toHaveText('Ergebnis')
   await expect(pendingRow.locator('.match-card-pick-value')).toHaveText('–')
   await expect(pendingRow.getByText(/^Datenlage:/)).toBeVisible()
+  if ((page.viewportSize()?.width ?? 1440) <= 680) {
+    const tools = await pendingRow.locator('.fixture-row-tools').boundingBox()
+    const disclosure = await pendingRow.locator('.fixture-probabilities').boundingBox()
+    expect(Math.abs(disclosure!.width - tools!.width)).toBeLessThan(1)
+  }
 
   await page.getByRole('combobox', { name: 'Spiele filtern' }).selectOption('played')
   const playedRow = page.locator('article.match-card').filter({ hasText: 'Played Home' }).first()
   await expect(playedRow.locator('.match-card-pick-label')).toHaveText('Ergebnis')
   await expect(playedRow.locator('.match-card-pick-value')).toHaveText('1:0')
   await expect(playedRow.getByText('Modelltipp: 2:1', { exact: true })).toBeVisible()
+  if ((page.viewportSize()?.width ?? 1440) <= 680) {
+    const tools = await playedRow.locator('.fixture-row-tools').boundingBox()
+    const action = await playedRow.locator('.match-card-action').boundingBox()
+    expect(Math.abs(action!.width - tools!.width)).toBeLessThan(1)
+  }
 })
 
 test('shared-tip rows stay open and save-and-next focuses the next fixture', async ({ page, api }) => {

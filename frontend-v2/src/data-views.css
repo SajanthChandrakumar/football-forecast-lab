@@ -1,0 +1,41 @@
+/* Shared hierarchy for analysis pages; competition identity comes from the active accent tokens. */
+.page-title { text-wrap: balance; }
+.page-description { max-width: 58ch; text-wrap: pretty; }
+.view-tab[aria-selected='true'] { background: var(--accent-soft); }
+.view-tabs-wrap { row-gap: 4px; }
+.view-tabs-wrap .view-tab { min-width: 0; }
+
+.analysis-section table,
+.surface-panel table,
+.match-data-panel table { border-collapse: separate; border-spacing: 0; }
+.analysis-section table thead th,
+.surface-panel table thead th { line-height: 1.35; }
+.analysis-section table tbody tr,
+.surface-panel table tbody tr { transition: background-color 0.15s ease; }
+.analysis-section table tbody th[scope='row'],
+.surface-panel table tbody th[scope='row'] { font-weight: 600; }
+.ranking-points { color: var(--accent); }
+
+.match-data-panel[data-status='stale'],
+.match-data-panel[data-status='partial'],
+.match-data-panel[data-status='unknown'],
+.match-data-panel[data-status='unavailable'],
+.fixture-data[data-status='stale'],
+.fixture-data[data-status='partial'],
+.fixture-data[data-status='unknown'],
+.fixture-data[data-status='unavailable'] { border-color: var(--amber); }
+.match-data-panel[data-status='failed'],
+.fixture-data[data-status='failed'] { border-color: var(--red); }
+.fixture-row .fixture-data[data-status] { border-left: 2px solid var(--amber); padding-left: 10px; }
+.fixture-row .fixture-data[data-status='fresh'] { border-left: 0; padding-left: 0; }
+.fixture-row .fixture-data[data-status='failed'] { border-left-color: var(--red); }
+.match-data-panel .data-source-card { min-width: 0; }
+.match-data-panel .data-source-age { overflow-wrap: anywhere; }
+
+.chart-region { min-width: 0; color: var(--text-2); }
+.chart-region svg { overflow: visible; }
+
+@media (hover: hover) and (pointer: fine) {
+  .analysis-section table tbody tr:hover,
+  .surface-panel table tbody tr:hover { background: var(--surface-2); }
+}

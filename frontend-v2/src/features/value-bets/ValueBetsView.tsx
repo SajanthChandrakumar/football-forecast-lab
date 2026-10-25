@@ -19,11 +19,11 @@ export function ValueBetsView() {
   const unavailable = ['failed', 'unavailable'].includes(availability?.status ?? '')
   return <PageTransition>
     <PageHeader title="Tipp-Chancen" subtitle="Nach erwarteten Tippspielpunkten sortiert" />
-    <div className="mb-5 flex flex-wrap gap-2">{[['next','Nächste Spielwoche'],['all','Alle kommenden Spiele']].map(([key,label])=><button key={key} type="button" aria-pressed={period === key} onClick={()=>setSelection({competition, period:key,limit:12})} className={`min-h-11 rounded-lg border px-4 text-sm font-medium ${period === key ? 'border-emerald-a bg-emerald-dim text-emerald-a' : 'border-line bg-surface text-fg-2'}`}>{label}</button>)}</div>
+    <div className="mb-5 flex flex-wrap gap-2">{[['next','Nächste Spielwoche'],['all','Alle kommenden Spiele']].map(([key,label])=><button key={key} type="button" aria-pressed={period === key} onClick={()=>setSelection({competition, period:key,limit:12})} className={`min-h-11 rounded-lg border px-4 text-sm font-medium ${period === key ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-surface text-fg-2'}`}>{label}</button>)}</div>
     <details className="info-disclosure mb-3"><summary>Wie sind die Punkte zu verstehen?</summary><p className="info-content">Erwartete Punkte sind ein Modelldurchschnitt nach den Tippspielregeln. Sie sind keine exakte Trefferchance. Buchmacherquoten und Elo-Modellwerte sind an den Spielen gekennzeichnet.</p></details>
     {isLoading ? <FixtureListSkeleton days={1} rowsPerDay={4} /> : error || unavailable ? <QueryState title="Spieldaten nicht verfügbar" message="Die Empfehlungen konnten nicht geladen werden. Bitte versuche es erneut." onRetry={()=>void refetch()} /> : ranked.length === 0 ? <QueryState title="Keine Empfehlungen in diesem Zeitraum" message="Es liegen noch keine kommenden Spiele mit berechnetem Tippwert vor." /> : <>
-      <p className="metric-strip">{ranked.length} Empfehlungen · nach erwarteten Punkten sortiert</p>
-      <div className="match-grid">{ranked.slice(0,limit).map((m,i)=><FixtureRow key={m.id} match={m} now={now} compact trailing={<><span className="match-card-rank">Rang {i+1}</span><span className="match-card-points"><b>{m.max_xp.toFixed(2)}</b> erwartete Punkte</span></>} />)}</div>
+      <p className="metric-strip">{ranked.length} Empfehlungen</p>
+      <div className="match-grid">{ranked.slice(0,limit).map((m,i)=><FixtureRow key={m.id} match={m} now={now} compact competition={competition} trailing={<><span className="match-card-rank">Rang {i+1}</span><span className="match-card-points"><b>{m.max_xp.toFixed(2)}</b> erwartete Punkte</span></>} />)}</div>
       {ranked.length > limit && <button type="button" onClick={()=>setSelection({competition,period,limit:limit+12})} className="mt-5 min-h-11 rounded-lg border border-line-2 bg-surface px-5 text-sm font-semibold text-fg">Weitere Empfehlungen anzeigen ({ranked.length-limit})</button>}
     </>}
   </PageTransition>

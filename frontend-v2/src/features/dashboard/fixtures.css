@@ -160,6 +160,18 @@
   min-height: 44px;
   margin-top: 0;
   padding: 6px 9px;
+  gap: 6px;
+}
+
+.fixture-row .match-card-action-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.fixture-row .fixture-action-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
 }
 
 .fixture-row .fixture-pending {
@@ -262,6 +274,15 @@
   .fixture-row .fixture-probabilities {
     grid-column: 1;
     grid-row: 2;
+  }
+
+  .fixture-row .match-card-action:only-child {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .fixture-row .fixture-probabilities:last-child {
+    grid-column: 1 / -1;
   }
 
   .fixture-row .match-card-footer,

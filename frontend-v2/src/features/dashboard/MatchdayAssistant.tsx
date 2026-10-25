@@ -167,7 +167,7 @@ export function MatchdayAssistant({ matches, now, expanded = false }: { matches:
                 }}
                 placeholder="z. B. 2:1"
                 aria-invalid={invalid}
-                className="min-h-11 w-24 rounded-lg border border-line-2 bg-surface px-3 text-center font-mono text-lg font-bold text-fg outline-none focus:border-emerald-a focus:ring-2 focus:ring-emerald-a/20 read-only:opacity-75"
+                className="min-h-11 w-24 rounded-lg border border-line-2 bg-surface px-3 text-center font-mono text-lg font-bold text-fg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 read-only:opacity-75"
               />
               <span className="text-xs font-semibold text-fg-3">{row.status === 'pending' ? 'Anstoß vorbei' : !row.editable ? 'Abgabe geschlossen (T-5)' : ''}</span>
             </label>
@@ -220,9 +220,9 @@ export function MatchdayAssistant({ matches, now, expanded = false }: { matches:
       </div>
 
       <EditorContainer className="surface-panel group">
-        <EditorHeading className={expanded ? 'section-heading px-4 py-3 font-bold text-fg sm:px-5' : 'flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-a sm:px-5 [&::-webkit-details-marker]:hidden'}>
+        <EditorHeading className={expanded ? 'section-heading px-4 py-3 font-bold text-fg sm:px-5' : 'flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:px-5 [&::-webkit-details-marker]:hidden'}>
           <span>Kommende Spiele tippen <span className="ml-1 text-sm font-semibold text-fg-3">({rowGroups.open.length} Spiele)</span></span>
-          {!expanded && <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#193b2b] text-lg text-[#f8f7f2] transition-transform group-open:rotate-180">⌄</span>}
+          {!expanded && <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-action text-lg text-on-action transition-transform group-open:rotate-180">⌄</span>}
         </EditorHeading>
         <div className="p-3 sm:p-4">
           <p className="mb-3 text-sm text-fg-2">Trage deinen Tipp im Format 2:1 ein und bestätige unten mit „Tipps speichern“.</p>
@@ -235,10 +235,10 @@ export function MatchdayAssistant({ matches, now, expanded = false }: { matches:
           </details>}
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <button type="button" onClick={saveTips} disabled={saving || !archiveReady || !candidates.length} className="min-h-11 rounded-xl bg-emerald-a px-4 py-2 text-sm font-bold text-on-action transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={saveTips} disabled={saving || !archiveReady || !candidates.length} className="min-h-11 rounded-xl bg-action px-4 py-2 text-sm font-bold text-on-action transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
               {saving ? 'Speichert …' : candidates.length ? `${Math.min(candidates.length, TIP_BATCH_LIMIT)} Tipp${Math.min(candidates.length, TIP_BATCH_LIMIT) === 1 ? '' : 's'} speichern` : 'Keine gültigen Änderungen'}
             </button>
-            <button type="button" onClick={copyCard} className="min-h-11 rounded-xl border border-emerald-a/40 bg-emerald-dim px-4 py-2 text-sm font-bold text-emerald-a">Tippkarte kopieren</button>
+            <button type="button" onClick={copyCard} className="min-h-11 rounded-xl border border-accent bg-accent-soft px-4 py-2 text-sm font-bold text-accent">Tippkarte kopieren</button>
           </div>
           {!archiveReady && <p role="status" className="mt-2 text-sm text-amber-a">Gespeicherte Tipps konnten nicht geladen werden. Speichern ist pausiert, damit vorhandene Tipps nicht überschrieben werden.</p>}
           {invalidCount > 0 && <p className="mt-2 text-sm text-fg-2">{invalidCount} ungültige {invalidCount === 1 ? 'Eingabe' : 'Eingaben'} werden nicht gespeichert.</p>}

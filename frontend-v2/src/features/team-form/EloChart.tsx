@@ -6,7 +6,7 @@ import { formatEloTimestamp, teamsWithoutHistory } from '../../lib/team-form.mjs
 import type { EloHistory } from '../../lib/types'
 import type { MatchInfo } from './useTeamFormData'
 
-const LINE_COLORS = ['var(--emerald)', 'var(--gold)', 'var(--purple)', 'var(--red)']
+const LINE_COLORS = ['var(--blue)', 'var(--gold)', 'var(--purple)', 'var(--red)']
 
 interface Props {
   teams: string[]
@@ -70,7 +70,7 @@ export function EloChart({ teams, history, matchInfo }: Props) {
             <LineChart accessibilityLayer data={rows} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'var(--border)' }} />
-              <YAxis domain={['auto', 'auto']} tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
+              <YAxis domain={['auto', 'auto']} tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={58} label={{ value: 'Elo', angle: -90, position: 'insideLeft', fill: 'var(--text-2)', fontSize: 11 }} />
               <Tooltip content={<EloTooltip matchInfo={matchInfo} />} />
               <Legend wrapperStyle={{ fontSize: 12, color: 'var(--text-2)' }} />
               {teams.map((t, i) => (

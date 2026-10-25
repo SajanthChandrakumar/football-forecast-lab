@@ -53,7 +53,7 @@ export function MatchdayRadar({ matches }: { matches: Match[] }) {
             <h2 id="matchday-radar-title" className="mt-1 font-sans text-3xl font-black tracking-tight text-fg">Spieltag-Radar</h2>
             {firstTime && <p className="mt-1 text-sm font-semibold text-fg-2">{dayHeading(String(firstTime))}</p>}
           </div>
-          <button type="button" onClick={() => { setShowTipCard((open) => !open); setCopyState('idle') }} aria-expanded={showTipCard} aria-controls="matchday-tip-card" className="min-h-11 shrink-0 rounded-xl bg-emerald-a px-3 text-sm font-bold text-white transition hover:brightness-110">Tippkarte</button>
+          <button type="button" onClick={() => { setShowTipCard((open) => !open); setCopyState('idle') }} aria-expanded={showTipCard} aria-controls="matchday-tip-card" className="min-h-11 shrink-0 rounded-xl bg-action px-3 text-sm font-bold text-on-action transition hover:brightness-110">Tippkarte</button>
         </div>
         <div className="metric-strip" aria-label="Spiele nach Radar-Kategorie">
           <p><strong>{radar.counts.safe}</strong> klare Tipps</p>
@@ -75,7 +75,7 @@ export function MatchdayRadar({ matches }: { matches: Match[] }) {
 
         <div className="mt-4 space-y-2">
           {visible.slice(0, 4).map(({ match, reason }) => (
-            <button key={match.id} type="button" onClick={() => navigate(`/match/${match.id}`)} className="w-full rounded-xl border border-line bg-surface-2 p-3 text-left transition hover:border-emerald-a/40">
+            <button key={match.id} type="button" onClick={() => navigate(`/match/${match.id}`)} className="w-full rounded-xl border border-line bg-surface-2 p-3 text-left transition hover:border-accent">
               <span className="flex items-center justify-between gap-3 text-xs font-bold text-fg-3">{kickoffTime(match.raw_match?.commence_time)}<TipBadge tip={match.top_tip} highlight /></span>
               <span className="mt-2 flex items-center gap-2">
                 <TeamLabel name={match.home_team} disp={match.home_disp} logo={match.home_logo} className="min-w-0 flex-1" />
@@ -92,7 +92,7 @@ export function MatchdayRadar({ matches }: { matches: Match[] }) {
           <div id="matchday-tip-card" className="mt-4 rounded-xl border border-line-2 bg-surface-2 p-3">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-bold text-fg">Komplette Tippkarte</h3>
-              <button type="button" onClick={copyTipCard} className="min-h-11 rounded-lg border border-emerald-a/40 bg-emerald-dim px-3 text-sm font-bold text-emerald-a">{copyState === 'copied' ? 'Kopiert ✓' : copyState === 'failed' ? 'Kopieren fehlgeschlagen' : 'Kopieren'}</button>
+              <button type="button" onClick={copyTipCard} className="min-h-11 rounded-lg border border-accent bg-accent-soft px-3 text-sm font-bold text-accent">{copyState === 'copied' ? 'Kopiert ✓' : copyState === 'failed' ? 'Kopieren fehlgeschlagen' : 'Kopieren'}</button>
             </div>
             <ul className="mt-3 divide-y divide-line text-sm">
               {radar.matches.map(({ match }) => (
