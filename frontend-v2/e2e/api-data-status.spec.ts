@@ -86,3 +86,21 @@ test('future capture timestamps are never described as just captured', async ({ 
   await expect(odds).not.toContainText('gerade eben')
   await expect(page.getByRole('article', { name: 'Spiele & Resultate', exact: true })).not.toContainText('gerade eben')
 })
+
+
+test('API overview skips unused fixture and standings downloads until a football view needs them', async ({ page, api }) => {
+  const paths: string[] = []
+  page.on('request', request => { const url = new URL(request.url()); if (url.pathname.startsWith('/api/')) paths.push(url.pathname) })
+  await page.goto('/#/data-sources')
+  await expect(page.getByRole('region', { name: 'Datenquellen', exact: true })).toBeVisible()
+  expect(api.matchRequests).toEqual([])
+  expect(paths).not.toContain('/api/standings')
+  await chooseCompetition(page, 'epl2026')
+  await expect(page.getByText('Datenquellen für PL 2026/27', { exact: true })).toBeVisible()
+  expect(api.matchRequests).toEqual([])
+  expect(paths).not.toContain('/api/standings')
+  await page.getByRole('navigation', { name: 'Hauptnavigation', exact: true }).filter({ visible: true }).getByRole('link', { name: 'Spiele', exact: true }).click()
+  await expect(page.getByRole('link', { name: 'Tipp ansehen: Arsenal gegen Chelsea', exact: true })).toBeVisible()
+  expect(api.matchRequests).toEqual([{ competition: 'epl2026', force: false }])
+  expect(paths).toContain('/api/standings')
+})

@@ -25,11 +25,11 @@ function normalizeMatches(result: MatchesResponse): MatchListData {
     : { ...result, matches: result.data ?? [] }
 }
 
-export const useMatches = () => {
+export const useMatches = (overview = false) => {
   const { competition } = useAppState()
   const query = useQuery({
-    queryKey: ['matches', competition],
-    queryFn: async () => normalizeMatches(await api.matches(competition)),
+    queryKey: overview && competition !== 'wc2026' ? ['matches', competition, 'overview'] : ['matches', competition],
+    queryFn: async ({ signal }) => normalizeMatches(await api.matches(competition, false, overview && competition !== 'wc2026', signal)),
     staleTime: 60_000,
     refetchInterval: 60_000,
     select: (result) => ({ ...result, matches: dedupeMatches(result.matches) }),
@@ -48,9 +48,9 @@ export const useMatchHistory = (eventId: string, enabled: boolean) => {
   })
 }
 
-export const useArchive = () => {
+export const useArchive = (enabled = true) => {
   const { competition } = useAppState()
-  return useQuery({ queryKey: ['archive', competition], queryFn: () => api.archive(competition), staleTime: 60_000, refetchInterval: 60_000 })
+  return useQuery({ queryKey: ['archive', competition], queryFn: () => api.archive(competition), enabled, staleTime: 60_000, refetchInterval: 60_000 })
 }
 
 export const useModelEvaluation = () => {
@@ -183,6 +183,7 @@ export const useRefreshData = () => {
     },
     onSuccess: ({ competition: refreshedCompetition, data }) => {
       qc.setQueryData(['matches', refreshedCompetition], data)
+      qc.invalidateQueries({ queryKey: ['matches', refreshedCompetition, 'overview'] })
       qc.invalidateQueries({ queryKey: ['archive', refreshedCompetition] })
       qc.invalidateQueries({ queryKey: ['quota', refreshedCompetition] })
       qc.invalidateQueries({ queryKey: ['dataStatus', refreshedCompetition] })

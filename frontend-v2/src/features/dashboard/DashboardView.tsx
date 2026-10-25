@@ -27,8 +27,7 @@ const MATCHCENTER_TABS = [
 export function DashboardView() {
   const [view, setView] = useView<MatchcenterView>(['games', 'radar', 'assistant'], 'games')
   const { competition } = useAppState()
-  const { data: matches, availability: matchData, isLoading, error, refetch } = useMatches()
-  const archiveQuery = useArchive()
+  const { data: matches, availability: matchData, isLoading, error, refetch } = useMatches(true)
   const fixtureMatches = matches ?? EMPTY_MATCHES
   const [selection, setSelection] = useState<{ competition: string; tab: Tab } | null>(() => {
     try { return JSON.parse(sessionStorage.getItem('fixture-tab') ?? 'null') } catch { return null }
@@ -62,11 +61,6 @@ export function DashboardView() {
     }
     return { upcoming, pending, played, unscheduled }
   }, [fixtureMatches, now])
-  const openTips = useMemo(
-    () => archiveQuery.error ? [] : openUnsubmittedTips(upcoming, archiveQuery.data, now),
-    [archiveQuery.error, archiveQuery.data, upcoming, now],
-  )
-
   const validTab = (tab === 'pending' && pending.length === 0) || (tab === 'unscheduled' && unscheduled.length === 0) ? null : tab
   const activeTab = validTab ?? preferredFixtureTab({
     upcoming: upcoming.length,
@@ -74,6 +68,11 @@ export function DashboardView() {
     played: played.length,
     unscheduled: unscheduled.length,
   })
+  const archiveQuery = useArchive(competition === 'wc2026' || activeTab === 'tips' || view === 'assistant')
+  const openTips = useMemo(
+    () => archiveQuery.error ? [] : openUnsubmittedTips(upcoming, archiveQuery.data, now),
+    [archiveQuery.error, archiveQuery.data, upcoming, now],
+  )
   const activeMatches = activeTab === 'upcoming'
     ? upcoming
     : activeTab === 'pending'
@@ -119,10 +118,10 @@ export function DashboardView() {
   const observedAt = matchData?.observed_at
     ? `${shortDate(matchData.observed_at)} · ${kickoffTime(matchData.observed_at)}`
     : null
-  const tabs: { key: Tab; label: string; count: number }[] = [
+  const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: 'upcoming', label: 'Demnächst', count: upcoming.length },
     { key: 'played', label: 'Ergebnisse', count: played.length },
-    { key: 'tips', label: 'Offene gemeinsame Tipps', count: openTips.length },
+    { key: 'tips', label: 'Offene gemeinsame Tipps', count: archiveQuery.data ? openTips.length : undefined },
     ...(pending.length ? [{ key: 'pending' as const, label: 'Ergebnis ausstehend', count: pending.length }] : []),
     ...(unscheduled.length ? [{ key: 'unscheduled' as const, label: 'Anstoß offen', count: unscheduled.length }] : []),
   ]
@@ -145,7 +144,7 @@ export function DashboardView() {
                 try { sessionStorage.setItem('fixture-tab', JSON.stringify({ competition, tab: nextTab })) } catch { /* Keep the in-memory selection. */ }
               }}
             >
-              {tabs.map(({ key, label, count }) => <option key={key} value={key}>{label} ({count})</option>)}
+              {tabs.map(({ key, label, count }) => <option key={key} value={key}>{label}{count === undefined ? '' : ` (${count})`}</option>)}
             </select>
           </label>
 
@@ -249,7 +248,7 @@ export function DashboardView() {
       <ViewPanel id="matchcenter" value="assistant" active={view}>
         {isLoading && <FixtureListSkeleton days={1} rowsPerDay={3} />}
         {(error || isUnavailable) && <QueryState title="Spieldaten konnten nicht geladen werden" message="Bitte versuche es erneut. Bereits gespeicherte Daten können vorübergehend veraltet sein." onRetry={()=>void refetch()} />}
-        {!isLoading && !error && !isUnavailable && (upcoming.length ? <MatchdayAssistant key={competition} matches={fixtureMatches} now={now} expanded /> : <p className="text-fg-2">Es gibt aktuell keine offenen gemeinsamen Tipps für kommende Spiele.</p>)}
+        {!isLoading && !error && !isUnavailable && (upcoming.length ? <MatchdayAssistant key={competition} matches={fixtureMatches} now={now} expanded archiveEnabled={competition === 'wc2026' || view === 'assistant'} /> : <p className="text-fg-2">Es gibt aktuell keine offenen gemeinsamen Tipps für kommende Spiele.</p>)}
       </ViewPanel>
     </PageTransition>
   )

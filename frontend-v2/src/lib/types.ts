@@ -146,6 +146,7 @@ export interface MatchContext {
 }
 
 export interface Match {
+  detail_level?: 'overview'
   id: string
   home_team: string
   away_team: string

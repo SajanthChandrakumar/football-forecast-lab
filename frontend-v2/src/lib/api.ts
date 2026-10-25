@@ -102,10 +102,10 @@ export const api = {
   competitions: () => request<CompetitionInfo[]>('/competitions'),
   dataStatus: (competition: CompetitionId, signal?: AbortSignal) => request<DataStatus>(competitionPath('/data-status', competition), { signal }),
   quota: (competition: CompetitionId) => request<Quota>(competitionPath('/quota', competition)),
-  matches: (competition: CompetitionId, force = false) =>
+  matches: (competition: CompetitionId, force = false, overview = false, signal?: AbortSignal) =>
     request<MatchesResponse>(
-      competitionPath(`/matches${force ? '?force=true' : ''}`, competition),
-      undefined,
+      competitionPath(`/matches${force ? '?force=true' : ''}${overview ? `${force ? '&' : '?'}overview=true` : ''}`, competition),
+      { signal },
       competition === 'epl2026' || competition === 'ucl2026' ? CLUB_MATCHES_TIMEOUT_MS : undefined,
     ),
   matchHistory: (competition: CompetitionId, eventId: string) =>

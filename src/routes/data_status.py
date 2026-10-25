@@ -41,6 +41,31 @@ _STANDINGS_PROJECTION = {
     "last_successful_at": 1, "last_attempt_status": 1, "error": 1,
     "coverage": 1, "data.rows.team": 1, "data.rows.pos": 1,
 }
+_FORM_SYNC_PROJECTION = {
+    "status": 1, "source": 1, "provider": 1, "last_attempt_at": 1,
+    "last_successful_at": 1, "observed_at": 1, "teams_total": 1,
+    "teams_failed": 1, "teams_unavailable": 1, "error": 1,
+}
+_FORM_TEAMS_PROJECTION = {
+    "status": 1, "source": 1, "provider": 1, "observed_at": 1,
+    "last_attempt_at": 1, "last_successful_at": 1, "coverage": 1,
+}
+_RATINGS_PROJECTION = {
+    "status": 1, "source": 1, "observed_at": 1, "last_attempt_at": 1,
+    "last_successful_at": 1, "error": 1, "coverage": 1,
+    "rows.team": 1, "rows.team_name": 1,
+}
+_STATUS_METADATA_PROJECTION = {
+    **_MATCH_PROJECTION,
+    **_STANDINGS_PROJECTION,
+    **_FORM_SYNC_PROJECTION,
+    **_FORM_TEAMS_PROJECTION,
+    **_RATINGS_PROJECTION,
+    "events": 1,
+    "provenance.observed_at": 1,
+    "last_run_at": 1, "next_due_at": 1, "interval_seconds": 1,
+    "lease_until": 1, "lease_token": 1, "competition": 1,
+}
 
 
 def init_router(
@@ -62,7 +87,9 @@ def init_router(
         comp = require_competition(competition)
         cache = collection_for(cache_collections, comp)
         current = _as_datetime(now_fn() if now_fn else datetime.now(timezone.utc))
-        matches, matches_error = _find_doc(cache, comp, "matches_cache", _MATCH_PROJECTION)
+        metadata_docs, metadata_error = _find_status_documents(cache, comp)
+        matches = _status_document(metadata_docs, comp, "matches_cache")
+        matches_error = metadata_error
         matches_data = matches.get("data") if isinstance(matches, dict) else None
         fixtures = [row for row in matches_data if isinstance(row, dict)] if isinstance(matches_data, list) else []
         match_source = _provider(matches.get("source")) if isinstance(matches, dict) else None
@@ -78,7 +105,8 @@ def init_router(
             missing_status="unavailable",
         ))
 
-        standings, standings_error = _find_doc(cache, comp, "standings_cache", _STANDINGS_PROJECTION)
+        standings = _status_document(metadata_docs, comp, "standings_cache")
+        standings_error = metadata_error
         if comp.id == "ucl2026":
             table_data = standings.get("data") if isinstance(standings, dict) else None
             valid_cached = bool(ucl_standings_validator and ucl_standings_validator(table_data))
@@ -131,16 +159,10 @@ def init_router(
             missing_status="unavailable",
         ))
 
-        form_sync, form_sync_error = _find_doc(cache, comp, "team_form_sync", {
-            "status": 1, "source": 1, "provider": 1, "last_attempt_at": 1,
-            "last_successful_at": 1, "observed_at": 1, "teams_total": 1,
-            "teams_failed": 1, "teams_unavailable": 1, "error": 1,
-        })
-        form_teams, form_teams_error = _find_doc(cache, comp, "team_form_teams", {
-            "status": 1, "source": 1, "provider": 1, "observed_at": 1,
-            "last_attempt_at": 1, "last_successful_at": 1, "coverage": 1,
-            "teams.team_id": 1,
-        })
+        form_sync = _status_document(metadata_docs, comp, "team_form_sync")
+        form_sync_error = metadata_error
+        form_teams = _status_document(metadata_docs, comp, "team_form_teams")
+        form_teams_error = metadata_error
         form_source = _provider((form_sync or {}).get("source") or (form_teams or {}).get("source"))
         form_times = _document_times(form_sync or form_teams, current)
         form_total = _nonnegative_int((form_sync or {}).get("teams_total"))
@@ -158,18 +180,10 @@ def init_router(
         ))
 
         rating_key = "clubelo_ratings" if comp.is_club_competition else "elo_ratings"
-        ratings, ratings_error = _find_doc(cache, comp, rating_key, {
-            "status": 1, "source": 1, "observed_at": 1, "last_attempt_at": 1,
-            "last_successful_at": 1, "error": 1, "coverage": 1,
-            "rows.team": 1, "rows.team_name": 1,
-        })
+        ratings = _status_document(metadata_docs, comp, rating_key)
+        ratings_error = metadata_error
         if not ratings and comp.is_club_competition:
-            ratings, fallback_error = _find_doc(cache, comp, "elo_ratings", {
-                "status": 1, "source": 1, "observed_at": 1, "last_attempt_at": 1,
-                "last_successful_at": 1, "error": 1, "coverage": 1,
-                "rows.team": 1, "rows.team_name": 1,
-            })
-            ratings_error = ratings_error or fallback_error
+            ratings = _status_document(metadata_docs, comp, "elo_ratings")
         rating_source = _provider((ratings or {}).get("source"))
         rating_count = len((ratings or {}).get("rows") or []) if isinstance(ratings, dict) else 0
         rating_available = _coverage_count(ratings, "available", rating_count)
@@ -186,7 +200,8 @@ def init_router(
         ))
 
         odds_times, odds_sources, odds_attempt_failed = _odds_metadata(fixtures)
-        odds_state, odds_state_error = _find_doc(cache, comp, "odds_bucket_state", {"events": 1})
+        odds_state = _status_document(metadata_docs, comp, "odds_bucket_state")
+        odds_state_error = metadata_error
         bucket_times, bucket_sources, bucket_failed, bucket_success_times, bucket_events = _bucket_metadata(odds_state)
         odds_observed = _latest([*odds_times, *bucket_success_times], current)
         odds_attempt = _latest([*odds_times, *bucket_times], current)
@@ -219,13 +234,10 @@ def init_router(
             last_successful_at=lineup_summary["last_successful_at"], missing_status="unavailable",
         ))
 
-        maintenance_doc, maintenance_error = _find_doc(cache, comp, "maintenance_status", {
-            "status": 1, "last_run_at": 1, "last_successful_at": 1,
-            "next_due_at": 1, "interval_seconds": 1, "error": 1,
-        })
-        lease, lease_error = _find_doc(cache, comp, "maintenance_lease", {
-            "lease_until": 1, "lease_token": 1, "competition": 1,
-        })
+        maintenance_doc = _status_document(metadata_docs, comp, "maintenance_status")
+        maintenance_error = metadata_error
+        lease = _status_document(metadata_docs, comp, "maintenance_lease")
+        lease_error = metadata_error
         maintenance = _maintenance_summary(maintenance_doc, lease, current, comp.id)
         if maintenance_error or lease_error:
             maintenance["error"] = "Wartungsdaten sind vorübergehend nicht verfügbar."
@@ -252,23 +264,31 @@ def init_router(
     return router
 
 
-def _find_doc(collection, competition, key, projection=None):
-    failed = False
+def _find_status_documents(collection, competition):
+    keys = [
+        "matches_cache", "standings_cache", "team_form_sync", "team_form_teams",
+        "odds_bucket_state", "maintenance_status", "maintenance_lease",
+    ]
+    if competition.is_club_competition:
+        keys.append("clubelo_ratings")
+    keys.append("elo_ratings")
+    ids = list(dict.fromkeys(doc_id for key in keys for doc_id in document_ids(competition, key)))
+    try:
+        documents = collection.find({"_id": {"$in": ids}}, _STATUS_METADATA_PROJECTION)
+        return {
+            document["_id"]: document for document in documents
+            if isinstance(document, dict) and document.get("_id") in ids
+        }, False
+    except Exception:
+        return {}, True
+
+
+def _status_document(documents, competition, key):
     for doc_id in document_ids(competition, key):
-        try:
-            document = collection.find_one({"_id": doc_id}, projection) if projection is not None else collection.find_one({"_id": doc_id})
-        except TypeError:
-            try:
-                document = collection.find_one({"_id": doc_id})
-            except Exception:
-                failed = True
-                continue
-        except Exception:
-            failed = True
-            continue
+        document = documents.get(doc_id)
         if document:
-            return document, failed
-    return None, failed
+            return document
+    return None
 
 
 def _find_many(collection, competition, event_ids):
