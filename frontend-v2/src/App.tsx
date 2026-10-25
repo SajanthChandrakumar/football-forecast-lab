@@ -35,8 +35,8 @@ export default function App() {
   const { light, toggle } = useTheme()
   return (
     <AppStateProvider light={light} toggleTheme={toggle}>
-      <TeamVisualsProvider>
-        <HashRouter>
+      <HashRouter>
+        <TeamVisualsProvider>
           <Routes>
             <Route element={<AppShell />}>
               <Route path="/" element={suspend(DashboardView)} />
@@ -50,8 +50,8 @@ export default function App() {
               <Route path="/simulator" element={<CompetitionSimulator />} />
             </Route>
           </Routes>
-        </HashRouter>
-      </TeamVisualsProvider>
+        </TeamVisualsProvider>
+      </HashRouter>
     </AppStateProvider>
   )
 }

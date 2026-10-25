@@ -110,3 +110,12 @@ test('keeps matchup lineups while using the new prediction provenance', () => {
   assert.equal(data.rows[1].status, 'unavailable')
   assert.equal(data.rows[2].status, 'failed')
 })
+
+
+test('overview defers lineup details rather than claiming that cached lineups are missing', () => {
+  const overview = buildMatchDataStatus(match({ detail_level: 'overview' }), now)
+  assert.deepEqual(overview.rows.map(row => row.key), ['odds', 'elo'])
+  assert.equal(overview.status, 'fresh')
+  const full = buildMatchDataStatus(match(), now)
+  assert.equal(full.rows.find(row => row.key === 'lineups').status, 'unavailable')
+})

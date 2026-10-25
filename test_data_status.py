@@ -17,19 +17,25 @@ class ReadOnlyCollection:
     def __init__(self, documents=()):
         self.documents = {doc["_id"]: deepcopy(doc) for doc in documents}
         self.reads = []
+        self.find_one_calls = 0
+        self.find_calls = 0
+        self.find_queries = []
         self.writes = []
 
     def find_one(self, query, projection=None):
+        self.find_one_calls += 1
         self.reads.append((deepcopy(query), deepcopy(projection)))
         return deepcopy(self.documents.get(query.get("_id")))
 
     def find(self, query=None, projection=None):
+        self.find_calls += 1
         self.reads.append((deepcopy(query), deepcopy(projection)))
+        self.find_queries.append((deepcopy(query), deepcopy(projection)))
         values = list(self.documents.values())
         ids = (query or {}).get("_id", {})
         if isinstance(ids, dict) and "$in" in ids:
             values = [doc for doc in values if doc.get("_id") in ids["$in"]]
-        return [deepcopy(doc) for doc in values]
+        return [_project_document(doc, projection) for doc in values]
 
     def insert_one(self, document):
         self.writes.append(("insert_one", deepcopy(document)))
@@ -69,18 +75,27 @@ def _merge_projection(target, source):
             target[key] = value
 
 
+def _project_document(document, projection):
+    if not projection:
+        return deepcopy(document)
+    result = {"_id": deepcopy(document["_id"])} if projection.get("_id", 1) else {}
+    for path, include in projection.items():
+        if include and path != "_id":
+            projected = _project_path(document, path.split("."))
+            if projected:
+                _merge_projection(result, projected)
+    return result
+
+
 class ProjectionCollection(ReadOnlyCollection):
     def find_one(self, query, projection=None):
         document = super().find_one(query)
         if document is None or projection is None:
             return document
-        result = {"_id": document["_id"]} if projection.get("_id", 1) else {}
-        for path, include in projection.items():
-            if include and path != "_id":
-                projected = _project_path(document, path.split("."))
-                if projected:
-                    _merge_projection(result, projected)
-        return result
+        return _project_document(document, projection)
+
+    def find(self, query=None, projection=None):
+        return super().find(query, projection)
 
 
 def _doc(comp, key, **values):
@@ -331,6 +346,9 @@ def test_data_status_read_failure_is_sanitized_and_does_not_write(monkeypatch):
         def find_one(self, query, projection=None):
             raise RuntimeError("mongodb://user:secret@example.invalid")
 
+        def find(self, query=None, projection=None):
+            raise RuntimeError("mongodb://user:secret@example.invalid")
+
     cache = BrokenCollection()
     monkeypatch.setattr(quota_store, "read_status_snapshot", lambda: (_ for _ in ()).throw(RuntimeError("private")))
     result = _endpoint(init_router({"epl2026": cache}, now_fn=lambda: NOW))(competition="epl2026")
@@ -352,7 +370,10 @@ def test_cache_reads_use_one_bounded_matches_projection(monkeypatch):
         "mongo_available": False, "providers": {},
     })
     _endpoint(init_router({"epl2026": cache}, now_fn=lambda: NOW))(competition="epl2026")
-    reads = [projection for query, projection in cache.reads if query.get("_id") == "epl2026:matches_cache"]
+    reads = [
+        projection for query, projection in cache.find_queries
+        if "epl2026:matches_cache" in query.get("_id", {}).get("$in", [])
+    ]
     assert len(reads) == 1
     assert "data.odds_observed_at" in reads[0]
     assert "data.odds_provenance.source" in reads[0]
@@ -360,14 +381,84 @@ def test_cache_reads_use_one_bounded_matches_projection(monkeypatch):
     assert "data.odds" not in reads[0]
 
 
+def test_data_status_batches_competition_reads_and_uses_narrow_union_projection(monkeypatch):
+    cache = ReadOnlyCollection([
+        _doc("epl2026", "matches_cache", status="fresh", source="espn", observed_at=NOW.isoformat(),
+             teams=["A", "B"], data=[{"id": "m1", "score_matrix": [[1, 2]], "odds": {"book": 2}}]),
+        _doc("epl2026", "standings_cache", status="fresh", source="espn", observed_at=NOW.isoformat(),
+             coverage={"available": 2}, data=[{"rows": [{"team": "A", "pos": 1}]}]),
+        _doc("epl2026", "elo_ratings", status="fresh", source="clubelo", observed_at=NOW.isoformat(),
+             rows=[{"team": "A", "elo_rating": 1500}]),
+        _doc("epl2026", "maintenance_status", status="success", last_run_at=NOW.isoformat()),
+        _doc("epl2026", "team_form_teams", status="fresh", source="espn", observed_at=NOW.isoformat(),
+             teams=[{"team_id": "1", "matches": [{"score": "1:0"}]}]),
+    ])
+    quota_collection = ReadOnlyCollection([
+        {"_id": "quota_odds", "data": {"remaining": 0}, "observed_at": NOW.timestamp()},
+        {"_id": "provider_budget:odds", "requests": []},
+        {"_id": "quota_football", "data": {"remaining": 4}, "observed_at": NOW.timestamp()},
+        {"_id": "provider_budget:football", "requests": []},
+    ])
+    monkeypatch.setattr(quota_store, "_get_collection", lambda: quota_collection)
+
+    _endpoint(init_router({"epl2026": cache}, now_fn=lambda: NOW))(competition="epl2026")
+
+    assert cache.find_one_calls == 0
+    assert cache.find_calls == 2  # One metadata batch and one ID-bounded lineup read.
+    metadata_reads = [
+        (query, projection) for query, projection in cache.find_queries
+        if "epl2026:matches_cache" in query.get("_id", {}).get("$in", [])
+    ]
+    assert len(metadata_reads) == 1
+    query, projection = metadata_reads[0]
+    assert set(query["_id"]["$in"]) >= {
+        "epl2026:matches_cache", "epl2026:standings_cache", "epl2026:elo_ratings",
+        "epl2026:team_form_sync", "epl2026:team_form_teams", "epl2026:odds_bucket_state",
+        "epl2026:maintenance_status", "epl2026:maintenance_lease",
+    }
+    assert "data.score_matrix" not in projection
+    assert "data.odds" not in projection
+    assert "data.odds_provenance.source" in projection
+    assert "metadata.uefa_coefficients" in projection
+    assert projection.get("teams") == 1  # Needed by the UCL table callback.
+    assert quota_collection.find_one_calls == 0
+    assert quota_collection.find_calls == 1
+    quota_query, quota_projection = quota_collection.find_queries[0]
+    assert set(quota_query["_id"]["$in"]) == {
+        "quota_odds", "provider_budget:odds", "quota_football", "provider_budget:football",
+    }
+    assert set(quota_projection) == {"data", "observed_at", "requests", "_id"}
+
+
+def test_data_status_prefers_scoped_document_when_legacy_alias_is_also_present(monkeypatch):
+    cache = ReadOnlyCollection([
+        {"_id": "matches_cache", "status": "fresh", "source": "fotmob", "observed_at": NOW.isoformat(),
+         "data": [{"id": "legacy"}]},
+        _doc("wc2026", "matches_cache", status="fresh", source="espn", observed_at=NOW.isoformat(),
+             data=[{"id": "scoped"}]),
+    ])
+    monkeypatch.setattr(quota_store, "read_status_snapshot", lambda: {
+        "mongo_available": False, "providers": {},
+    })
+
+    result = _endpoint(init_router({"wc2026": cache}, now_fn=lambda: NOW))(competition="wc2026")
+
+    fixtures = next(row for row in result["datasets"] if row["id"] == "fixtures_results")
+    assert fixtures["providers"]["observed"] == ["espn"]
+    assert fixtures["coverage"]["available"] == 1
+    assert cache.find_one_calls == 0
+    assert cache.find_calls == 2
+
+
 def test_quota_status_keeps_provider_snapshot_and_application_ledger_separate(monkeypatch):
-    monkeypatch.setattr(quota_store, "_get_collection", lambda: ReadOnlyCollection([
+    collection = ReadOnlyCollection([
         {"_id": "quota_odds", "data": {"remaining": 0, "used": 9}, "observed_at": NOW.timestamp()},
         {"_id": "provider_budget:odds", "requests": [
             [NOW.timestamp() - 1, 4], [NOW.timestamp() + 1, 3], [NOW.timestamp() - 31 * 86400 - 1, 100],
         ]},
         {"_id": "quota_football", "data": {"remaining": "Unknown", "used": "Unknown"}},
-    ]))
+    ])
+    monkeypatch.setattr(quota_store, "_get_collection", lambda: collection)
 
     snapshot = quota_store.read_status_snapshot()
     odds = quota_store.read_status("odds", snapshot=snapshot, now=NOW.timestamp())
@@ -385,6 +476,8 @@ def test_quota_status_keeps_provider_snapshot_and_application_ledger_separate(mo
     assert football["reported"]["status"] == "unknown"
     assert football["app_budget"]["headroom"] == 20
     assert football["app_budget"]["limit"] == 80
+    assert collection.find_one_calls == 0
+    assert collection.find_calls == 1
 
 
 def test_future_provider_quota_observation_is_not_reported_as_fresh(monkeypatch):
@@ -431,6 +524,39 @@ def test_undated_local_quota_file_keeps_legacy_reader_but_status_hides_counters(
         "remaining": None, "used": None, "limit": None,
         "observed_at": None, "status": "unknown",
     }
+
+
+def test_quota_snapshot_read_failure_keeps_local_fallback_and_unknown_budget(monkeypatch, tmp_path):
+    class BrokenCollection:
+        def __init__(self):
+            self.find_calls = 0
+            self.find_one_calls = 0
+
+        def find(self, query, projection=None):
+            self.find_calls += 1
+            raise RuntimeError("mongodb://user:secret@example.invalid")
+
+        def find_one(self, query, projection=None):
+            self.find_one_calls += 1
+            raise RuntimeError("mongodb://user:secret@example.invalid")
+
+    collection = BrokenCollection()
+    payload = {"remaining": "5", "used": "2", "limit": "10"}
+    monkeypatch.setattr(quota_store, "_get_collection", lambda: collection)
+    monkeypatch.setattr(quota_store, "_DATA_DIR", str(tmp_path))
+    (tmp_path / "api_quota_odds.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = quota_store.read_status_snapshot()
+    result = quota_store.read_status("odds", snapshot=snapshot, now=NOW.timestamp())
+
+    assert snapshot["mongo_available"] is False
+    assert snapshot["providers"]["odds"]["data"] == payload
+    assert result["reported"]["status"] == "unknown"
+    assert result["reported"]["remaining"] is None
+    assert result["app_budget"]["status"] == "unknown"
+    assert result["app_budget"]["used"] is None
+    assert collection.find_calls == 1
+    assert collection.find_one_calls == 0
 
 
 def test_dated_stale_provider_quota_keeps_reported_counters(monkeypatch):

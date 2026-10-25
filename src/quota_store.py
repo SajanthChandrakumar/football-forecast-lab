@@ -175,25 +175,33 @@ def read_status_snapshot() -> dict:
     """Read quota observations and app reservations without changing either."""
     current = _get_collection()
     result = {"mongo_available": current is not None, "providers": {}}
+    documents = {}
+    if current is not None:
+        document_ids = [
+            doc_id for provider in BUDGETS
+            for doc_id in (f"quota_{provider}", f"provider_budget:{provider}")
+        ]
+        try:
+            documents = {
+                document["_id"]: document for document in current.find(
+                    {"_id": {"$in": document_ids}},
+                    {"data": 1, "observed_at": 1, "requests": 1, "_id": 1},
+                )
+                if isinstance(document, dict) and document.get("_id") in document_ids
+            }
+        except Exception:
+            result["mongo_available"] = False
     for provider in BUDGETS:
         item = {"data": None, "observed_at": None, "requests": None}
         if current is not None:
-            try:
-                quota_query = {"_id": f"quota_{provider}"}
-                budget_query = {"_id": f"provider_budget:{provider}"}
-                try:
-                    quota = current.find_one(quota_query, {"data": 1, "observed_at": 1, "_id": 0}) or {}
-                    budget = current.find_one(budget_query, {"requests": 1, "_id": 0}) or {}
-                except TypeError:
-                    quota = current.find_one(quota_query) or {}
-                    budget = current.find_one(budget_query) or {}
+            if result["mongo_available"]:
+                quota = documents.get(f"quota_{provider}", {})
+                budget = documents.get(f"provider_budget:{provider}", {})
                 item.update({
                     "data": quota.get("data") if isinstance(quota.get("data"), dict) else None,
                     "observed_at": quota.get("observed_at"),
                     "requests": budget.get("requests", []),
                 })
-            except Exception:
-                result["mongo_available"] = False
         if item["data"] is None:
             filename = _FILES.get(provider)
             if filename:

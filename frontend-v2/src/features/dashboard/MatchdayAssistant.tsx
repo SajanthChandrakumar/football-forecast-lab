@@ -15,9 +15,9 @@ type RoundStateMap = Record<string, StringMap>
 const EMPTY_STRING_MAP: StringMap = {}
 const EMPTY_MATCHES: Match[] = []
 
-export function MatchdayAssistant({ matches, now, expanded = false }: { matches: Match[]; now: number; expanded?: boolean }) {
+export function MatchdayAssistant({ matches, now, expanded = false, archiveEnabled = true }: { matches: Match[]; now: number; expanded?: boolean; archiveEnabled?: boolean }) {
   const { competition } = useAppState()
-  const { data: archive, isLoading: archiveLoading, error: archiveError } = useArchive()
+  const { data: archive, isLoading: archiveLoading, error: archiveError } = useArchive(archiveEnabled)
   const queryClient = useQueryClient()
   const rounds = useMemo(() => groupFixturesByRound(matches), [matches])
   const selectableRounds = rounds.filter((round) => round.matches.some((match) => {
