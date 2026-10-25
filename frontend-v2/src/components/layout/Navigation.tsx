@@ -1,4 +1,4 @@
-import { competitionLabel, FALLBACK_COMPETITIONS } from '../../lib/competition.mjs'
+import { competitionLabel } from '../../lib/competition.mjs'
 import { useRefreshData } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { ManualDataRefresh } from '../shared/ManualDataRefresh'
@@ -14,6 +14,11 @@ export const MORE_NAV = [
   { to: '/edge', label: 'Modell & Markt', icon: 'compare', description: 'Unterschiedliche Einschätzungen' },
   { to: '/simulator', label: 'Turnier simulieren', icon: 'trophy', description: 'Mögliche Turnierverläufe' },
 ]
+const COMPETITION_BUTTONS = [
+  { id: 'wc2026', name: 'WM', title: 'Weltmeisterschaft 2026' },
+  { id: 'ucl2026', name: 'UCL', title: 'UEFA Champions League 2026/27' },
+  { id: 'epl2026', name: 'PL', title: 'Premier League 2026/27' },
+] as const
 const ICON_PATHS: Record<string, string> = {
   fixtures: 'M4 5h16v15H4z M8 3v4 M16 3v4 M4 10h16 M8 14h2 M14 14h2',
   tips: 'M5 3h14v18H5z M8 8h8 M8 12h4 M10 16l2 2 4-4',
@@ -32,18 +37,18 @@ export function Brand() {
 }
 export function CompetitionSelect() {
   const { competition, setCompetition, competitions } = useAppState()
-  const options = competitions.length ? competitions : FALLBACK_COMPETITIONS
-  return <label className="competition-select block text-[10px] font-bold uppercase tracking-[0.12em] text-fg-3">Wettbewerb
-    <select aria-label="Wettbewerb" value={competition} onChange={e => setCompetition(e.target.value)} className="mt-1 min-h-11 w-full rounded border border-line-2 bg-surface px-3 text-sm font-semibold normal-case tracking-normal text-fg">
-      {options.map(item => <option key={item.id} value={item.id}>{item.id === 'wc2026' ? 'WM 2026' : item.short_name}</option>)}
-    </select>
-  </label>
+  const standardIds = new Set<string>(COMPETITION_BUTTONS.map(({ id }) => id))
+  const additional = competitions.filter(item => !standardIds.has(item.id))
+  return <div role="group" aria-label="Wettbewerb" className="competition-select">
+    {COMPETITION_BUTTONS.map(item => <button key={item.id} type="button" aria-label={item.name} title={item.title} aria-pressed={competition === item.id} onClick={() => setCompetition(item.id)} className="competition-option">{item.name}</button>)}
+    {additional.map(item => <button key={item.id} type="button" aria-label={item.short_name} title={item.display_name} aria-pressed={competition === item.id} onClick={() => setCompetition(item.id)} className="competition-option">{item.short_name}</button>)}
+  </div>
 }
 export function Settings() {
   const { light, toggleTheme, competitions } = useAppState()
   const refresh = useRefreshData()
   return <div className="settings space-y-2">
-    <button type="button" onClick={toggleTheme} className="flex min-h-11 w-full items-center justify-between rounded px-3 text-xs text-fg-2 hover:bg-surface-2"><span>Darstellung</span><span className="font-medium text-fg">{light ? 'Hell' : 'Dunkel'}</span></button>
+    <button type="button" aria-pressed={!light} onClick={toggleTheme} className="flex min-h-11 w-full items-center justify-between rounded px-3 text-xs text-fg-2 hover:bg-surface-2"><span>Darstellung</span><span className="font-medium text-fg">{light ? 'Hell' : 'Dunkel'}</span></button>
     <ManualDataRefresh />
     <button type="button" onClick={() => refresh.mutate()} disabled={refresh.isPending} className="min-h-11 w-full rounded border border-line px-3 text-left text-xs text-fg-2 hover:bg-surface-2 disabled:opacity-50">{refresh.isPending ? 'Wird geladen…' : 'Gespeicherte Daten neu laden'}</button>
     {refresh.isError && <p role="alert" className="px-3 text-xs text-red-a">Daten konnten nicht neu geladen werden. Bitte erneut versuchen.</p>}

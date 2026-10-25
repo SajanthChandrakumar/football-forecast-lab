@@ -5,7 +5,7 @@ test('competition is reachable in the header without opening a menu', async ({ p
   await expect(page.getByText('Bayern Munich', { exact: true }).first()).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('matchday.png'), fullPage: true })
   const header = page.getByRole('banner')
-  await header.getByRole('combobox', { name: 'Wettbewerb', exact: true }).selectOption('epl2026')
+  await header.getByRole('button', { name: 'PL', exact: true }).click()
   await expect(page.getByText('Chelsea', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
