@@ -14,6 +14,7 @@ import os
 import json
 import logging
 import time
+from src.services.source_freshness import MAX_SOURCE_AGE
 
 logger = logging.getLogger(__name__)
 
@@ -168,3 +169,123 @@ def read_quota(provider: str) -> dict:
         except Exception:
             pass
     return dict(_DEFAULT)
+
+
+def read_status_snapshot() -> dict:
+    """Read quota observations and app reservations without changing either."""
+    current = _get_collection()
+    result = {"mongo_available": current is not None, "providers": {}}
+    for provider in BUDGETS:
+        item = {"data": None, "observed_at": None, "requests": None}
+        if current is not None:
+            try:
+                quota_query = {"_id": f"quota_{provider}"}
+                budget_query = {"_id": f"provider_budget:{provider}"}
+                try:
+                    quota = current.find_one(quota_query, {"data": 1, "observed_at": 1, "_id": 0}) or {}
+                    budget = current.find_one(budget_query, {"requests": 1, "_id": 0}) or {}
+                except TypeError:
+                    quota = current.find_one(quota_query) or {}
+                    budget = current.find_one(budget_query) or {}
+                item.update({
+                    "data": quota.get("data") if isinstance(quota.get("data"), dict) else None,
+                    "observed_at": quota.get("observed_at"),
+                    "requests": budget.get("requests", []),
+                })
+            except Exception:
+                result["mongo_available"] = False
+        if item["data"] is None:
+            filename = _FILES.get(provider)
+            if filename:
+                try:
+                    with open(os.path.join(_DATA_DIR, filename), "r", encoding="utf-8") as stream:
+                        value = json.load(stream)
+                    if isinstance(value, dict):
+                        item["data"] = value
+                except Exception:
+                    pass
+        result["providers"][provider] = item
+    return result
+
+
+def read_status(provider: str, *, snapshot: dict | None = None, now=None) -> dict:
+    """Format provider quota and local budget as separate read-only summaries."""
+    if provider not in BUDGETS:
+        raise ValueError("Unknown provider")
+    current = time.time() if now is None else float(now)
+    cap, window, headroom = BUDGETS[provider]
+    unit = "credits" if provider == "odds" else "requests"
+    snapshot = read_status_snapshot() if snapshot is None else snapshot
+    item = (snapshot.get("providers") or {}).get(provider) or {}
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+
+    def number(value):
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return parsed if parsed >= 0 else None
+
+    observed = _status_timestamp(item.get("observed_at"))
+    observed_iso = observed[1] if observed else None
+    reported_state = "unknown"
+    if observed:
+        age = current - observed[0]
+        if 0 <= age <= MAX_SOURCE_AGE.total_seconds():
+            reported_state = "fresh"
+        elif age > MAX_SOURCE_AGE.total_seconds():
+            reported_state = "stale"
+    reported = {
+        "remaining": number(data.get("remaining")) if reported_state in {"fresh", "stale"} else None,
+        "used": number(data.get("used")) if reported_state in {"fresh", "stale"} else None,
+        "limit": number(data.get("limit")) if reported_state in {"fresh", "stale"} else None,
+        "observed_at": observed_iso,
+        "status": reported_state,
+    }
+
+    requests = item.get("requests")
+    if snapshot.get("mongo_available") and isinstance(requests, list):
+        used = 0
+        for entry in requests:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+            try:
+                at, cost = float(entry[0]), int(entry[1])
+            except (TypeError, ValueError, OverflowError):
+                continue
+            # Match reserve_request's rolling-window rule, including short future pacing reservations.
+            if current - at < window and cost > 0:
+                used += cost
+        app_budget = {
+            "used": used, "remaining": max(0, cap - used), "limit": cap,
+            "unit": unit, "window_seconds": window, "headroom": headroom,
+            "status": "available",
+        }
+    else:
+        app_budget = {
+            "used": None, "remaining": None, "limit": cap,
+            "unit": unit, "window_seconds": window, "headroom": headroom,
+            "status": "unknown",
+        }
+    return {"reported": reported, "app_budget": app_budget}
+
+
+def _status_timestamp(value):
+    """Return an aware timestamp and normalized ISO string, or None."""
+    from datetime import datetime, timezone
+
+    try:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            parsed = datetime.fromtimestamp(value, timezone.utc)
+        else:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return None
+        parsed = parsed.astimezone(timezone.utc)
+        return parsed.timestamp(), parsed.isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None

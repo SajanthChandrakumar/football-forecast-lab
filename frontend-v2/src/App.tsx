@@ -10,6 +10,7 @@ import './data-views.css'
 
 // Route-level code splitting: each view (and its heavy deps like recharts)
 // loads on demand instead of bloating the initial bundle.
+const DataSourcesView = lazy(() => import('./features/data-sources/DataSourcesView').then(m => ({ default: m.DataSourcesView })))
 const DashboardView = lazy(() => import('./features/dashboard/DashboardView').then((m) => ({ default: m.DashboardView })))
 const DetailView = lazy(() => import('./features/detail/DetailView').then((m) => ({ default: m.DetailView })))
 const ValueBetsView = lazy(() => import('./features/value-bets/ValueBetsView').then((m) => ({ default: m.ValueBetsView })))
@@ -43,6 +44,7 @@ export default function App() {
               <Route path="/value-bets" element={suspend(ValueBetsView)} />
               <Route path="/edge" element={suspend(EdgeView)} />
               <Route path="/team-form" element={suspend(TeamFormView)} />
+              <Route path="/data-sources" element={suspend(DataSourcesView)} />
               <Route path="/groups" element={suspend(GroupsView)} />
               <Route path="/performance" element={suspend(PerformanceView)} />
               <Route path="/simulator" element={<CompetitionSimulator />} />

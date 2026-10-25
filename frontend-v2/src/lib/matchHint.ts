@@ -3,7 +3,11 @@ import { computeImpliedProbs } from './util.ts'
 import { modelInputFreshness } from './match-freshness.mjs'
 
 export type MatchHintConfidence = 'high' | 'medium' | 'low' | 'unavailable'
-export type MatchHintSource = 'bookmaker' | 'elo' | 'unavailable'
+export type MatchHintSource = 'bookmaker' | 'elo' | 'model' | 'unavailable'
+export type MatchHintBasis = 'default' | 'model'
+export interface MatchHintOptions {
+  basis?: MatchHintBasis
+}
 
 export interface MatchHint {
   available: boolean
@@ -11,7 +15,7 @@ export interface MatchHint {
   confidence: MatchHintConfidence
   confidenceLabel: 'Hoch' | 'Mittel' | 'Niedrig' | 'Nicht verfügbar'
   source: MatchHintSource
-  sourceLabel: 'Buchmacherquote' | 'Elo-Modellquote · nicht wettbar' | 'Nicht verfügbar'
+  sourceLabel: 'Buchmacherquote' | 'Elo-Modellquote · nicht wettbar' | 'Modellprognose · Buchmacherquoten + Elo' | 'Modellprognose · Buchmacherquoten' | 'Modellprognose · Elo' | 'Modellprognose · Quelle nicht belegt' | 'Nicht verfügbar'
   probabilities: Probabilities | null
   observedAt: string | null
   reasons: string[]
@@ -79,6 +83,24 @@ function selectedProbabilities(match: Match): {
   }
 }
 
+function selectedModelProbabilities(match: Match): ReturnType<typeof selectedProbabilities> {
+  const sourceLabel = match.source_mode === 'odds+elo'
+    ? 'Modellprognose · Buchmacherquoten + Elo'
+    : match.source_mode === 'odds-only'
+      ? 'Modellprognose · Buchmacherquoten'
+      : match.source_mode === 'elo-only'
+        ? 'Modellprognose · Elo'
+        : 'Modellprognose · Quelle nicht belegt'
+  const probabilities = normalized(match.probabilities)
+  if (!probabilities) return null
+  return {
+    probabilities,
+    source: 'model',
+    sourceLabel,
+    observedAt: match.observed_at ?? null,
+  }
+}
+
 function missingCount(match: Match, outcome: 'home' | 'away'): number {
   const rawName = outcome === 'home' ? match.home_team : match.away_team
   const shownName = outcome === 'home'
@@ -132,8 +154,8 @@ function reasonCandidates(match: Match, favorite: Outcome, homeName: string, awa
   return reasons
 }
 
-export function buildMatchHint(match: Match, now = Date.now(), requireFreshInputs = false): MatchHint {
-  const selected = selectedProbabilities(match)
+export function buildMatchHint(match: Match, now = Date.now(), requireFreshInputs = false, options: MatchHintOptions = {}): MatchHint {
+  const selected = options.basis === 'model' ? selectedModelProbabilities(match) : selectedProbabilities(match)
   if (!selected) return { ...UNAVAILABLE_HINT, reasons: [] }
   const freshness = requireFreshInputs ? modelInputFreshness(match, now) : { status: 'fresh' as const, message: '' }
 

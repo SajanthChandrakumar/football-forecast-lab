@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ManualRefreshError } from '../../lib/api'
 import type { CompetitionId } from '../../lib/types'
 import { competitionLabel } from '../../lib/competition.mjs'
@@ -18,14 +18,23 @@ export function ManualDataRefresh() {
   const keyInput = useRef<HTMLInputElement>(null)
   const report = useRef<HTMLDivElement>(null)
   const [hasKey, setHasKey] = useState(false)
-  const [cooldown, setCooldown] = useState(0)
-  const cooldownUntil = useRef(0)
-  const startCooldown = (seconds: number) => {
-    cooldownUntil.current = Date.now() + seconds * 1000
-    setCooldown(seconds)
-  }
   const qc = useQueryClient()
+  const [cooldownNow, setCooldownNow] = useState(() => Date.now())
+  // Only numeric deadlines survive route changes; credentials stay in the input.
+  const deadlines = useQuery<Partial<Record<CompetitionId, number>>>({
+    queryKey: ['manualRefreshCooldowns'], queryFn: () => ({}), initialData: {},
+    enabled: false, staleTime: Infinity, gcTime: Infinity,
+  })
+  const cooldownUntil = deadlines.data?.[competition] ?? 0
+  const cooldown = Math.max(0, Math.ceil((cooldownUntil - cooldownNow) / 1000))
+  const startCooldown = (requestedCompetition: CompetitionId, seconds: number) => {
+    qc.setQueryData<Partial<Record<CompetitionId, number>>>(['manualRefreshCooldowns'], previous => ({
+      ...previous, [requestedCompetition]: Date.now() + seconds * 1000,
+    }))
+  }
+  const isPending = useIsMutating({ mutationKey: ['manualDataRefresh'], predicate: mutation => mutation.state.variables === competition }) > 0
   const refresh = useMutation({
+    mutationKey: ['manualDataRefresh'],
     // Only the competition enters TanStack's mutation cache. The key stays transient.
     mutationFn: (requestedCompetition: CompetitionId) => {
       const token = keyInput.current?.value ?? ''
@@ -33,20 +42,25 @@ export function ManualDataRefresh() {
       setHasKey(false)
       return api.manualRefresh(requestedCompetition, token)
     },
-    onSuccess: result => startCooldown(result.cooldown_seconds),
-    onError: error => {
-      if (error instanceof ManualRefreshError && error.retryAfter) startCooldown(error.retryAfter)
+    onSuccess: (result, requestedCompetition) => startCooldown(requestedCompetition, result.cooldown_seconds),
+    onError: (error, requestedCompetition) => {
+      if (error instanceof ManualRefreshError && error.retryAfter) startCooldown(requestedCompetition, error.retryAfter)
     },
     // A provider can update some sources even when another source fails.
     onSettled: (_data, _error, requestedCompetition) => qc.invalidateQueries({
-      predicate: query => query.queryKey[1] === requestedCompetition,
+      predicate: query => query.queryKey[1] === requestedCompetition || ['quota', 'dataStatus'].includes(String(query.queryKey[0])),
     }),
   })
   useEffect(() => {
-    if (!cooldown) return
-    const interval = window.setInterval(() => setCooldown(Math.max(0, Math.ceil((cooldownUntil.current - Date.now()) / 1000))), 1000)
+    setCooldownNow(Date.now())
+    if (cooldownUntil <= Date.now()) return
+    const interval = window.setInterval(() => {
+      const current = Date.now()
+      setCooldownNow(current)
+      if (current >= cooldownUntil) window.clearInterval(interval)
+    }, 1000)
     return () => window.clearInterval(interval)
-  }, [cooldown])
+  }, [cooldownUntil])
   useEffect(() => {
     if (keyInput.current) keyInput.current.value = ''
     setHasKey(false)
@@ -58,14 +72,14 @@ export function ManualDataRefresh() {
 
   return <div className="rounded border border-line px-3 py-3">
     <p className="mb-3 text-xs font-semibold text-fg">API-Daten aktualisieren</p>
-    {supported ? <form onSubmit={event => { event.preventDefault(); if (hasKey && !refresh.isPending && !cooldown) refresh.mutate(competition) }}>
+    {supported ? <form onSubmit={event => { event.preventDefault(); if (hasKey && !isPending && !cooldown) refresh.mutate(competition) }}>
       <label htmlFor={inputId} className="block text-xs text-fg-2">Admin-Schlüssel</label>
       <input id={inputId} ref={keyInput} type="password" autoComplete="off" spellCheck={false}
-        onChange={event => setHasKey(Boolean(event.target.value))} disabled={refresh.isPending}
+        onChange={event => setHasKey(Boolean(event.target.value))} disabled={isPending}
         className="mb-2 mt-1 min-h-11 w-full min-w-0 rounded border border-line bg-surface-2 px-2 text-base sm:text-sm text-fg outline-none focus:border-emerald-a" />
-      <button type="submit" disabled={!hasKey || refresh.isPending || cooldown > 0}
+      <button type="submit" disabled={!hasKey || isPending || cooldown > 0}
         className="min-h-11 w-full rounded bg-action px-2 py-2 text-xs font-semibold text-on-action disabled:opacity-50">
-        {refresh.isPending ? 'API-Daten werden geladen…' : cooldown ? `Erneut in ${cooldown} s` : 'Aktuelle API-Daten holen'}
+        {isPending ? 'API-Daten werden geladen…' : cooldown ? `Erneut in ${cooldown} s` : 'Aktuelle API-Daten holen'}
       </button>
       <p className="mt-2 text-[11px] leading-relaxed text-fg-3">Anbieter jetzt abrufen. Der Schlüssel wird nicht gespeichert.</p>
     </form> : <p className="text-xs text-fg-3">Sofortabruf für PL und UCL. Wähle oben den Wettbewerb.</p>}

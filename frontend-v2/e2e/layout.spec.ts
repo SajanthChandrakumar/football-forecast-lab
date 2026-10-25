@@ -18,12 +18,15 @@ for (const theme of ['dark', 'light']) test(`each view fits the viewport in ${th
         await expect(formRow).toBeVisible()
         const rowLayout = await formRow.evaluate((row) => {
           const sides = [...row.querySelectorAll<HTMLElement>('[role="group"]')]
-          const score = row.querySelector<HTMLElement>(':scope > div.grid > span:not([role="group"])')
+          const score = row.querySelector<HTMLElement>('.club-form-score')
           const box = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect()
             return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
           }
+          const card = row.closest<HTMLElement>('.club-team-form-history')!
+          const cardStyle = getComputedStyle(card)
           return {
+            containerWidth: card.clientWidth - parseFloat(cardStyle.paddingLeft) - parseFloat(cardStyle.paddingRight),
             sides: sides.map(box),
             score: score ? box(score) : null,
             nameWidths: sides.map((side) => side.querySelector<HTMLElement>(':scope > span:not([role="img"])')?.getBoundingClientRect().width ?? 0),
@@ -36,7 +39,7 @@ for (const theme of ['dark', 'light']) test(`each view fits the viewport in ${th
         })
         expect(rowLayout.sides).toHaveLength(2)
         expect(rowLayout.score).not.toBeNull()
-        if ((page.viewportSize()?.width ?? 1440) < 640) {
+        if (rowLayout.containerWidth < 416) {
           expect(rowLayout.sides[1].y).toBeGreaterThan(rowLayout.sides[0].y)
           expect(Math.abs(rowLayout.sides[0].x - rowLayout.sides[1].x)).toBeLessThan(1)
           expect(rowLayout.score!.x).toBeGreaterThan(rowLayout.sides[0].x)

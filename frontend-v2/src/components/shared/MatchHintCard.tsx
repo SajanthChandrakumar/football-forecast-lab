@@ -1,5 +1,5 @@
 import type { CompetitionId, Match } from '../../lib/types'
-import { buildMatchHint } from '../../lib/matchHint'
+import { buildMatchHint, type MatchHintBasis } from '../../lib/matchHint'
 import { formatObservedAt } from '../../lib/observed-at.mjs'
 import { cn } from '../../lib/util'
 
@@ -9,29 +9,32 @@ const confidenceStyle = {
   low: 'bg-orange-a/10 text-orange-a',
 } as const
 
-export function MatchHintCard({ match, compact = false, competition }: { match: Match; compact?: boolean; competition?: CompetitionId }) {
-  if (match.calculation_status === 'pending') return <p role="status" className="text-sm text-fg-2">Analyse wird vorbereitet.</p>
-  const hint = buildMatchHint(match, Date.now(), competition === 'epl2026' || competition === 'ucl2026')
+export function MatchHintCard({ match, compact = false, competition, basis = 'default' }: { match?: Match; compact?: boolean; competition?: CompetitionId; basis?: MatchHintBasis }) {
+  if (match?.calculation_status === 'pending') return <p role="status" className="text-sm text-fg-2">Analyse wird vorbereitet.</p>
+  if (!match && basis === 'model') return <p role="status" className="text-sm text-fg-2">Modellwahrscheinlichkeiten sind nicht verfügbar.</p>
+  if (!match) return null
+  const hint = buildMatchHint(match, Date.now(), competition === 'epl2026' || competition === 'ucl2026', { basis })
+  if (!hint.available && basis === 'model') return <p role="status" className="text-sm text-fg-2">Modellwahrscheinlichkeiten sind nicht verfügbar.</p>
   const badgeStyle = hint.confidence === 'unavailable' ? '' : confidenceStyle[hint.confidence]
 
   return (
     <div>
       {hint.available && (
         <span className={cn(compact ? cn('inline-flex rounded-full px-2.5 py-1 text-xs font-bold', badgeStyle) : 'text-sm font-semibold text-emerald-a')}>
-          Spielausgangstendenz (Sieg/Remis/Niederlage): {hint.confidenceLabel}
+          {basis === 'model' ? 'Modellprognose · Heimsieg/Remis/Auswärtssieg' : 'Spielausgangstendenz (Heimsieg/Remis/Auswärtssieg)'}: {hint.confidenceLabel}
         </span>
       )}
       <p className={cn('leading-snug text-fg', compact ? 'text-sm font-semibold' : 'text-base font-medium', hint.available && 'mt-2')}>
         {hint.summary}
       </p>
-      {hint.probabilities && <div className={cn('mt-2 grid grid-cols-3 gap-2 text-fg-2', compact ? 'text-[10px]' : 'text-xs')} aria-label="Wahrscheinlichkeiten für Sieg, Remis und Niederlage">
-        <span className="min-w-0"><b className="block text-fg">{Math.round(hint.probabilities.home * 100)}%</b>{match.home_disp || match.home_team}</span>
-        <span className="min-w-0"><b className="block text-fg">{Math.round(hint.probabilities.draw * 100)}%</b>Unentschieden</span>
-        <span className="min-w-0"><b className="block text-fg">{Math.round(hint.probabilities.away * 100)}%</b>{match.away_disp || match.away_team}</span>
+      {hint.probabilities && <div className={cn('mt-2 grid grid-cols-3 gap-2 text-fg-2', compact ? 'text-[10px]' : 'text-xs')} aria-label="Wahrscheinlichkeiten für Heimsieg, Remis und Auswärtssieg">
+        <span className="min-w-0"><b className="block text-fg">{Math.round(hint.probabilities.home * 100)}%</b>Heimsieg · {match.home_disp || match.home_team}</span>
+        <span className="min-w-0"><b className="block text-fg">{Math.round(hint.probabilities.draw * 100)}%</b>Remis</span>
+        <span className="min-w-0"><b className="block text-fg">{Math.round(hint.probabilities.away * 100)}%</b>Auswärtssieg · {match.away_disp || match.away_team}</span>
       </div>}
       <p className={cn('mt-1 text-fg-3', compact ? 'text-[10px]' : 'text-xs')}>Quelle: {hint.sourceLabel} · {formatObservedAt(hint.observedAt)}</p>
       {hint.freshnessWarning && <p role="status" className="mt-2 text-xs font-semibold text-amber-a">{hint.freshnessWarning}</p>}
-      {!compact && <p className="mt-2 text-xs text-fg-3">Die Werte betreffen Sieg, Remis oder Niederlage und sagen nichts über ein exaktes Ergebnis aus.</p>}
+      {!compact && <p className="mt-2 text-xs text-fg-3">Die Werte betreffen Heimsieg, Remis oder Auswärtssieg und sagen nichts über ein exaktes Ergebnis aus.</p>}
 
       {!compact && hint.reasons.length > 0 && (
         <details className="group/hint mt-2 border-t border-line pt-1">

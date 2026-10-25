@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useArchive, useMatchHistory, useMatches, usePoolContext, usePredict, useSavePoolContext } from '../../hooks/queries'
+import { useArchive, useMatchHistory, useMatches, usePredict } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { computeImpliedProbs, pct } from '../../lib/util'
 import { kickoffTime, shortDate } from '../../lib/format'
@@ -23,9 +23,9 @@ import { verifiedClubFormMatches } from '../../lib/team-form.mjs'
 import { lineupState } from '../../lib/match-intelligence.mjs'
 import { lineupRows } from '../../lib/lineup-layout.mjs'
 import { ScoreHeatmap } from './ScoreHeatmap'
-import { formatObservedAt, parseTipCountRows } from './detail-form.mjs'
-import type { TipCountRow } from './detail-form.mjs'
+import { formatObservedAt } from './detail-form.mjs'
 import { rankedTipInsights, recentFormSummary, matchLoadSummary, playerFormStatusMessage, playerFormSummary, teamHistoryAnalysis, teamHistoryMetrics } from '../../lib/tip-insights.mjs'
+import './match-detail.css'
 
 const BOT_LABELS: Record<BotKey, string> = {
   broker: 'Broker',
@@ -42,20 +42,6 @@ const stageLabels: Record<string, string> = {
   'Quarter-finals': 'Viertelfinale',
   'Semi-finals': 'Halbfinale',
   'Final': 'Finale',
-}
-
-type PoolForm = {
-  user_points: string
-  leader_points: string
-  remaining_srf_max_points: string
-  tipRows: TipCountRow[]
-}
-
-const EMPTY_POOL_FORM: PoolForm = {
-  user_points: '',
-  leader_points: '',
-  remaining_srf_max_points: '',
-  tipRows: [{ tip: '', count: '' }],
 }
 
 const MATCH_VIEWS = [
@@ -91,12 +77,6 @@ function matchStatusLabel(match: Match, now: number) {
     pending: 'Ergebnis ausstehend',
     unscheduled: 'Anstoßzeit offen',
   }[status]
-}
-
-function requestErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : ''
-  if (message.startsWith('409')) return 'Der Kontext konnte nicht gespeichert werden, weil die Anfrage abgelehnt wurde.'
-  return 'Der Kontext konnte nicht gespeichert werden. Bitte prüfe die Eingaben und versuche es erneut.'
 }
 
 function TeamFormHistory({ team, form, kickoff, showHistoricalLineups = true }: { team: string; form?: TeamForm; kickoff?: string; showHistoricalLineups?: boolean }) {
@@ -267,12 +247,7 @@ export function DetailView() {
   const predict = usePredict()
   const loadPrediction = predict.mutate
   const resetPrediction = predict.reset
-  const pool = usePoolContext(id)
-  const savePool = useSavePoolContext()
   const [copyStatus, setCopyStatus] = useState('')
-  const [poolOpen, setPoolOpen] = useState(false)
-  const [poolForm, setPoolForm] = useState<PoolForm>(EMPTY_POOL_FORM)
-  const [poolStatus, setPoolStatus] = useState('')
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -309,19 +284,6 @@ export function DetailView() {
     return () => resetPrediction()
   }, [isClubCompetition, isClubMatchUpcoming, loadPrediction, predictionInput, resetPrediction])
 
-  useEffect(() => {
-    if (!pool.data) return
-    setPoolForm({
-      user_points: String(pool.data.user_points),
-      leader_points: String(pool.data.leader_points),
-      remaining_srf_max_points: String(pool.data.remaining_srf_max_points),
-      tipRows: [
-        ...Object.entries(pool.data.tip_counts ?? {}).map(([tip, count]) => ({ tip, count: String(count) })),
-        { tip: '', count: '' },
-      ],
-    })
-  }, [pool.data])
-
   if (!matches && matchesError) {
     return <PageTransition><QueryState title="Spiele konnten nicht geladen werden" message="Die Spielinformationen sind gerade nicht erreichbar. Bitte versuche es erneut." onRetry={() => { void retryMatches() }} /></PageTransition>
   }
@@ -356,7 +318,6 @@ export function DetailView() {
     || (currentPrediction.model_tip && currentPrediction.model_tip !== 'N/A')
     || (currentPrediction.top_tip && currentPrediction.top_tip !== 'N/A')
   ))
-  const readyClubPrediction = hasReadyClubPrediction ? currentPrediction : undefined
   const clubCalculationPending = clubCachePending && !hasReadyClubPrediction
   const predictionIsPending = isClubCompetition ? isUpcoming && requestMatchesCurrentMatch && predict.isPending : predict.isPending
   const predictionHasError = isClubCompetition ? isUpcoming && requestMatchesCurrentMatch && predict.isError : predict.isError
@@ -382,10 +343,20 @@ export function DetailView() {
   const expectedPoints = predictionTip != null ? (recommendedInsight?.expectedPoints ?? selectedPrediction?.max_xp) : (isClubCompetition && !isUpcoming ? archivedClubPrediction?.max_xp : clubCachePending ? null : match.max_xp)
   const xgHome = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_home ?? (clubCachePending ? null : match.xg_home))
   const xgAway = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_away ?? (clubCachePending ? null : match.xg_away))
-  const hintMatch: Match = isClubCompetition && readyClubPrediction
-    ? { ...match, ...readyClubPrediction, top_tip: readyClubPrediction.top_tip ?? match.top_tip, max_xp: readyClubPrediction.max_xp ?? match.max_xp, odds: undefined, calculation_status: undefined }
-    : match
-  const xgTotal = (xgHome ?? 0) + (xgAway ?? 0)
+  const hintMatch: Match | undefined = displayedPrediction ? {
+    ...match,
+    calculation_status: undefined,
+    probabilities: displayedPrediction.probabilities,
+    source_mode: displayedPrediction.source_mode,
+    source: displayedPrediction.source,
+    observed_at: displayedPrediction.observed_at,
+    input_provenance: displayedPrediction.input_provenance,
+    provenance: displayedPrediction.provenance,
+    home_form: isClubCompetition && !isUpcoming ? undefined : match.home_form,
+    away_form: isClubCompetition && !isUpcoming ? undefined : match.away_form,
+    xg_home: displayedPrediction.xg_home ?? (!isClubCompetition || isUpcoming ? match.xg_home : null),
+    xg_away: displayedPrediction.xg_away ?? (!isClubCompetition || isUpcoming ? match.xg_away : null),
+  } : undefined
   const missing = Object.entries(match.lineup_diff ?? {}).filter(([, value]) => value.missing?.length)
   const lineup = lineupState(match.match_intelligence, match.home_team, match.away_team)
   const stage = isPremierLeague ? 'Premier League' : stageLabel(match.stage)
@@ -400,38 +371,9 @@ export function DetailView() {
     }
   }
 
-  const savePoolContext = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const userPoints = Number(poolForm.user_points)
-    const leaderPoints = Number(poolForm.leader_points)
-    const remainingPoints = Number(poolForm.remaining_srf_max_points)
-    const tipCounts = parseTipCountRows(poolForm.tipRows)
-    if (!Number.isInteger(userPoints) || userPoints < 0 || !Number.isInteger(leaderPoints) || leaderPoints < 0 || !Number.isInteger(remainingPoints) || remainingPoints < 1) {
-      setPoolStatus('Punkte müssen ganze Zahlen sein. Die noch möglichen Punkte müssen mindestens 1 betragen.')
-      return
-    }
-    if (!tipCounts) {
-      setPoolStatus('Jede angegebene Zeile braucht ein Ergebnis im Format 1:0 und eine ganze, nicht negative Anzahl.')
-      return
-    }
-
-    setPoolStatus('Speichert …')
-    savePool.mutate({
-      matchId: match.id,
-      context: {
-        user_points: userPoints,
-        leader_points: leaderPoints,
-        remaining_srf_max_points: remainingPoints,
-        tip_counts: tipCounts,
-      },
-    }, {
-      onSuccess: () => setPoolStatus('Pool-Kontext für dieses Spiel gespeichert.'),
-      onError: (error) => setPoolStatus(requestErrorMessage(error)),
-    })
-  }
-
   return (
     <PageTransition>
+      <div className="match-detail">
       <div className="detail-actions">
         <button type="button" onClick={backToGames} className="min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
         <button type="button" aria-label="Diese Teams vergleichen" onClick={() => { setSelectedTeams([match.home_team, match.away_team]); navigate('/team-form') }} className="min-h-11 text-xs font-semibold text-blue-a hover:underline">Teams vergleichen</button>
@@ -498,29 +440,32 @@ export function DetailView() {
       <ViewPanel id="match-analysis" value="form" active={view}>
         <section className="analysis-section match-card" aria-labelledby="form-title">
           <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Teamleistung</p><h2 id="form-title" className="mt-1 text-lg font-bold text-fg">Tore & Form</h2></div></div>
-          {xgHome != null && xgAway != null && xgTotal > 0 ? (
-            <div className="metric-strip mt-4">
+          {xgHome != null && xgAway != null && xgHome + xgAway > 0 ? (
+            <>
+            <div className="detail-xg-grid" role="group" aria-label="Erwartete Tore laut Modell">
               {[
-                { team: match.home_team, xg: xgHome, form: match.home_form },
-                { team: match.away_team, xg: xgAway, form: match.away_form },
-              ].map(({ team, xg, form }) => (
-                <div key={team} className="surface-panel">
-                  <div className="flex items-center justify-between gap-2 text-sm font-medium text-fg"><span>{team}</span><span className="display-num text-2xl">{xg.toFixed(2)} <span className="text-xs font-normal text-fg-3">xG</span></span></div>
-                  <div className="chance-track mt-2"><div className="chance-fill" style={{ width: `${(xg / xgTotal) * 100}%` }} /></div>
+                { team: match.home_team, logo: match.home_logo, xg: xgHome, form: match.home_form },
+                { team: match.away_team, logo: match.away_logo, xg: xgAway, form: match.away_form },
+              ].map(({ team, logo, xg, form }) => (
+                <div key={team} className="detail-xg-card" role="group" aria-label={`${team}: erwartete Tore ${xg.toFixed(2)}`}>
+                  <div className="detail-xg-team"><TeamLogo name={team} src={logo} className="h-7 w-7" /><span>{team}</span></div>
+                  <strong className="display-num detail-xg-value">{xg.toFixed(2)}</strong>
+                  <span className="detail-xg-label">Erwartete Tore (Modell)</span>
                   {!isClubCompetition && <div className="mt-3" aria-label={`${team}: ${recentFormSummary(form)}`}><FormBadges form={form} /></div>}
                   {form?.status === 'stale' && <p className="mt-2 text-xs text-amber-a">Älterer Formstand</p>}
                   {form?.status === 'unavailable' && <p className="mt-2 text-xs text-fg-3">Formdaten nicht verfügbar.</p>}
                 </div>
               ))}
-              <p className="text-xs text-fg-3">xG = erwartete Tore im Modellschnitt</p>
             </div>
+            <p className="text-xs text-fg-3">xG bezeichnet die erwarteten Tore aus der Modellprognose, nicht den tatsächlichen Torabschluss.</p>
+            </>
           ) : <p className="mt-3 text-sm text-fg-2">Torprognose nicht verfügbar.</p>}
         </section>
 
         <section className="analysis-section match-card" aria-labelledby="history-title">
           <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Vergangene Spiele</p><h2 id="history-title" className="mt-1 text-lg font-bold text-fg">Letzte Pflichtspiele</h2></div></div>
           {!isClubCompetition && <p className="mt-2 text-xs text-fg-3">{match.home_form?.scope === 'league' || match.away_form?.scope === 'league' ? 'Die Form umfasst zuletzt erfasste Premier-League-Spiele, keine anderen Wettbewerbe.' : 'Die Form umfasst zuletzt erfasste Pflichtspiele aller Wettbewerbe.'}</p>}
-          <div className="match-grid mt-4">
+          <div className="detail-team-forms" role="group" aria-label="Formvergleich der beiden Mannschaften">
             {[{ team: match.home_team, form: match.home_form }, { team: match.away_team, form: match.away_form }].map(({ team, form }) => (
               isClubCompetition
                 ? <ClubTeamFormHistory key={team} team={team} form={form} beforeKickoff={kickoff ?? null} />
@@ -578,19 +523,19 @@ export function DetailView() {
         <section className="analysis-section match-card" aria-labelledby="market-title">
           <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Buchmacher</p><h2 id="market-title" className="mt-1 text-lg font-bold text-fg">Aktuelle Quoten</h2></div></div>
           {hasBookmakerOdds && marketProbabilities ? <>
-            <p className="mt-2 text-sm text-fg-2">Dezimalquoten für Sieg, Remis und Sieg. Die danebenstehenden Chancen werden aus diesen drei Quoten normalisiert und sind keine Modellprognose.</p>
+            <p className="mt-2 text-sm text-fg-2">Dezimalquoten für Heimsieg, Remis und Auswärtssieg. Die danebenstehenden Chancen werden aus diesen drei Quoten normalisiert und sind keine Modellprognose.</p>
             <p className="mt-2 text-xs text-fg-3">Quelle: {match.odds_provenance?.source === 'odds_api' ? 'The Odds API' : String(match.odds_provenance?.source ?? 'Quelle nicht belegt')} · {match.odds_observed_at ? formatObservedAt(match.odds_observed_at) : 'Zeitpunkt nicht verfügbar'}</p>
-            <div className="ranking-list mt-4">
+            <div className="market-outcomes mt-4" role="list" aria-label="Buchmacherchancen für Heimsieg, Remis und Auswärtssieg">
               {[
-                { key: 'home', label: `${match.home_team} gewinnt` },
+                { key: 'home', label: `Heimsieg · ${match.home_team}` },
                 { key: 'draw', label: 'Unentschieden' },
-                { key: 'away', label: `${match.away_team} gewinnt` },
+                { key: 'away', label: `Auswärtssieg · ${match.away_team}` },
               ].map(({ key, label }) => {
                 const price = match.odds?.[key as 'home' | 'draw' | 'away']
                 const probability = marketProbabilities[key as 'home' | 'draw' | 'away']
-                return <div key={key} className="ranking-row">
-                  <span className="font-semibold text-fg">{label}</span>
-                  <span className="text-right"><b className="block tabular-nums text-fg">{price?.toFixed(2) ?? '–'}</b><span className="text-xs text-fg-3">{pct(probability)} implizit</span></span>
+                return <div key={key} className="market-outcome" role="listitem">
+                  <span className="market-outcome-label">{label}</span>
+                  <span className="market-outcome-values"><b className="tabular-nums text-fg">{price?.toFixed(2) ?? '–'}</b><span className="text-xs text-fg-3">{pct(probability)} implizit</span></span>
                 </div>
               })}
             </div>
@@ -628,96 +573,14 @@ export function DetailView() {
           })}</ul></section>}
         </div>
 
-        <section className="analysis-section match-card"><div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Zusätzlicher Kontext</p><h2 className="mt-1 text-lg font-bold text-fg">Spielhinweise</h2></div></div><div className="mt-3"><MatchHintCard match={clubCalculationPending ? { ...match, calculation_status: 'pending' } : hintMatch} competition={competition} /></div></section>
-
-        <section className="analysis-section match-card" aria-labelledby="pool-context-title">
-          <h2 id="pool-context-title" className="sr-only">Pool-Tipp und Rundendaten</h2>
-          <PoolContextEditor pool={pool} form={poolForm} onFormChange={setPoolForm} open={poolOpen} onToggle={() => setPoolOpen((current) => !current)} status={poolStatus} onSave={savePoolContext} saving={savePool.isPending} />
-        </section>
+        <section className="analysis-section match-card"><div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Zusätzlicher Kontext</p><h2 className="mt-1 text-lg font-bold text-fg">Spielhinweise</h2></div></div><div className="mt-3"><MatchHintCard match={clubCalculationPending ? { ...match, calculation_status: 'pending' } : hintMatch} basis="model" competition={competition} /></div></section>
 
         <details className="analysis-section match-card info-disclosure">
           <summary>Wie wird der Tipp gewählt?</summary>
           <div className="info-content"><p>Das Modell wählt den Ergebnistipp mit den höchsten erwarteten Tippspielpunkten. Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Torwerte beschreiben einen Modellschnitt und sind kein garantiertes Ergebnis.</p><p className="mt-2">Kopieren überträgt den Vorschlag nur in die Zwischenablage. Speichern legt einen gemeinsamen Tipp für das Spiel ab: nicht nutzergetrennt und für alle sichtbar. Die Abgabe schließt fünf Minuten vor Anpfiff.</p></div>
         </details>
       </ViewPanel>
-    </PageTransition>
-  )
-}
-
-function PoolContextEditor({
-  pool, form, onFormChange, open, onToggle, status, onSave, saving,
-}: {
-  pool: ReturnType<typeof usePoolContext>
-  form: PoolForm
-  onFormChange: (form: PoolForm) => void
-  open: boolean
-  onToggle: () => void
-  status: string
-  onSave: (event: FormEvent<HTMLFormElement>) => void
-  saving: boolean
-}) {
-  const poolTip = pool.data?.pool_tip
-  return (
-    <section className="rounded-xl border border-line p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-fg">Pool-Tipp und Rundendaten</h3>
-          <p className="mt-1 text-sm text-fg-2">Optionaler Kontext aus deiner Tipprunde für dieses Spiel.</p>
-        </div>
-        <button type="button" onClick={onToggle} className="min-h-11 rounded-lg border border-line-2 px-3 text-sm font-medium text-fg hover:bg-surface-2">{open ? 'Schliessen' : 'Daten eingeben'}</button>
       </div>
-
-      {pool.isLoading && <p role="status" className="mt-3 text-sm text-fg-2">Pool-Kontext wird geladen.</p>}
-      {pool.error && <div className="mt-3"><QueryState title="Pool-Kontext nicht geladen" message="Die gespeicherten Rundendaten sind nicht erreichbar. Du kannst es erneut versuchen oder neue Angaben eingeben." onRetry={() => { void pool.refetch() }} /></div>}
-      {!pool.isLoading && !pool.error && <p className="mt-3 text-sm text-fg-2">{poolTip ? <>Vorschlag der Tipprunde: <b className="tabular-nums text-fg">{poolTip}</b></> : 'Kein Pool-Tipp verfügbar. Für diesen Vorschlag braucht es die Punktestände und die Verteilung der abgegebenen Tipps.'}</p>}
-
-      {open && (
-        <form onSubmit={onSave} className="mt-4 space-y-4 border-t border-line pt-4">
-          <p className="text-xs leading-relaxed text-fg-3">Diese optionalen Angaben werden zentral für dieses Spiel gespeichert. Trage die Werte aus deiner Runde ein; die Tippverteilung darf leer bleiben.</p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <PoolNumberField label="Deine bisherigen Punkte" value={form.user_points} min={0} onChange={(value) => onFormChange({ ...form, user_points: value })} />
-            <PoolNumberField label="Punkte der führenden Person" value={form.leader_points} min={0} onChange={(value) => onFormChange({ ...form, leader_points: value })} />
-            <PoolNumberField label="Für dich noch mögliche Punkte" value={form.remaining_srf_max_points} min={1} onChange={(value) => onFormChange({ ...form, remaining_srf_max_points: value })} />
-          </div>
-          <fieldset>
-            <legend className="text-sm font-medium text-fg">Abgegebene Tipps nach Ergebnis (optional)</legend>
-            <p className="mt-1 text-xs text-fg-3">Ergebnis und Anzahl pro Zeile, zum Beispiel 1:0 und 4 Tipps.</p>
-            <div className="mt-2 space-y-2">
-              {form.tipRows.map((row, index) => (
-                <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-                  <label className="text-xs text-fg-2">Ergebnis
-                    <input type="text" value={row.tip} onChange={(event) => updatePoolTipRow(form, onFormChange, index, 'tip', event.target.value)} placeholder="z. B. 1:0" className="mt-1 min-h-11 w-full rounded-lg border border-line-2 bg-surface px-3 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-blue-a" />
-                  </label>
-                  <label className="text-xs text-fg-2">Anzahl der Tipps
-                    <input type="number" min={0} step={1} value={row.count} onChange={(event) => updatePoolTipRow(form, onFormChange, index, 'count', event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-2 bg-surface px-3 text-sm tabular-nums text-fg outline-none focus:border-blue-a" />
-                  </label>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={() => onFormChange({ ...form, tipRows: [...form.tipRows, { tip: '', count: '' }] })} className="mt-2 min-h-11 text-sm font-medium text-blue-a hover:underline">+ Ergebnis hinzufügen</button>
-          </fieldset>
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" disabled={saving} className="min-h-11 rounded-lg bg-action px-4 text-sm font-semibold text-on-action hover:opacity-90 disabled:opacity-50">{saving ? 'Speichert …' : 'Rundendaten speichern'}</button>
-            <span className="text-sm text-fg-2" role="status">{status}</span>
-          </div>
-        </form>
-      )}
-    </section>
-  )
-}
-
-function updatePoolTipRow(form: PoolForm, onChange: (form: PoolForm) => void, index: number, field: keyof TipCountRow, value: string) {
-  onChange({
-    ...form,
-    tipRows: form.tipRows.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row),
-  })
-}
-
-function PoolNumberField({ label, value, min, onChange }: { label: string; value: string; min: number; onChange: (value: string) => void }) {
-  return (
-    <label className="text-xs font-medium text-fg-2">
-      {label}
-      <input required type="number" min={min} step={1} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-2 bg-surface px-3 text-sm tabular-nums text-fg outline-none focus:border-blue-a focus:ring-2 focus:ring-blue-a/20" />
-    </label>
+    </PageTransition>
   )
 }
