@@ -17,6 +17,7 @@ export function MatchDataStatus({ match, prediction, now = Date.now(), compact =
         </div>
       })}
     </dl>
+    {match.detail_level === 'core' && <p className="mt-2 text-xs text-fg-3">Aufstellungen werden im Tab Aufstellungen geladen.</p>}
     {match.detail_level === 'overview' && <p className="mt-2 text-xs text-fg-3">Aufstellungen werden in den Spieldetails geladen.</p>}
     <details className="info-disclosure">
       <summary>Was bedeutet die Datenlage?</summary>

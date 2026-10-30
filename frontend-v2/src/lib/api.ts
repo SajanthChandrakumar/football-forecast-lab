@@ -1,7 +1,7 @@
 import type {
   Archive, DataStatus, BotSimulation, CompetitionId, CompetitionInfo, CustomBot, CustomBotParams, EloHistory,
-  EloRatings, EloRatingsStatus, KnockoutSimulation, MatchIntelligence, MatchesResponse, PoolContext, Prediction, Quota, RawMatch,
-  StandingsGroup, UclSimulation, UclSimulationProcessing, UclSimulationResponse, ModelEvaluation, ManualRefreshResult,
+  EloRatings, EloRatingsStatus, KnockoutSimulation, MatchDetailResponse, MatchIntelligence, MatchesResponse, PoolContext, Prediction, Quota, RawMatch,
+  StandingsGroup, UclSimulation, UclSimulationProcessing, UclSimulationResponse, ModelEvaluation, ManualRefreshResult, SaveTipResponse,
 } from './types'
 import { competitionPath } from './competition.mjs'
 import { DEFAULT_UCL_SIMULATION_RUNS, uclSimulationPath } from './simulation.mjs'
@@ -108,6 +108,10 @@ export const api = {
       { signal },
       competition === 'epl2026' || competition === 'ucl2026' ? CLUB_MATCHES_TIMEOUT_MS : undefined,
     ),
+  matchCore: (competition: CompetitionId, matchId: string, signal?: AbortSignal) =>
+    request<MatchDetailResponse>(competitionPath(`/matches/${encodeURIComponent(matchId)}`, competition), { signal }),
+  matchAnalysis: (competition: CompetitionId, matchId: string, signal?: AbortSignal) =>
+    request<MatchDetailResponse>(competitionPath(`/matches/${encodeURIComponent(matchId)}/analysis`, competition), { signal }),
   matchHistory: (competition: CompetitionId, eventId: string) =>
     request<MatchIntelligence>(competitionPath(`/match-history/${encodeURIComponent(eventId)}`, competition)),
   predict: (match: RawMatch, competition: CompetitionId) =>
@@ -116,17 +120,18 @@ export const api = {
       body: JSON.stringify({ match, is_ko: Boolean(match.is_ko_phase) }),
     }),
   saveHistoricalTip: (competition: CompetitionId, matchId: string, userTip: string) =>
-    request<{ ok: boolean; points_earned: number | null }>(competitionPath('/archive/historical_tip', competition), {
+    request<SaveTipResponse>(competitionPath('/archive/historical_tip', competition), {
       method: 'POST', body: JSON.stringify({ match_id: matchId, user_tip: userTip, competition }),
     }),
-  archive: (competition: CompetitionId) => request<Archive>(competitionPath('/archive', competition)),
+  archive: (competition: CompetitionId, matchId?: string, signal?: AbortSignal) =>
+    request<Archive>(competitionPath(`/archive${matchId ? `?match_id=${encodeURIComponent(matchId)}` : ''}`, competition), { signal }),
   modelEvaluation: (competition: CompetitionId) => request<ModelEvaluation>(competitionPath('/model-evaluation', competition)),
   standings: (competition: CompetitionId) => request<StandingsGroup[]>(competitionPath('/standings', competition)),
   eloHistory: (competition: CompetitionId) => request<EloHistory>(competitionPath('/elo_history', competition)),
   eloRatings: (competition: CompetitionId) => request<EloRatings>(competitionPath('/elo_ratings', competition)),
   eloRatingsStatus: (competition: CompetitionId) => request<EloRatingsStatus>(competitionPath('/elo_ratings_status', competition)),
   saveUserTip: (competition: CompetitionId, matchId: string, userTip: string) =>
-    request<{ ok: boolean; points_earned: number | null }>(competitionPath('/archive/user_tip', competition), {
+    request<SaveTipResponse>(competitionPath('/archive/user_tip', competition), {
       method: 'POST',
       body: JSON.stringify({ match_id: matchId, user_tip: userTip, competition }),
     }),

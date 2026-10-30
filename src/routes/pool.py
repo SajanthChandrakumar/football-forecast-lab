@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from fastapi import APIRouter, HTTPException
 
 from src.competitions import collection_for, competition_document_id, find_competition_document, require_competition
 from src.services.input_validation import bounded_match_id, bounded_tip_counts
+from src.services.club_views import club_view_input_write
 
 
 def _integer(value, *, positive=False):
@@ -71,16 +74,17 @@ def init_router(cache_collections, archive_collections=None):
             archived = archive.find_one({"_id": match_id}) or {}
             stored_prediction = archived.get("prediction") or {}
             if stored_prediction:
-                archive.update_one(
-                    {"_id": match_id},
-                    {"$set": {
-                        "prediction.pool_tip": None,
-                        "prediction.pool_status": "unavailable",
-                        "prediction.pool_lambda": None,
-                        "prediction.pool_score": None,
-                    }},
-                    upsert=False,
-                )
+                with club_view_input_write(cache, comp) if comp.is_club_competition else nullcontext():
+                    archive.update_one(
+                        {"_id": match_id},
+                        {"$set": {
+                            "prediction.pool_tip": None,
+                            "prediction.pool_status": "unavailable",
+                            "prediction.pool_lambda": None,
+                            "prediction.pool_score": None,
+                        }},
+                        upsert=False,
+                    )
         cache.update_one(
             {"_id": context_id},
             {"$set": {key: value for key, value in document.items() if key != "_id"}, "$setOnInsert": {"_id": context_id}},

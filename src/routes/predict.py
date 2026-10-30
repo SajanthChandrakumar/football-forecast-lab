@@ -171,9 +171,13 @@ def init_router(math_engine, odds_engine, cache_collection, limiter, archive_col
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
+            freeze_archive = archive_store
+            if comp.is_club_competition:
+                from src.services.model_evaluation import _FencedArchiveWrites
+                freeze_archive = _FencedArchiveWrites(archive_store, cache_store, comp)
             return freeze_prediction(
                 cache_store,
-                archive_store,
+                freeze_archive,
                 prediction_service,
                 str(match_id),
                 competition=comp,

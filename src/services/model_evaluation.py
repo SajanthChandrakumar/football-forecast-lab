@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import math
 import re
 from collections.abc import Mapping
@@ -10,6 +11,7 @@ from typing import Any
 
 from src.competitions import collection_for, find_competition_document, get_competition
 from src.constants import TEAM_MAPPING
+from src.services.club_views import club_view_input_write
 from src.services.snapshots import parse_time, select_t15_snapshot
 
 
@@ -27,6 +29,27 @@ MODEL_ROWS = (
     ("bookmaker", "Buchmacher, margenfrei"),
     ("elo", "Reines Elo"),
 )
+
+
+def _club_view_write(cache_collection, competition):
+    return (club_view_input_write(cache_collection, competition)
+            if get_competition(competition).is_club_competition else nullcontext())
+
+
+class _FencedArchiveWrites:
+    """Fence only the short CAS writes made by the existing freeze routine."""
+
+    def __init__(self, archive_collection, cache_collection, competition):
+        self._archive_collection = archive_collection
+        self._cache_collection = cache_collection
+        self._competition = competition
+
+    def update_one(self, *args, **kwargs):
+        with _club_view_write(self._cache_collection, self._competition):
+            return self._archive_collection.update_one(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._archive_collection, name)
 
 
 def _probabilities(value: Any) -> dict[str, float] | None:
@@ -403,17 +426,18 @@ def freeze_due_comparisons(service, cache_collection, archive_collection, compet
                 }
                 if elo_state:
                     prematch["elo_state"] = elo_state
-                archive_collection.update_one(
-                    {"_id": match_id},
-                    {"$setOnInsert": {
-                        "competition": comp.id,
-                        "metadata": metadata,
-                        "pre_match_snapshot": prematch,
-                        "prediction": {},
-                        "post_match_result": {"status": "pending", "actual_score": None},
-                    }},
-                    upsert=True,
-                )
+                with _club_view_write(cache_collection, comp):
+                    archive_collection.update_one(
+                        {"_id": match_id},
+                        {"$setOnInsert": {
+                            "competition": comp.id,
+                            "metadata": metadata,
+                            "pre_match_snapshot": prematch,
+                            "prediction": {},
+                            "post_match_result": {"status": "pending", "actual_score": None},
+                        }},
+                        upsert=True,
+                    )
                 entry = archive_collection.find_one({"_id": match_id})
                 archive[match_id] = {"metadata": metadata}
                 archive_index = build_archive_id_index(archive)
@@ -440,20 +464,22 @@ def freeze_due_comparisons(service, cache_collection, archive_collection, compet
                 }
                 if elo_state:
                     prematch["elo_state"] = elo_state
-                result_write = archive_collection.update_one(
-                    {"_id": match_id, "pre_match_snapshot": {"$exists": False}, "prediction.frozen_at": {"$exists": False}, "post_match_result.status": {"$ne": "completed"}},
-                    {"$set": {"pre_match_snapshot": prematch}},
-                    upsert=False,
-                )
+                with _club_view_write(cache_collection, comp):
+                    result_write = archive_collection.update_one(
+                        {"_id": match_id, "pre_match_snapshot": {"$exists": False}, "prediction.frozen_at": {"$exists": False}, "post_match_result.status": {"$ne": "completed"}},
+                        {"$set": {"pre_match_snapshot": prematch}},
+                        upsert=False,
+                    )
                 if not getattr(result_write, "matched_count", 0):
                     continue
                 wrote_archive = True
             elif elo_state and not prematch.get("elo_state"):
-                result_write = archive_collection.update_one(
-                    {"_id": match_id, "pre_match_snapshot.elo_state": {"$exists": False}, "prediction.frozen_at": {"$exists": False}, "post_match_result.status": {"$ne": "completed"}},
-                    {"$set": {"pre_match_snapshot.elo_state": elo_state}},
-                    upsert=False,
-                )
+                with _club_view_write(cache_collection, comp):
+                    result_write = archive_collection.update_one(
+                        {"_id": match_id, "pre_match_snapshot.elo_state": {"$exists": False}, "prediction.frozen_at": {"$exists": False}, "post_match_result.status": {"$ne": "completed"}},
+                        {"$set": {"pre_match_snapshot.elo_state": elo_state}},
+                        upsert=False,
+                    )
                 if not getattr(result_write, "matched_count", 0):
                     continue
                 wrote_archive = True
@@ -462,7 +488,7 @@ def freeze_due_comparisons(service, cache_collection, archive_collection, compet
             was_frozen = bool((before or {}).get("frozen_at"))
             frozen = freeze_prediction(
                 cache_collection,
-                archive_collection,
+                _FencedArchiveWrites(archive_collection, cache_collection, comp),
                 service,
                 match_id,
                 competition=comp,

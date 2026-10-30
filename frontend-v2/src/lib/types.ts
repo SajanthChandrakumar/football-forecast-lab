@@ -146,7 +146,12 @@ export interface MatchContext {
 }
 
 export interface Match {
-  detail_level?: 'overview'
+  detail_level?: 'overview' | 'core' | 'analysis'
+  view_version?: string
+  view_status?: 'ready' | 'refreshing'
+  archived_prediction?: Prediction
+  archive_id?: string | null
+  user_tip?: string | null
   id: string
   home_team: string
   away_team: string
@@ -161,6 +166,7 @@ export interface Match {
   probabilities?: Probabilities | null
   base_probabilities?: Probabilities | null
   matrix?: Record<number, Record<number, number>>
+  xp_tips?: XpTip[]
   regulation_matrix?: Record<number, Record<number, number>>
   probability_basis?: 'regulation' | string
   matrix_basis?: 'regulation' | 'after_extra_time' | string
@@ -224,7 +230,16 @@ export interface UnavailablePayload {
   data?: Match[]
 }
 
-export type MatchesResponse = Match[] | UnavailablePayload
+export interface ProcessingPayload {
+  status: 'processing'
+  source: string
+  reason?: string
+  retry_after?: number
+  data: Match[]
+}
+
+export type MatchesResponse = Match[] | UnavailablePayload | ProcessingPayload
+export type MatchDetailResponse = Match | ProcessingPayload
 
 export interface XpTip {
   Tipp: string
@@ -311,6 +326,14 @@ export interface ArchiveEntry {
 }
 
 export type Archive = Record<string, ArchiveEntry>
+
+export interface SaveTipResponse {
+  ok?: boolean
+  points_earned: number | null
+  match_id?: string
+  canonical_match_id?: string
+  archive_entry?: ArchiveEntry
+}
 
 export interface EloHistoryPoint {
   timestamp: number

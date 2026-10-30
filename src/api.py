@@ -45,6 +45,7 @@ from src.services.archive import (
     seed_shared_historical_ucl_tips,
     upsert_archive_entry,
 )
+from src.services.club_views import load_archive_match
 from src.services.auth import require_cron_secret, shared_write_guard, client_ip
 from src.services.input_validation import bounded_match_id, bounded_score
 from src.services.elo_sync import perform_elo_sync
@@ -74,23 +75,26 @@ async def lifespan(_app):
     try:
         result = seed_shared_historical_ucl_tips(
             archive_collections["ucl2026"], MathEngine.calculate_actual_points,
+            cache_collection=cache_collections["ucl2026"],
         )
         logger.info("Shared historical UCL tips: %s", result)
     except Exception:
         logger.exception("Shared historical UCL tip backfill failed")
     from src.services.forecast_worker import run_forecast_worker, run_result_worker, run_club_maintenance_worker
+    from src.services.club_views import run_club_views_worker
     worker = asyncio.create_task(run_forecast_worker(cache_collections, archive_collections, math_engine))
     result_worker = asyncio.create_task(run_result_worker(cache_collections, archive_collections))
     maintenance_worker = asyncio.create_task(run_club_maintenance_worker(
         cache_collections, archive_collections, global_odds_engine, math_engine, team_form_services,
         partial(refresh_match_intelligence, api_football_client=_form_primary),
     ))
+    club_views_worker = asyncio.create_task(run_club_views_worker(cache_collections, archive_collections))
     try:
         yield
     finally:
-        for task in (worker, result_worker, maintenance_worker):
+        for task in (worker, result_worker, maintenance_worker, club_views_worker):
             task.cancel()
-        for task in (worker, result_worker, maintenance_worker):
+        for task in (worker, result_worker, maintenance_worker, club_views_worker):
             with suppress(asyncio.CancelledError):
                 await task
 
@@ -317,15 +321,26 @@ def set_user_tip(request: Request, payload: dict, competition: str | None = None
 @limiter.limit("30/minute")
 def set_historical_tip(request: Request, payload: dict, competition: str | None = None):
     comp = require_competition(competition or payload.get("competition"))
-    return save_historical_tip(archive_collections, payload.get("match_id"), payload.get("user_tip"), comp)
+    return save_historical_tip(archive_collections, payload.get("match_id"), payload.get("user_tip"), comp, cache_store=cache_collections)
 
 
 @app.get("/api/archive")
-def get_archive(competition: str | None = None):
+def get_archive(competition: str | None = None, match_id: str | None = None):
     comp = require_competition(competition)
     # Shared tips may have been saved by a different worker. Always read Mongo here.
     try:
+        if match_id is not None:
+            try:
+                canonical_id = bounded_match_id(match_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return load_archive_match(
+                collection_for(archive_collections, comp),
+                collection_for(cache_collections, comp), comp, canonical_id,
+            )
         return load_archive_from_db(collection_for(archive_collections, comp), force=True, strict=True)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=503, detail="Gespeicherte Tipps sind derzeit nicht erreichbar.") from None
 
@@ -567,7 +582,7 @@ def recalculate_all_points(request: Request, competition: str | None = None):
                             for bot, info in bots.items() if info.get("tip")
                         }
 
-                    upsert_archive_entry(archive_store, match_id, entry)
+                    upsert_archive_entry(archive_store, match_id, entry, cache_collection=collection_for(cache_collections, comp), competition=comp)
 
     return {"status": "success", "recalculated": updated}
 
@@ -591,7 +606,7 @@ def rebuild_honest_tips(request: Request, competition: str | None = None):
             if rebuilt_entry is None:
                 skipped += 1
                 continue
-            upsert_archive_entry(archive_store, match_id, rebuilt_entry)
+            upsert_archive_entry(archive_store, match_id, rebuilt_entry, cache_collection=collection_for(cache_collections, comp), competition=comp)
             rebuilt += 1
         except Exception as e:
             logger.warning(f"rebuild_honest_tips failed for {match_id}: {e}")

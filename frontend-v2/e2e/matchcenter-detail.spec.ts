@@ -70,7 +70,7 @@ test('club outcome chances and score matrices state their different time basis',
   await expect(page.getByText('Einzelne Spielstände laut Score-Matrix (inklusive Verlängerung, ohne Elfmeterschiessen)', { exact: true })).toBeVisible()
 })
 
-test('completed club detail keeps its archived tip when an older live prediction finishes late', async ({ page, api }) => {
+test('completed club detail preserves its frozen core prediction without a live recalculation', async ({ page, api }) => {
   const completed = fixture('ucl-old', 'Bayern Munich', 'Arsenal', -86_400_000)
   api.matches.ucl2026.push(completed)
   const archived = structuredClone(api.archive.ucl2026['ucl-next'])
@@ -78,19 +78,8 @@ test('completed club detail keeps its archived tip when an older live prediction
   archived.prediction = { ...archived.prediction, model_tip: '0:2', top_tip: '0:2', frozen_at: new Date(NOW.getTime() - 2 * 86_400_000).toISOString() }
   api.archive.ucl2026['ucl-old'] = archived
 
-  let releasePrediction!: () => void
-  api.predictionGate = new Promise<void>((resolve) => { releasePrediction = resolve })
-  await page.goto('/#/match/ucl-next')
-  await expect.poll(() => api.predictionRequests.map(({ matchId }) => matchId)).toEqual(['ucl-next'])
-
-  await page.evaluate(() => { window.location.hash = '/match/ucl-old' })
-  await expect(page).toHaveURL(/#\/match\/ucl-old$/)
+  await page.goto('/#/match/ucl-old')
   const recommendation = page.getByRole('region', { name: 'Empfohlener Ergebnistipp' })
   await expect(recommendation).toContainText('0:2')
-  expect(api.predictionRequests.map(({ matchId }) => matchId)).toEqual(['ucl-next'])
-
-  releasePrediction()
-  await expect.poll(() => api.predictionResponses).toBe(1)
-  await expect(recommendation).toContainText('0:2')
-  expect(api.predictionRequests.map(({ matchId }) => matchId)).toEqual(['ucl-next'])
+  expect(api.predictionRequests).toEqual([])
 })

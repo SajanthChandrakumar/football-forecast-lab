@@ -1,6 +1,8 @@
 import time
 import logging
+from contextlib import nullcontext
 
+from src.competitions import get_competition
 from src.constants import TEAM_MAPPING
 
 logger = logging.getLogger(__name__)
@@ -124,16 +126,23 @@ def invalidate_archive_mem_cache(archive_collection=None) -> None:
     _archive_mem_ts[_archive_cache_key(archive_collection)] = 0.0
 
 
-def upsert_archive_entry(archive_collection, match_id: str, entry: dict) -> None:
-    archive_collection.replace_one(
-        {"_id": match_id},
-        {"_id": match_id, **entry},
-        upsert=True
-    )
+def upsert_archive_entry(archive_collection, match_id: str, entry: dict, *,
+                         cache_collection=None, competition=None) -> None:
+    comp = get_competition(competition)
+    write_context = nullcontext()
+    if cache_collection is not None and comp.is_club_competition:
+        from src.services.club_views import club_view_input_write
+        write_context = club_view_input_write(cache_collection, comp)
+    with write_context:
+        archive_collection.replace_one(
+            {"_id": match_id},
+            {"_id": match_id, **entry},
+            upsert=True
+        )
     invalidate_archive_mem_cache(archive_collection)  # next read will re-fetch from MongoDB
 
 
-def seed_shared_historical_ucl_tips(archive_collection, calculate_points) -> dict:
+def seed_shared_historical_ucl_tips(archive_collection, calculate_points, *, cache_collection=None) -> dict:
     """Backfill the user's 18 completed UCL tips into the shared archive once.
 
     Only exact, completed fixture matches with the expected result are eligible.
@@ -173,7 +182,8 @@ def seed_shared_historical_ucl_tips(archive_collection, calculate_points) -> dic
             **result,
             "points_earned": points,
         }
-        upsert_archive_entry(archive_collection, match_id, updated_entry)
+        upsert_archive_entry(archive_collection, match_id, updated_entry,
+                             cache_collection=cache_collection, competition="ucl2026")
         updated += 1
         points_added += points
 

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useArchive, useMatchHistory, useMatches, usePredict } from '../../hooks/queries'
+import { useArchive, useMatchAnalysis, useMatchCore, useMatchHistory, useMatches, usePredict } from '../../hooks/queries'
 import { useAppState } from '../../state/AppState'
 import { computeImpliedProbs, pct } from '../../lib/util'
 import { kickoffTime, shortDate } from '../../lib/format'
 import { fixtureStatus } from '../../lib/fixture-status.mjs'
-import type { BotKey, Match, TeamForm, TeamFormMatch, MatchLineup, MatchPlayer } from '../../lib/types'
+import type { BotKey, Match, Prediction, ProcessingPayload, TeamForm, TeamFormMatch, MatchLineup, MatchPlayer } from '../../lib/types'
 import { FormBadges, TeamLogo } from '../../components/shared/Badges'
 import { MatchHintCard } from '../../components/shared/MatchHintCard'
 import { MatchDataStatus } from '../../components/shared/MatchDataStatus'
@@ -25,6 +25,8 @@ import { lineupRows } from '../../lib/lineup-layout.mjs'
 import { ScoreHeatmap } from './ScoreHeatmap'
 import { formatObservedAt } from './detail-form.mjs'
 import { rankedTipInsights, recentFormSummary, matchLoadSummary, playerFormStatusMessage, playerFormSummary, teamHistoryAnalysis, teamHistoryMetrics } from '../../lib/tip-insights.mjs'
+import { mergeMatchAnalysis } from '../../lib/match-detail.mjs'
+import { getSavedTipForMatch } from '../../lib/shared-tips.mjs'
 import './match-detail.css'
 
 const BOT_LABELS: Record<BotKey, string> = {
@@ -231,6 +233,40 @@ function PitchPlayer({ player }: { player: MatchPlayer }) {
   )
 }
 
+function ClubAnalysisLoadState({ loading, processing, error, errorMessage, isFetching, onRetry }: {
+  loading: boolean
+  processing?: ProcessingPayload
+  error?: unknown
+  errorMessage?: string
+  isFetching: boolean
+  onRetry: () => void
+}) {
+  if (error || errorMessage) return <div className="rounded-xl border border-amber-a/30 bg-amber-a/5 p-4 text-sm text-fg-2" role="alert">
+    <p>{errorMessage ?? 'Zusätzliche Spieldetails konnten nicht geladen werden. Die gespeicherten Kerndaten bleiben verfügbar.'}</p>
+    <button type="button" onClick={onRetry} disabled={isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Erneut versuchen</button>
+  </div>
+  if (processing) return <div className="rounded-xl border border-line bg-surface p-4 text-sm text-fg-2">
+    <p role="status">Die zusätzlichen Spieldetails werden vorbereitet. Modelltipp und Chancen bleiben verfügbar.</p>
+    <button type="button" onClick={onRetry} disabled={isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Erneut versuchen</button>
+  </div>
+  if (loading) return <p className="rounded-xl border border-line bg-surface p-4 text-sm text-fg-2" role="status">Zusätzliche Spieldetails werden geladen …</p>
+  return null
+}
+
+function ClubCoreSummary({ match, tip, probabilities, sourceLabel, observedAt }: {
+  match: Match
+  tip: string | null
+  probabilities: Match['probabilities']
+  sourceLabel?: string
+  observedAt?: string | null
+}) {
+  return <section className="match-card mb-4" aria-label="Zuletzt gespeicherte Spielprognose">
+    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Zuletzt gespeicherter Modelltipp</p>
+    <strong className="mt-1 block display-num text-2xl text-fg">{tip ?? '–'}</strong>
+    <div className="mt-3"><OutcomeBar probabilities={probabilities} homeTeam={match.home_team} awayTeam={match.away_team} sourceLabel={sourceLabel} observedAt={observedAt} compact basisLabel="Nach 90 Minuten" /></div>
+  </section>
+}
+
 export function DetailView() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -241,38 +277,49 @@ export function DetailView() {
   const location = useLocation()
   const [view, setView] = useView<MatchView>(MATCH_VIEWS.map((item) => item.value), 'overview')
   const backToGames = () => location.state?.fromFixtureList ? navigate(-((location.state.viewDepth ?? 0) + 1)) : navigate('/')
-  const matchQuery = useMatches()
-  const { data: matches, isLoading: matchesLoading, error: matchesError, refetch: retryMatches } = matchQuery
-  const archive = useArchive()
+  const matchQuery = useMatches(false, !isClubCompetition)
+  const { data: matches, isLoading: matchesLoading, error: matchesError, refetch: retryMatchList } = matchQuery
+  const coreQuery = useMatchCore(isClubCompetition ? id : undefined)
+  const coreMatch = coreQuery.data
+  const needsClubAnalysis = isClubCompetition && (view === 'form' || view === 'lineups' || view === 'model')
+  const analysisQuery = useMatchAnalysis(coreMatch?.id, coreMatch?.view_version, id, needsClubAnalysis)
+  const analysisMatch = useMemo(
+    () => coreMatch && analysisQuery.data ? mergeMatchAnalysis(coreMatch, analysisQuery.data) : null,
+    [analysisQuery.data, coreMatch],
+  )
+  const archive = useArchive(isClubCompetition ? Boolean(coreMatch) : true, isClubCompetition ? coreMatch?.id : undefined)
   const predict = usePredict()
   const loadPrediction = predict.mutate
   const resetPrediction = predict.reset
   const [copyStatus, setCopyStatus] = useState('')
   const [now, setNow] = useState(() => Date.now())
+  const listMatch = useMemo(() => matches?.find((item) => item.id === id), [matches, id])
+  const match: Match | undefined = isClubCompetition ? analysisMatch ?? coreMatch : listMatch
+  const baseMatch: Match | undefined = isClubCompetition ? coreMatch : listMatch
+  const retryMatches = isClubCompetition ? coreQuery.refetch : retryMatchList
 
   useEffect(() => {
     const clock = window.setInterval(() => setNow(Date.now()), 15_000)
     return () => window.clearInterval(clock)
   }, [])
 
-  const match: Match | undefined = useMemo(() => matches?.find((item) => item.id === id), [matches, id])
-  const isClubMatchUpcoming = Boolean(isClubCompetition && match && fixtureStatus(match, now) === 'upcoming')
+  const isClubMatchUpcoming = Boolean(isClubCompetition && baseMatch && fixtureStatus(baseMatch, now) === 'upcoming')
   const predictionInput = useMemo(() => {
-    if (!match?.raw_match) return undefined
+    if (!baseMatch?.raw_match) return undefined
     return {
       targetCompetition: competition,
       match: {
-        ...match.raw_match,
-        match_context: match.match_context ?? match.context,
-        stage: match.stage,
-        tie_id: match.tie_id,
-        leg: match.leg,
-        first_leg_score: match.first_leg_score,
-        extra_time_eligible: match.extra_time_eligible,
-        is_ko_phase: match.is_ko_phase,
+        ...baseMatch.raw_match,
+        match_context: baseMatch.match_context ?? baseMatch.context,
+        stage: baseMatch.stage,
+        tie_id: baseMatch.tie_id,
+        leg: baseMatch.leg,
+        first_leg_score: baseMatch.first_leg_score,
+        extra_time_eligible: baseMatch.extra_time_eligible,
+        is_ko_phase: baseMatch.is_ko_phase,
       },
     }
-  }, [competition, match])
+  }, [baseMatch, competition])
 
   useEffect(() => {
     if (!isClubCompetition) {
@@ -280,17 +327,31 @@ export function DetailView() {
       return
     }
     resetPrediction()
-    if (predictionInput && isClubMatchUpcoming) loadPrediction(predictionInput)
+    if (predictionInput && isClubMatchUpcoming && baseMatch?.calculation_status === 'pending') loadPrediction(predictionInput)
     return () => resetPrediction()
-  }, [isClubCompetition, isClubMatchUpcoming, loadPrediction, predictionInput, resetPrediction])
+  }, [baseMatch?.calculation_status, isClubCompetition, isClubMatchUpcoming, loadPrediction, predictionInput, resetPrediction])
 
-  if (!matches && matchesError) {
-    return <PageTransition><QueryState title="Spiele konnten nicht geladen werden" message="Die Spielinformationen sind gerade nicht erreichbar. Bitte versuche es erneut." onRetry={() => { void retryMatches() }} /></PageTransition>
+  if (isClubCompetition && !coreMatch && coreQuery.error) {
+    const notFound = coreQuery.error instanceof Error && coreQuery.error.message.startsWith('404')
+    return <PageTransition><button type="button" onClick={backToGames} className="mb-2 min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button><QueryState
+      title={notFound ? 'Spiel nicht gefunden' : 'Spiel konnte nicht geladen werden'}
+      message={notFound ? 'Dieses Spiel ist nicht vorhanden. Kehre zur Übersicht zurück und wähle ein anderes Spiel.' : 'Die gespeicherten Spielinformationen sind gerade nicht erreichbar.'}
+      onRetry={notFound ? undefined : () => { void retryMatches() }}
+    /></PageTransition>
   }
-  if (!matches && matchesLoading) {
+  if (isClubCompetition && !coreMatch && coreQuery.processing) {
+    return <PageTransition><button type="button" onClick={backToGames} className="mb-2 min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button><div className="rounded-xl border border-line bg-surface p-4 text-sm text-fg-2"><p role="status">Die gespeicherten Spieldetails werden vorbereitet.</p><button type="button" onClick={() => { void retryMatches() }} disabled={coreQuery.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Erneut versuchen</button></div></PageTransition>
+  }
+  if (isClubCompetition && !coreMatch && coreQuery.isLoading) {
     return <PageTransition><div className="space-y-4"><Skeleton className="h-8 w-40" /><ChartSkeleton /><Skeleton className="h-32 w-full" /></div></PageTransition>
   }
-  if (!matches) {
+  if (!isClubCompetition && !matches && matchesError) {
+    return <PageTransition><QueryState title="Spiele konnten nicht geladen werden" message="Die Spielinformationen sind gerade nicht erreichbar. Bitte versuche es erneut." onRetry={() => { void retryMatches() }} /></PageTransition>
+  }
+  if (!isClubCompetition && !matches && matchesLoading) {
+    return <PageTransition><div className="space-y-4"><Skeleton className="h-8 w-40" /><ChartSkeleton /><Skeleton className="h-32 w-full" /></div></PageTransition>
+  }
+  if (!isClubCompetition && !matches) {
     return <PageTransition><QueryState title="Spiele sind nicht verfügbar" message="Es liegen keine geladenen Spielinformationen vor." onRetry={() => { void retryMatches() }} /></PageTransition>
   }
   if (!match) {
@@ -302,6 +363,13 @@ export function DetailView() {
     )
   }
 
+  const analysisReady = !isClubCompetition || Boolean(analysisMatch)
+  const missingAnalysisVersion = Boolean(needsClubAnalysis && coreMatch && !coreMatch.view_version && !analysisMatch)
+  const analysisErrorMessage = missingAnalysisVersion
+    ? 'Für diese Detaildaten fehlt die Versionsangabe. Lade die gespeicherten Spieldaten erneut.'
+    : undefined
+  const retryAnalysis = missingAnalysisVersion ? () => coreQuery.refetch() : () => analysisQuery.refetch()
+
   const kickoff = match.raw_match?.commence_time
   const hasKickoff = Boolean(kickoff && Number.isFinite(Date.parse(kickoff)))
   const kickoffLabel = hasKickoff ? `${shortDate(kickoff)} · ${kickoffTime(kickoff)}` : 'Anstoßzeit nicht verfügbar'
@@ -309,8 +377,12 @@ export function DetailView() {
   const currentPrediction = requestMatchesCurrentMatch ? predict.data : undefined
   const fixtureState = fixtureStatus(match, now)
   const isUpcoming = fixtureState === 'upcoming'
-  const archivedClubPrediction = isClubCompetition && !isUpcoming ? archive.data?.[match.id]?.prediction : undefined
-  const clubPrediction = isClubCompetition ? (isUpcoming ? currentPrediction : archivedClubPrediction) : undefined
+  const archivedClubPrediction = isClubCompetition && !isUpcoming
+    ? { ...(match.archived_prediction ?? {}), ...(archive.data?.[match.id]?.prediction ?? {}) }
+    : undefined
+  const clubPrediction: Prediction | undefined = isClubCompetition
+    ? !isUpcoming ? archivedClubPrediction : currentPrediction ?? (view === 'model' && analysisMatch ? analysisMatch : match)
+    : undefined
   const selectedPrediction = isClubCompetition ? clubPrediction : predict.data
   const clubCachePending = Boolean(isClubCompetition && isUpcoming && match.calculation_status === 'pending')
   const hasReadyClubPrediction = Boolean(currentPrediction && (
@@ -325,14 +397,14 @@ export function DetailView() {
   const canRetryPrediction = Boolean(predictionInput && (!isClubCompetition || isUpcoming))
   const cachedModelTip = isClubCompetition && !isUpcoming
     ? archivedClubPrediction?.model_tip ?? archivedClubPrediction?.top_tip ?? null
-    : clubCachePending ? null : match.model_tip ?? match.top_tip
+    : match.model_tip ?? match.top_tip
   const predictionTip = selectedPrediction?.model_tip ?? selectedPrediction?.top_tip ?? null
   const modelTip = predictionTip ?? cachedModelTip
   const activeTip = modelTip && modelTip !== 'N/A' ? modelTip : null
   const canCopy = isUpcoming && Boolean(activeTip)
   const hasBookmakerOdds = Boolean(match.odds && [match.odds.home, match.odds.draw, match.odds.away].every((price) => Number.isFinite(price) && price > 1))
   const displayedPrediction = isClubCompetition
-    ? clubPrediction ?? (isUpcoming && !clubCachePending ? match : undefined)
+    ? clubPrediction
     : predict.data?.probabilities != null || predictionTip != null ? predict.data : match
   const displayedProbabilities = displayedPrediction?.probabilities ?? null
   const outcomeSource = outcomeSourceLabel(displayedPrediction?.source_mode, displayedPrediction?.source)
@@ -340,9 +412,9 @@ export function DetailView() {
   const marketProbabilities = hasBookmakerOdds ? computeImpliedProbs(match.odds) : null
   const tipInsights = rankedTipInsights(selectedPrediction?.xp_tips, selectedPrediction?.matrix)
   const recommendedInsight = tipInsights.find(item => item.tip === activeTip)
-  const expectedPoints = predictionTip != null ? (recommendedInsight?.expectedPoints ?? selectedPrediction?.max_xp) : (isClubCompetition && !isUpcoming ? archivedClubPrediction?.max_xp : clubCachePending ? null : match.max_xp)
-  const xgHome = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_home ?? (clubCachePending ? null : match.xg_home))
-  const xgAway = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_away ?? (clubCachePending ? null : match.xg_away))
+  const expectedPoints = predictionTip != null ? (recommendedInsight?.expectedPoints ?? selectedPrediction?.max_xp) : (isClubCompetition && !isUpcoming ? archivedClubPrediction?.max_xp : match.max_xp)
+  const xgHome = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_home ?? match.xg_home)
+  const xgAway = isClubCompetition && !isUpcoming ? null : (selectedPrediction?.xg_away ?? match.xg_away)
   const hintMatch: Match | undefined = displayedPrediction ? {
     ...match,
     calculation_status: undefined,
@@ -378,6 +450,14 @@ export function DetailView() {
         <button type="button" onClick={backToGames} className="min-h-11 text-sm font-semibold text-blue-a hover:underline">← Zurück zur Übersicht</button>
         <button type="button" aria-label="Diese Teams vergleichen" onClick={() => { setSelectedTeams([match.home_team, match.away_team]); navigate('/team-form') }} className="min-h-11 text-xs font-semibold text-blue-a hover:underline">Teams vergleichen</button>
       </div>
+      {isClubCompetition && coreMatch && coreQuery.error && <div className="mb-4 rounded-xl border border-amber-a/30 bg-amber-a/5 p-4 text-sm text-fg-2" role="alert">
+        <p>Die gespeicherten Spieldaten konnten nicht aktualisiert werden. Der zuletzt verfügbare Stand bleibt sichtbar.</p>
+        <button type="button" onClick={() => { void retryMatches() }} disabled={coreQuery.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Erneut versuchen</button>
+      </div>}
+      {isClubCompetition && coreMatch && !coreQuery.error && (coreQuery.processing || match.view_status === 'refreshing') && <div className="mb-4 rounded-xl border border-line bg-surface p-4 text-sm text-fg-2">
+        <p role="status">Neue gespeicherte Daten werden übernommen. Der zuletzt veröffentlichte Stand und seine Quellenzeiten bleiben sichtbar.</p>
+        <button type="button" onClick={() => { void retryMatches() }} disabled={coreQuery.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Erneut versuchen</button>
+      </div>}
       {matchesError && <div className="mb-4"><QueryState title="Spiele konnten nicht aktualisiert werden" message="Die zuletzt geladenen Spielinformationen werden angezeigt. Prüfe die Verbindung und lade die Liste erneut." onRetry={() => { void retryMatches() }} /></div>}
 
       <header className="page-header match-heading">
@@ -422,7 +502,7 @@ export function DetailView() {
               <p className="mt-1">Lade die gespeicherten Tipps erneut, bevor du einen Tipp abgibst.</p>
               <button type="button" onClick={() => { void archive.refetch() }} disabled={archive.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Tipps erneut laden</button>
             </div>}
-            {archive.data && <SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={archive.data[match.id]?.prediction?.user_tip} now={now} unavailableReason={archive.error ? 'Tipps sind gerade nicht erreichbar. Deine Eingabe bleibt erhalten.' : undefined} />}
+            {archive.data && <SharedTipEditor key={`${competition}:${match.id}`} match={match} competition={competition} savedTip={getSavedTipForMatch(match, archive.data)} now={now} unavailableReason={archive.error ? 'Tipps sind gerade nicht erreichbar. Deine Eingabe bleibt erhalten.' : undefined} />}
           </section>
         </div>
 
@@ -438,6 +518,9 @@ export function DetailView() {
       </ViewPanel>
 
       <ViewPanel id="match-analysis" value="form" active={view}>
+        {isClubCompetition && !analysisReady && <ClubCoreSummary match={match} tip={activeTip} probabilities={displayedProbabilities} sourceLabel={outcomeSource} observedAt={outcomeObservedAt} />}
+        {isClubCompetition && <ClubAnalysisLoadState loading={needsClubAnalysis && !analysisReady && analysisQuery.isLoading} processing={needsClubAnalysis ? analysisQuery.processing : undefined} error={needsClubAnalysis ? analysisQuery.error : undefined} errorMessage={needsClubAnalysis ? analysisErrorMessage : undefined} isFetching={analysisQuery.isFetching} onRetry={retryAnalysis} />}
+        {analysisReady && <>
         <section className="analysis-section match-card" aria-labelledby="form-title">
           <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Teamleistung</p><h2 id="form-title" className="mt-1 text-lg font-bold text-fg">Tore & Form</h2></div></div>
           {xgHome != null && xgAway != null && xgHome + xgAway > 0 ? (
@@ -477,9 +560,13 @@ export function DetailView() {
             ))}
           </div>
         </section>
+        </>}
       </ViewPanel>
 
       <ViewPanel id="match-analysis" value="lineups" active={view}>
+        {isClubCompetition && !analysisReady && <ClubCoreSummary match={match} tip={activeTip} probabilities={displayedProbabilities} sourceLabel={outcomeSource} observedAt={outcomeObservedAt} />}
+        {isClubCompetition && <ClubAnalysisLoadState loading={needsClubAnalysis && !analysisReady && analysisQuery.isLoading} processing={needsClubAnalysis ? analysisQuery.processing : undefined} error={needsClubAnalysis ? analysisQuery.error : undefined} errorMessage={needsClubAnalysis ? analysisErrorMessage : undefined} isFetching={analysisQuery.isFetching} onRetry={retryAnalysis} />}
+        {analysisReady && <>
         {missing.length > 0 && <section className="analysis-section match-card" aria-labelledby="missing-title">
           <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-a">Kaderhinweis</p><h2 id="missing-title" className="mt-1 text-lg font-bold text-fg">Fehlende Spieler in der Aufstellung</h2></div></div>
           {missing.map(([team, value]) => <p key={team} className="mt-2 text-sm text-fg-2"><b className="text-fg">{team}:</b> {value.missing.join(', ')}</p>)}
@@ -517,6 +604,7 @@ export function DetailView() {
             })}
           </div>
         </section>
+        </>}
       </ViewPanel>
 
       <ViewPanel id="match-analysis" value="market" active={view}>
@@ -549,6 +637,9 @@ export function DetailView() {
       </ViewPanel>
 
       <ViewPanel id="match-analysis" value="model" active={view}>
+        {isClubCompetition && !analysisReady && <ClubCoreSummary match={match} tip={activeTip} probabilities={displayedProbabilities} sourceLabel={outcomeSource} observedAt={outcomeObservedAt} />}
+        {isClubCompetition && <ClubAnalysisLoadState loading={needsClubAnalysis && !analysisReady && analysisQuery.isLoading} processing={needsClubAnalysis ? analysisQuery.processing : undefined} error={needsClubAnalysis ? analysisQuery.error : undefined} errorMessage={needsClubAnalysis ? analysisErrorMessage : undefined} isFetching={analysisQuery.isFetching} onRetry={retryAnalysis} />}
+        {analysisReady && <>
         <section className="analysis-section match-card" aria-labelledby="model-title">
           <div className="section-heading"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Ergebnismodell</p><h2 id="model-title" className="mt-1 text-lg font-bold text-fg">Ergebnis-Alternativen</h2></div></div>
           <p className="mt-2 text-xs text-fg-3">Nach erwarteten Tippspielpunkten. Die Chance für den exakten Treffer ist davon getrennt.</p>
@@ -567,7 +658,7 @@ export function DetailView() {
           <section className="match-card" aria-labelledby="other-tips-title"><div className="section-heading"><div><h2 id="other-tips-title" className="text-base font-bold text-fg">Weitere Modelltipps</h2><p className="mt-1 text-xs text-fg-3">Alternative Vorschläge nach erwarteten Punkten</p></div></div>
             {selectedPrediction?.xp_tips?.length ? <ol className="ranking-list mt-3">{selectedPrediction.xp_tips.slice(0, 5).map((item, index) => <li key={item.Tipp} className="ranking-row"><span className="text-fg-2">{index + 1}. <b className="ml-1 display-num text-lg text-fg">{item.Tipp}</b></span><span className="tabular-nums text-fg-2">{item.xP.toFixed(2)} erwartete Punkte</span></li>)}</ol> : <p className="mt-3 text-sm text-fg-2">Keine weiteren Modelltipps verfügbar.</p>}
           </section>
-          {(!isClubCompetition || !clubCachePending) && match.bots && Object.keys(match.bots).length > 0 && <section className="match-card"><div className="section-heading"><h2 className="text-base font-bold text-fg">Bot-Vorschläge</h2></div><ul className="ranking-list mt-3">{(Object.keys(BOT_LABELS) as BotKey[]).map((key) => {
+          {(!isClubCompetition || (isUpcoming && !clubCachePending)) && match.bots && Object.keys(match.bots).length > 0 && <section className="match-card"><div className="section-heading"><h2 className="text-base font-bold text-fg">Bot-Vorschläge</h2></div><ul className="ranking-list mt-3">{(Object.keys(BOT_LABELS) as BotKey[]).map((key) => {
             const tip = match.bots?.[key]?.tip
             return tip ? <li key={key} className="ranking-row"><span className="text-fg-2">{BOT_LABELS[key]}</span><b className="display-num text-fg">{tip}</b></li> : null
           })}</ul></section>}
@@ -579,6 +670,7 @@ export function DetailView() {
           <summary>Wie wird der Tipp gewählt?</summary>
           <div className="info-content"><p>Das Modell wählt den Ergebnistipp mit den höchsten erwarteten Tippspielpunkten. Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Torwerte beschreiben einen Modellschnitt und sind kein garantiertes Ergebnis.</p><p className="mt-2">Kopieren überträgt den Vorschlag nur in die Zwischenablage. Speichern legt einen gemeinsamen Tipp für das Spiel ab: nicht nutzergetrennt und für alle sichtbar. Die Abgabe schließt fünf Minuten vor Anpfiff.</p></div>
         </details>
+        </>}
       </ViewPanel>
       </div>
     </PageTransition>

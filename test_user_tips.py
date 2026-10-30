@@ -16,7 +16,7 @@ class MemoryCollection:
         self.update_calls = []
         self.replace_calls = 0
 
-    def find_one(self, query):
+    def find_one(self, query, projection=None):
         self.find_calls.append(query)
         return self.documents.get(query.get("_id"))
 
@@ -97,6 +97,32 @@ def test_unknown_fixture_is_not_inserted_without_a_competition_cached_match():
     assert cache.find_calls == [{"_id": "ucl2026:matches_cache"}]
 
 
+def test_cross_competition_archive_entry_cannot_resolve_an_unknown_fixture():
+    fixture = cache_fixture()
+    epl_cache = MemoryCollection([{
+        "_id": competition_document_id("epl2026", "matches_cache"), "data": [],
+    }])
+    epl_archive = MemoryCollection()
+    other_competition_archive = MemoryCollection([{
+        "_id": "fixture-1", "metadata": {
+            "home_team": fixture["home_team"], "away_team": fixture["away_team"],
+            "commence_time": fixture["commence_time"],
+        }, "prediction": {"user_tip": None},
+        "post_match_result": {"status": "pending", "actual_score": None},
+    }])
+
+    with pytest.raises(HTTPException) as error:
+        save_shared_tip(
+            {"epl2026": epl_archive, "ucl2026": other_competition_archive},
+            {"epl2026": epl_cache, "ucl2026": cache_store(fixture)},
+            "fixture-1", "1:0", "epl2026",
+        )
+
+    assert error.value.status_code == 404
+    assert epl_archive.documents == {}
+    assert other_competition_archive.documents["fixture-1"]["prediction"]["user_tip"] is None
+
+
 @pytest.mark.parametrize("overrides", [
     {"completed": True, "actual_score": "1:0"},
     {"actual_score": "1:0"},
@@ -142,7 +168,10 @@ def test_cached_fixture_is_inserted_atomically_and_only_user_tip_is_set():
     result = save_shared_tip(archive, cache, "fixture-1", "03:00", "ucl2026", now=now)
     entry = archive.documents["fixture-1"]
 
-    assert result == {"ok": True, "points_earned": None}
+    assert result["ok"] is True and result["points_earned"] is None
+    assert result["match_id"] == "fixture-1"
+    assert result["canonical_match_id"] == "fixture-1"
+    assert result["archive_entry"]["prediction"]["user_tip"] == "3:0"
     assert entry["metadata"]["commence_time"] == fixture["commence_time"]
     assert entry["metadata"]["home_team"] == "Team A"
     assert entry["prediction"]["top_tip"] == "2:1"
@@ -150,11 +179,26 @@ def test_cached_fixture_is_inserted_atomically_and_only_user_tip_is_set():
     assert entry["prediction"]["probabilities"] == {"home": 0.6, "draw": 0.2, "away": 0.2}
     assert entry["prediction"]["user_tip"] == "3:0"
     assert entry["post_match_result"]["status"] == "pending"
-    assert cache.find_calls == [{"_id": "ucl2026:matches_cache"}]
+    assert cache.find_calls[0] == {"_id": "ucl2026:matches_cache"}
+    assert cache.find_calls.count({"_id": "ucl2026:club_views"}) == 2
     assert archive.replace_calls == 0
     assert len(archive.update_calls) == 1
     assert archive.update_calls[0][1]["$set"] == {"prediction.user_tip": "3:0"}
     assert archive.update_calls[0][2] is True
+
+
+def test_first_tip_save_returns_the_actual_inserted_archive_entry():
+    fixture = cache_fixture()
+    archive = MemoryCollection()
+
+    result = save_shared_tip(archive, cache_store(fixture), "fixture-1", "2:0", "ucl2026")
+
+    stored = archive.documents["fixture-1"]
+    assert result["match_id"] == "fixture-1"
+    assert result["canonical_match_id"] == "fixture-1"
+    assert result["archive_entry"] == {key: value for key, value in stored.items() if key != "_id"}
+    assert result["archive_entry"]["prediction"]["user_tip"] == "2:0"
+    assert result["archive_entry"]["post_match_result"]["status"] == "pending"
 
 
 def test_existing_prediction_and_result_fields_survive_tip_update():
@@ -196,7 +240,9 @@ def test_concurrent_archive_insert_keeps_new_forecast_and_sets_only_user_tip():
 
     result = save_shared_tip(archive, cache_store(fixture), "fixture-1", "1:0", "ucl2026")
 
-    assert result == {"ok": True, "points_earned": None}
+    assert result["ok"] is True and result["points_earned"] is None
+    assert result["match_id"] == "fixture-1"
+    assert result["archive_entry"]["prediction"]["user_tip"] == "1:0"
     assert archive.documents["fixture-1"]["prediction"] == {"top_tip": "4:0", "user_tip": "1:0"}
     assert archive.update_calls[-1][1] == {"$set": {"prediction.user_tip": "1:0"}}
 

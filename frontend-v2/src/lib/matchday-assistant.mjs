@@ -1,5 +1,6 @@
 import { fixtureStatus, sharedTipIsOpen } from './fixture-status.mjs'
 import { modelInputFreshness } from './match-freshness.mjs'
+import { getSavedTipForMatch } from './shared-tips.mjs'
 
 export const TIP_BATCH_LIMIT = 18
 export const TIP_SAVE_CONCURRENCY = 3
@@ -17,8 +18,7 @@ export function isValidScoreTip(value) {
 export function buildAssistantRows(matches, archive, drafts, savedOverrides, now = Date.now(), competition = '') {
   return matches.map((match) => {
     const savedTip = savedOverrides[match.id]
-      ?? archive?.[match.id]?.prediction?.user_tip
-      ?? ''
+      ?? getSavedTipForMatch(match, archive)
     const status = fixtureStatus(match, now)
     const unavailable = match.source_mode === 'unavailable'
       || [match.source_status, match.status].some((value) => value === 'unavailable' || value === 'failed')

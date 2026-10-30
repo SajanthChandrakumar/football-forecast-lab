@@ -101,6 +101,6 @@ test('API overview skips unused fixture and standings downloads until a football
   expect(paths).not.toContain('/api/standings')
   await page.getByRole('navigation', { name: 'Hauptnavigation', exact: true }).filter({ visible: true }).getByRole('link', { name: 'Spiele', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Tipp ansehen: Arsenal gegen Chelsea', exact: true })).toBeVisible()
-  expect(api.matchRequests).toEqual([{ competition: 'epl2026', force: false }])
+  expect(api.matchRequests).toEqual([{ competition: 'epl2026', force: false, overview: true }])
   expect(paths).toContain('/api/standings')
 })

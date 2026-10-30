@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
 
 for (const competition of ['epl2026', 'ucl2026'] as const) {
-  test(`${competition} home loads only the overview and opens full details on demand`, async ({ page, api }) => {
+  test(`${competition} home loads overview rows and opens one game's details on demand`, async ({ page, api }) => {
     await page.addInitScript(mode => localStorage.setItem('competition', mode), competition)
     const requests: URL[] = []
     page.on('request', request => {
@@ -24,9 +24,12 @@ for (const competition of ['epl2026', 'ucl2026'] as const) {
     expect(requests.some(url => url.pathname === '/api/archive')).toBe(false)
     await link.click()
     await expect(page.getByRole('tab', { name: 'Form', exact: true })).toBeVisible()
-    await expect.poll(() => matchRequests().length).toBe(2)
-    expect(matchRequests()[1].searchParams.has('overview')).toBe(false)
+    await expect.poll(() => api.coreRequests.some(request => request.competition === competition && request.matchId === match.id)).toBe(true)
+    expect(matchRequests()).toHaveLength(1)
+    expect(requests.some(url => url.pathname === '/api/archive' && !url.searchParams.has('match_id'))).toBe(false)
+    expect(api.archiveMatchRequests).toContainEqual({ competition, matchId: match.id })
     await page.getByRole('tab', { name: 'Form', exact: true }).click()
+    await expect.poll(() => api.analysisRequests.some(request => request.competition === competition && request.matchId === match.id)).toBe(true)
     await expect(page.getByRole('region', { name: `${match.home_team} Pflichtspielform`, exact: true })).toContainText('1 von 10')
   })
 
@@ -59,4 +62,5 @@ test('saved-data reload updates the active club overview immediately', async ({ 
   await page.keyboard.press('Escape')
   await expect.poll(() => overviewRequests.length).toBe(2)
   await expect(row).toContainText('4:0')
+  expect(api.forcedMatchRequests).toEqual([{ competition: 'ucl2026', force: true, overview: true }])
 })
