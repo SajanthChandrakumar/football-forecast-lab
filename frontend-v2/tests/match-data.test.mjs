@@ -116,6 +116,8 @@ test('overview defers lineup details rather than claiming that cached lineups ar
   const overview = buildMatchDataStatus(match({ detail_level: 'overview' }), now)
   assert.deepEqual(overview.rows.map(row => row.key), ['odds', 'elo'])
   assert.equal(overview.status, 'fresh')
+  const core = buildMatchDataStatus(match({ detail_level: 'core' }), now)
+  assert.deepEqual(core.rows.map(row => row.key), ['odds', 'elo'])
   const full = buildMatchDataStatus(match(), now)
   assert.equal(full.rows.find(row => row.key === 'lineups').status, 'unavailable')
 })

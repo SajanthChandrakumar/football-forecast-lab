@@ -1,8 +1,10 @@
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
 
 from src.routes import matches as matches_module
 from src.routes.matches import init_router
+from src.services.club_views import game_view_id, overview_view_id, build_match_views
 
 
 NOW = datetime.now(timezone.utc).isoformat()
@@ -173,6 +175,28 @@ def _endpoint(cache, archive, *, competition="epl2026", team_form_service=None):
     return next(route.endpoint for route in router.routes if route.path == "/api/matches")
 
 
+def _seed_prepared_views(cache, archive, competition):
+    source = cache.documents[f"{competition}:matches_cache"].get("data") or []
+    archived = {
+        row["_id"]: {key: value for key, value in row.items() if key != "_id"}
+        for row in archive.documents.values()
+    }
+    bundle = build_match_views(source, archived, competition)
+    cache.documents[overview_view_id(competition)] = {
+        "_id": overview_view_id(competition), "competition": competition,
+        "generation": 1, "input_revision": 0, "published_revision": 0,
+        "active_writers": {}, "overview": bundle["overview"],
+        "aliases": bundle["aliases"], "archive_ids": bundle["archive_ids"],
+        "match_versions": {key: row["view_version"] for key, row in bundle["games"].items()},
+        "source_hash": bundle["source_hash"],
+    }
+    for match_id, row in bundle["games"].items():
+        cache.documents[game_view_id(competition, match_id)] = {
+            "_id": game_view_id(competition, match_id), "kind": "club_game_view",
+            "competition": competition, "match_id": match_id, **row,
+        }
+
+
 def test_pl_overview_projects_and_strips_details_while_full_response_keeps_them(monkeypatch):
     cache = MongoAwareCollection([{
         "_id": "epl2026:matches_cache",
@@ -199,6 +223,7 @@ def test_pl_overview_projects_and_strips_details_while_full_response_keeps_them(
 
     monkeypatch.setattr(matches_module, "attach_cached_match_intelligence", attach_intelligence)
     endpoint = _endpoint(cache, archive, team_form_service=FormService())
+    _seed_prepared_views(cache, archive, "epl2026")
 
     full = endpoint(competition="epl2026")
     overview = endpoint(competition="epl2026", overview=True)
@@ -228,8 +253,12 @@ def test_pl_overview_projects_and_strips_details_while_full_response_keeps_them(
 
     assert cache.find_one_calls == [
         ({"_id": "epl2026:matches_cache"}, None),
-        ({"_id": "epl2026:matches_cache"}, _OVERVIEW_PROJECTION),
-        ({"_id": "epl2026:matches_cache"}, _OVERVIEW_PROJECTION),
+        ({"_id": overview_view_id("epl2026")}, {
+            "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+        }),
+        ({"_id": overview_view_id("epl2026")}, {
+            "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+        }),
     ]
     assert form_calls == [2]
     assert intelligence_calls == [2]
@@ -250,6 +279,7 @@ def test_ucl_overview_keeps_completed_archive_tip_and_wm_ignores_overview(monkey
     }])
     monkeypatch.setattr(matches_module, "attach_cached_match_intelligence", lambda rows, *_args: rows)
     ucl_endpoint = _endpoint(cache, archive, competition="ucl2026")
+    _seed_prepared_views(cache, archive, "ucl2026")
 
     ucl = ucl_endpoint(competition="ucl2026", overview=True, force=True)
 
@@ -257,9 +287,13 @@ def test_ucl_overview_keeps_completed_archive_tip_and_wm_ignores_overview(monkey
     assert ucl[0]["completed"] is True
     assert ucl[0]["post_match_result"] == {"status": "completed", "actual_score": "1:2"}
     assert ucl[0]["source_mode"] == "archived"
+    assert ucl[0]["archived_prediction"]["top_tip"] == "0:1"
+    assert ucl[0]["probabilities"] is None
     assert "matrix" not in ucl[0] and "score_matrix" not in ucl[0]
-    assert cache.find_one_calls == [({"_id": "ucl2026:matches_cache"}, _OVERVIEW_PROJECTION)]
-    assert archive.find_calls and archive.find_calls[0][0] == {"post_match_result.status": "completed"}
+    assert cache.find_one_calls == [({"_id": overview_view_id("ucl2026")}, {
+        "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+    })]
+    assert archive.find_calls == []
 
     world_cup_cache = MongoAwareCollection([{
         "_id": "wc2026:matches_cache",
@@ -283,9 +317,14 @@ def test_missing_club_overview_cache_stays_unavailable_without_writes():
 
     result = endpoint(competition="epl2026", overview=True, force=True)
 
-    assert result["status"] == "unavailable"
-    assert result["data"] == []
-    assert cache.find_one_calls == [({"_id": "epl2026:matches_cache"}, _OVERVIEW_PROJECTION)]
+    assert result.status_code == 202
+    assert json.loads(result.body) == {
+        "status": "processing", "data": [], "source": "club_views",
+        "reason": "preparing", "retry_after": 2,
+    }
+    assert cache.find_one_calls == [({"_id": overview_view_id("epl2026")}, {
+        "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+    })]
     assert cache.writes == archive.writes == []
 
 

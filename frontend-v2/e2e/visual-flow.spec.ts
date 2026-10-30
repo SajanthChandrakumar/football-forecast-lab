@@ -28,7 +28,7 @@ test('source warnings stay visible while explanatory notes open on demand', asyn
   await page.goto('/#/match/ucl-next')
   const data = page.getByRole('region', { name: 'Datenlage', exact: true })
   await expect(data.getByText('Älterer Datenstand', { exact: true }).first()).toBeVisible()
-  await expect(data.getByText('Nicht erfasst', { exact: true })).toBeVisible()
+  await expect(data.getByText('Aufstellungen werden im Tab Aufstellungen geladen.', { exact: true })).toBeVisible()
   const note = data.getByText(/Die Aktualität der gespeicherten Eingaben/)
   await expect(note).not.toBeVisible()
   await data.locator('summary').filter({ hasText: 'Was bedeutet die Datenlage?' }).click()

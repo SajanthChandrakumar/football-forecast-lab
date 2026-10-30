@@ -48,6 +48,7 @@ export async function installApi(page: Page) {
     wc2026: [fixture('wc-next', 'England', 'Switzerland')],
   }
   const archive = Object.fromEntries(Object.entries(matches).map(([comp, items]) => [comp, archiveFor(items)])) as Record<CompetitionId, Archive>
+  const aliases: Partial<Record<CompetitionId, Record<string, string>>> = { ucl2026: { 'ucl-alias': 'ucl-next' } }
   for (const [competition, items] of Object.entries(matches)) {
     const first = items[0]
     for (let i = 1; i <= 2; i++) {
@@ -69,7 +70,21 @@ export async function installApi(page: Page) {
     predictionGate: undefined as Promise<void> | undefined,
     saveGate: undefined as Promise<void> | undefined,
     matchesGate: undefined as Promise<void> | undefined,
-    matchRequests: [] as { competition: CompetitionId; force: boolean }[],
+    archiveGate: undefined as Promise<void> | undefined,
+    matchRequests: [] as { competition: CompetitionId; force: boolean; overview: boolean }[],
+    coreRequests: [] as { competition: CompetitionId; matchId: string }[],
+    analysisRequests: [] as { competition: CompetitionId; matchId: string }[],
+    archiveMatchRequests: [] as { competition: CompetitionId; matchId: string | null }[],
+    coreProcessingResponses: 0,
+    overviewProcessingResponses: 0,
+    analysisFailureCount: 0,
+    analysisViewVersion: undefined as string | undefined,
+    analysisVersions: [] as string[],
+    analysisResponseVersions: [] as string[],
+    promoteAnalysisVersion: false,
+    viewVersion: 'fixture-view-v1',
+    viewStatus: undefined as 'ready' | 'refreshing' | undefined,
+    analysisGate: undefined as Promise<void> | undefined,
     forcedMatchRequests: [] as { competition: CompetitionId; force: boolean }[],
     saves: [] as { match_id: string; user_tip: string; competition: CompetitionId }[],
     unexpected: [] as string[],
@@ -88,14 +103,73 @@ export async function installApi(page: Page) {
       { id: 'wc2026', short_name: 'WM 2026', display_name: 'FIFA World Cup 2026' },
     ])
     if (endpoint === 'matches') {
-      const matchRequest = { competition, force: url.searchParams.get('force') === 'true' }
+      const overview = url.searchParams.get('overview') === 'true'
+      const matchRequest = { competition, force: url.searchParams.get('force') === 'true', overview }
       state.matchRequests.push(matchRequest)
       if (matchRequest.force) state.forcedMatchRequests.push(matchRequest)
       await state.matchesGate
       if (state.unavailableRefresh && url.searchParams.get('force') === 'true') return respond({ status: 'unavailable', data: [], error: 'Cache temporarily unavailable' })
-      return respond(matches[competition])
+      if (overview && state.overviewProcessingResponses > 0) {
+        state.overviewProcessingResponses -= 1
+        return respond({ status: 'processing', data: [], source: 'club_views', reason: 'preparing', retry_after: 0.05 }, 202)
+      }
+      return respond(overview ? matches[competition].map(match => {
+        const row = { ...match, detail_level: 'overview' as const, view_status: state.viewStatus }
+        delete row.home_form
+        delete row.away_form
+        delete row.matrix
+        delete row.match_intelligence
+        return row
+      }) : matches[competition])
     }
-    if (endpoint === 'archive') return state.failArchive ? respond({ detail: 'Archive unavailable' }, 503) : respond(archive[competition])
+    if (endpoint.startsWith('matches/')) {
+      const [, requestedId, detail] = endpoint.split('/')
+      const decodedId = decodeURIComponent(requestedId)
+      const matchId = aliases[competition]?.[decodedId] ?? decodedId
+      const match = matches[competition].find(item => item.id === matchId)
+      if (!match) return respond({ detail: 'Match not found' }, 404)
+      if (detail === 'analysis') {
+        state.analysisRequests.push({ competition, matchId })
+        await state.analysisGate
+        if (state.analysisFailureCount > 0) {
+          state.analysisFailureCount -= 1
+          return respond({ detail: 'Analysis unavailable' }, 503)
+        }
+        const version = state.analysisVersions.shift() ?? state.analysisViewVersion ?? state.viewVersion
+        state.analysisResponseVersions.push(version)
+        if (state.promoteAnalysisVersion) state.viewVersion = version
+        return respond({ ...match, ...state.prediction, detail_level: 'analysis', view_version: version, view_status: state.viewStatus })
+      }
+      state.coreRequests.push({ competition, matchId })
+      if (state.coreProcessingResponses > 0) {
+        state.coreProcessingResponses -= 1
+        return respond({ status: 'processing', data: [], source: 'club_views', reason: 'preparing', retry_after: 0.05 }, 202)
+      }
+      const core = { ...match, detail_level: 'core', view_version: state.viewVersion, view_status: state.viewStatus } as Match & { view_version: string; detail_level: string; archived_prediction?: unknown }
+      delete core.home_form
+      delete core.away_form
+      delete core.matrix
+      delete core.regulation_matrix
+      delete core.match_intelligence
+      if (state.prediction && match.calculation_status !== 'pending') Object.assign(core, state.prediction)
+      delete core.matrix
+      delete core.regulation_matrix
+      delete core.xp_tips
+      const archived = archive[competition][matchId]
+      if (match.completed || archived?.post_match_result?.status === 'completed' || archived?.prediction?.frozen_at) core.archived_prediction = archived.prediction
+      return respond(core)
+    }
+    if (endpoint === 'archive') {
+      await state.archiveGate
+      const matchId = url.searchParams.get('match_id')
+      if (matchId !== null) {
+        state.archiveMatchRequests.push({ competition, matchId })
+        const canonicalId = aliases[competition]?.[matchId] ?? matchId
+        const entry = archive[competition][canonicalId]
+        return state.failArchive ? respond({ detail: 'Archive unavailable' }, 503) : respond(entry ? { [canonicalId]: entry } : {})
+      }
+      return state.failArchive ? respond({ detail: 'Archive unavailable' }, 503) : respond(archive[competition])
+    }
     if (endpoint === 'archive/historical_tip') {
       const tip = request.postDataJSON()
       state.saves.push(tip)

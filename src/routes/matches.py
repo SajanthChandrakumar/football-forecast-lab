@@ -29,6 +29,11 @@ from src.services.input_validation import bounded_match_id
 from src.services.source_freshness import source_status
 from src.services.prediction_cache import cached_prediction
 from src.services.club_json import ClubJSONResponse, accepts_gzip
+from src.services.club_views import (
+    has_complete_club_prediction,
+    overview_view_id,
+    published_match_view,
+)
 from src.math_engine import MathEngine
 
 logger = logging.getLogger(__name__)
@@ -140,7 +145,8 @@ def build_elo_snapshot(math_engine, home_team: str, away_team: str, competition=
     return {"home_rating": values[0], "away_rating": values[1]}
 
 
-def _sync_archive_tips(matches, archive, archive_collection, *, persist_pending=True, competition=None):
+def _sync_archive_tips(matches, archive, archive_collection, *, persist_pending=True,
+                       competition=None, cache_collection=None):
     """Reconcile dashboard tips with the archive.
 
     Pending matches: the archive follows the latest recalculation (prediction
@@ -202,7 +208,10 @@ def _sync_archive_tips(matches, archive, archive_collection, *, persist_pending=
             entry["prediction"]["max_xp"] = m.get("max_xp", 0)
             changed[mid] = entry
     for mid, entry in changed.items():
-        upsert_archive_entry(archive_collection, mid, entry)
+        upsert_archive_entry(
+            archive_collection, mid, entry,
+            cache_collection=cache_collection, competition=competition,
+        )
     return matches
 
 
@@ -343,6 +352,7 @@ def _present_cached_matches(
         archive_store,
         persist_pending=not comp.is_club_competition,
         competition=comp,
+        cache_collection=cache_store,
     ), comp)
     if overview:
         for match in result:
@@ -416,30 +426,7 @@ def _is_completed_match(match):
 
 
 def _has_complete_ucl_prediction(match):
-    if not isinstance(match, dict):
-        return False
-    probabilities = match.get("probabilities")
-    provenance = match.get("input_provenance") or match.get("provenance")
-    if not isinstance(probabilities, dict) or not {"home", "draw", "away"}.issubset(probabilities):
-        return False
-    if not isinstance(provenance, dict) or not provenance:
-        return False
-    try:
-        values = [float(probabilities[key]) for key in ("home", "draw", "away")]
-        if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in values):
-            return False
-        if not math.isclose(sum(values), 1.0, rel_tol=1e-9, abs_tol=1e-6):
-            return False
-        if any(not math.isfinite(float(match.get(key))) for key in ("xg_home", "xg_away")):
-            return False
-    except (TypeError, ValueError, OverflowError):
-        return False
-    return bool(
-        _normalised_matrix_dict(match.get("matrix") or match.get("score_matrix"))
-        and (match.get("model_tip") or match.get("top_tip"))
-        and match.get("source_mode") not in (None, "unavailable")
-        and match.get("model_version")
-    )
+    return isinstance(match, dict) and has_complete_club_prediction(match)
 
 
 def _enrich_edge(matches, math_engine, odds_engine, competition=None, pool_context_collection=None):
@@ -582,6 +569,8 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
         comp_team_form_service = _team_form_service_for(team_form_service, comp)
         cache_store = collection_for(cache_collection, comp)
         archive_store = collection_for(archive_collection, comp)
+        if club_overview:
+            return _get_prepared_overview(cache_store, comp, request=request)
         cache_id = competition_document_id(comp, "matches_cache")
         cache_started = time.perf_counter()
         try:
@@ -637,7 +626,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
                             archive = load_archive_from_db(archive_store, force=True)
                             return _sync_archive_tips(
                                 _enrich_edge(data, math_engine, odds_engine, comp, cache_store),
-                                archive, archive_store
+                                archive, archive_store, competition=comp, cache_collection=cache_store,
                             )
             except Exception:
                 pass
@@ -656,7 +645,7 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
                     print(f"ESPN unavailable, serving stale cache: {e}")
                     return _sync_archive_tips(
                         _enrich_edge(cached["data"], math_engine, odds_engine, comp, cache_store),
-                        archive, archive_store
+                        archive, archive_store, competition=comp, cache_collection=cache_store,
                     )
             except Exception:
                 pass
@@ -984,7 +973,10 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
                     changed_entries[r["id"]] = archive[r["id"]]
 
             for mid, entry in changed_entries.items():
-                upsert_archive_entry(archive_store, mid, entry)
+                upsert_archive_entry(
+                    archive_store, mid, entry,
+                    cache_collection=cache_store, competition=comp,
+                )
         except Exception as e:
             print(f"Archive logging failed: {e}")
 
@@ -992,7 +984,9 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
             arc = archive.get(r["id"], {})
             r["bots"] = arc.get("prediction", {}).get("bots", {})
 
-        return _sync_archive_tips(results, archive, archive_store)
+        return _sync_archive_tips(
+            results, archive, archive_store, competition=comp, cache_collection=cache_store,
+        )
 
     @router.get("/match-history/{event_id:path}")
     def get_match_history(event_id: str, competition: str | None = None):
@@ -1003,4 +997,108 @@ def init_router(math_engine, odds_engine, cache_collection, archive_collection, 
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return cached_match_intelligence(collection_for(cache_collection, comp), event_id, comp)
 
+    @router.get("/matches/{match_id}")
+    def get_match(match_id: str, competition: str | None = None):
+        comp = require_competition(competition)
+        if not comp.is_club_competition:
+            raise HTTPException(status_code=404, detail="Match not found")
+        try:
+            match_id = bounded_match_id(match_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _get_prepared_match(
+            collection_for(cache_collection, comp), comp, match_id,
+        )
+
+    @router.get("/matches/{match_id}/analysis")
+    def get_match_analysis(match_id: str, competition: str | None = None):
+        comp = require_competition(competition)
+        if not comp.is_club_competition:
+            raise HTTPException(status_code=404, detail="Match not found")
+        try:
+            match_id = bounded_match_id(match_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _get_prepared_match(
+            collection_for(cache_collection, comp), comp, match_id,
+            analysis=True, team_form_service=_team_form_service_for(team_form_service, comp),
+        )
+
     return router
+
+
+def _processing_response():
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=202, content={
+        "status": "processing", "data": [], "source": "club_views",
+        "reason": "preparing", "retry_after": 2,
+    })
+
+
+def _get_prepared_overview(cache_store, competition, *, request=None):
+    from src.services.club_views import overview_view_id
+
+    started = time.perf_counter()
+    try:
+        head = cache_store.find_one({"_id": overview_view_id(competition)}, {
+            "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+        })
+    except Exception:
+        raise HTTPException(status_code=503, detail="Prepared match overview is unavailable.") from None
+    if not isinstance(head, dict) or head.get("published_revision") is None:
+        return _processing_response()
+    rows = _apply_club_source_status(deepcopy(head.get("overview") or []), competition)
+    if head.get("published_revision") != head.get("input_revision") or bool(head.get("active_writers")):
+        for row in rows:
+            if isinstance(row, dict):
+                row["view_status"] = "refreshing"
+    if request is None:
+        return rows
+    response = ClubJSONResponse(
+        rows,
+        gzip_enabled=accepts_gzip(request.headers.get("accept-encoding", "")),
+    )
+    response.headers["Server-Timing"] = f"club_views;dur={(time.perf_counter() - started) * 1000:.2f}"
+    return response
+
+
+def _get_prepared_match(cache_store, competition, requested_id, *, analysis=False, team_form_service=None):
+    try:
+        head, record, canonical_id = published_match_view(
+            cache_store, competition, requested_id, analysis=analysis,
+        )
+    except Exception:
+        raise HTTPException(status_code=503, detail="Prepared match views are unavailable.") from None
+    if not isinstance(head, dict) or head.get("published_revision") is None:
+        return _processing_response()
+    versions = head.get("match_versions") or {}
+    if canonical_id not in versions:
+        if head.get("published_revision") != head.get("input_revision") or bool(head.get("active_writers")):
+            return _processing_response()
+        raise HTTPException(status_code=404, detail="Match not found")
+    if not isinstance(record, dict):
+        return _processing_response()
+
+    field = "analysis" if analysis else "core"
+    match = deepcopy(record.get(field) or {})
+    if not match:
+        return _processing_response()
+    match["id"] = canonical_id
+    match["detail_level"] = "analysis" if analysis else "core"
+    match["view_version"] = record.get("view_version")
+    if analysis:
+        try:
+            rows = _apply_cached_club_forms([match], team_form_service)
+            rows = attach_cached_match_intelligence(rows, cache_store, competition)
+            match = rows[0]
+        except Exception:
+            raise HTTPException(status_code=503, detail="Cached match analysis is unavailable.") from None
+        match["detail_level"] = "analysis"
+        # Form and lineup timestamps are carried by their cached source rows;
+        # they do not change the model-core identity used to guard late merges.
+        match["view_version"] = record.get("view_version")
+    match = _apply_club_source_status([match], competition)[0]
+    if head.get("published_revision") != head.get("input_revision") or bool(head.get("active_writers")):
+        match["view_status"] = "refreshing"
+    return match

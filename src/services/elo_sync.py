@@ -461,7 +461,10 @@ def perform_elo_sync(math_engine, odds_engine, cache_collection, archive_collect
             )
 
             for mid, entry in changed_entries.items():
-                upsert_archive_entry(archive_collection, mid, entry)
+                upsert_archive_entry(
+                    archive_collection, mid, entry,
+                    cache_collection=cache_collection, competition=competition,
+                )
 
             if graded:
                 print(f"Archive grading completed: {graded} predictions scored.")

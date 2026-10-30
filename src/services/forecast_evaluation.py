@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import math
 from numbers import Real
@@ -9,6 +10,7 @@ import re
 from typing import Any, Mapping
 
 from src.competitions import get_competition
+from src.services.club_views import club_view_input_write
 from src.services.source_freshness import source_status
 
 
@@ -132,17 +134,22 @@ def build_evaluation_forecast(
     }
 
 
-def persist_evaluation_forecast(archive_collection, match_id: str, record: Mapping[str, Any]) -> bool:
+def persist_evaluation_forecast(archive_collection, match_id: str, record: Mapping[str, Any],
+                               *, cache_collection=None, competition=None) -> bool:
     """Write only once, and only while no legacy freeze has won the race."""
-    result = archive_collection.update_one(
-        {
-            "_id": match_id,
-            "prediction.evaluation_forecast": {"$exists": False},
-            "prediction.frozen_at": {"$exists": False},
-        },
-        {"$set": {"prediction.evaluation_forecast": dict(record)}},
-        upsert=False,
-    )
+    comp = get_competition(competition)
+    write_context = (club_view_input_write(cache_collection, comp)
+                     if cache_collection is not None and comp.is_club_competition else nullcontext())
+    with write_context:
+        result = archive_collection.update_one(
+            {
+                "_id": match_id,
+                "prediction.evaluation_forecast": {"$exists": False},
+                "prediction.frozen_at": {"$exists": False},
+            },
+            {"$set": {"prediction.evaluation_forecast": dict(record)}},
+            upsert=False,
+        )
     return getattr(result, "matched_count", 0) == 1
 
 
@@ -189,7 +196,10 @@ def capture_archive_forecasts(cache_collection, archive_collection, service, *, 
                 competition=competition,
             )
             if record is not None:
-                captured += int(persist_evaluation_forecast(archive_collection, entry["_id"], record))
+                captured += int(persist_evaluation_forecast(
+                    archive_collection, entry["_id"], record,
+                    cache_collection=cache_collection, competition=comp,
+                ))
                 break
     if captured:
         from src.services.archive import invalidate_archive_mem_cache

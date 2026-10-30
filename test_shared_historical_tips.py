@@ -89,3 +89,22 @@ def test_shared_historical_seed_never_overwrites_existing_tip_or_mismatched_matc
     assert result == {"updated": 0, "skipped": 18, "points_added": 0}
     assert collection.find_one({"_id": "401915452"})["prediction"]["user_tip"] == "0:0"
     assert "user_tip" not in collection.find_one({"_id": "401915426"})["prediction"]
+
+
+def test_startup_seed_notifies_views_used_by_an_overlapping_process():
+    from src.math_engine import MathEngine
+    from src.services.club_views import overview_view_id
+    from test_club_views import ViewCollection
+
+    cache = ViewCollection()
+    original = _archive(TIP_DATA[:1])
+    class TrackedArchive(MemoryCollection):
+        def replace_one(self, query, document, upsert=False):
+            assert cache.documents[overview_view_id("ucl2026")]["active_writers"]
+            return super().replace_one(query, document, upsert=upsert)
+    archive = TrackedArchive(list(original.documents.values()))
+    result = seed_shared_historical_ucl_tips(archive, MathEngine.calculate_actual_points, cache_collection=cache)
+    assert result["updated"] == 1
+    head = cache.documents[overview_view_id("ucl2026")]
+    assert head["input_revision"] == 2
+    assert head["active_writers"] == {}

@@ -11,7 +11,7 @@ import { MatchdayRadar } from './MatchdayRadar'
 import { MatchdayAssistant } from './MatchdayAssistant'
 import { fixtureStatus, preferredFixtureTab } from '../../lib/fixture-status.mjs'
 import { groupFixturesByDay, groupFixturesByRound } from '../../lib/fixture-rounds.mjs'
-import { openUnsubmittedTips } from '../../lib/shared-tips.mjs'
+import { getSavedTipForMatch, openUnsubmittedTips } from '../../lib/shared-tips.mjs'
 import { useView } from '../../hooks/useView'
 import { ViewPanel, ViewTabs } from '../../components/shared/ViewTabs'
 
@@ -115,6 +115,8 @@ export function DashboardView() {
   const nextTipById = new Map(visibleTips.slice(0, -1).map((match, index) => [match.id, visibleTips[index + 1].id]))
 
   const isUnavailable = matchData?.status === 'unavailable' || matchData?.status === 'failed'
+  const isProcessing = matchData?.status === 'processing'
+  const preparedDataRefreshing = isProcessing || fixtureMatches.some(match => match.view_status === 'refreshing')
   const observedAt = matchData?.observed_at
     ? `${shortDate(matchData.observed_at)} · ${kickoffTime(matchData.observed_at)}`
     : null
@@ -129,6 +131,14 @@ export function DashboardView() {
   return (
     <PageTransition>
       <PageHeader title="Spiele & Tipps" subtitle={roundSummary} />
+      {preparedDataRefreshing && <div className="mb-4 rounded-xl border border-line bg-surface p-4 text-sm text-fg-2">
+        <p role="status">{fixtureMatches.length ? 'Neue gespeicherte Daten werden übernommen. Der zuletzt veröffentlichte Spielplan und seine Quellenzeiten bleiben sichtbar.' : 'Die gespeicherte Spielübersicht wird vorbereitet.'}</p>
+        <button type="button" onClick={() => { void refetch() }} disabled={isLoading} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Erneut versuchen</button>
+      </div>}
+      {(error || isUnavailable) && fixtureMatches.length > 0 && <div className="mb-4 rounded-xl border border-amber-a/30 bg-amber-a/5 p-4 text-sm text-fg-2" role="alert">
+        <p>Die Spielübersicht konnte nicht aktualisiert werden. Die zuletzt gespeicherten Spiele bleiben sichtbar.</p>
+        <button type="button" onClick={() => { void refetch() }} disabled={isLoading} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Erneut versuchen</button>
+      </div>}
       <ViewTabs id="matchcenter" label="Spielansicht" items={MATCHCENTER_TABS} value={view} onChange={setView} wrap={competition !== 'wc2026'} />
 
       <ViewPanel id="matchcenter" value="games" active={view}>
@@ -171,7 +181,7 @@ export function DashboardView() {
             </p>
           </div>
         )}
-        {!isLoading && !error && fixtureMatches.length === 0 && !isUnavailable && (
+        {!isLoading && !error && fixtureMatches.length === 0 && !isUnavailable && !isProcessing && (
           <p className="text-fg-2">Für diesen Wettbewerb sind aktuell keine Spiele verfügbar.</p>
         )}
         {!isLoading && activeTab !== 'tips' && fixtureMatches.length > 0 && visibleRounds.length === 0 && <p className="text-fg-2">Keine Spiele für diese Auswahl. Ändere die Kategorie oder den Suchbegriff.</p>}
@@ -222,7 +232,7 @@ export function DashboardView() {
                           compact
                           sharedTipMode={activeTab === 'tips'}
                           competition={competition}
-                          savedTip={archiveQuery.data?.[match.id]?.prediction.user_tip}
+                          savedTip={getSavedTipForMatch(match, archiveQuery.data)}
                           autoFocusTip={focusTipId === match.id}
                           onTipAutoFocus={() => setFocusTipId((current) => current === match.id ? null : current)}
                           onSaveAndNext={nextMatchId ? () => focusNextTip(nextMatchId) : undefined}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import math
 from uuid import uuid4
@@ -15,6 +16,7 @@ from src.services.archive import (
     load_archive_from_db,
     upsert_archive_entry,
 )
+from src.services.club_views import club_view_input_write
 from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
@@ -29,6 +31,11 @@ LEASE_SECONDS = 300
 DISCOVERY_INTERVAL = timedelta(days=1)
 FIXTURE_LIVE_INTERVAL = timedelta(minutes=15)
 MANUAL_REFRESH_COOLDOWN = 60
+
+
+def _club_view_write(cache_collection, competition):
+    return (club_view_input_write(cache_collection, competition)
+            if cache_collection is not None and get_competition(competition).is_club_competition else nullcontext())
 
 
 def run_tracked_maintenance(cache_collections, odds_provider, **kwargs):
@@ -206,6 +213,7 @@ def run_maintenance(
             fixtures = _fixtures(cache_collection, comp)
             archived_results = _sync_completed_results(
                 collection_for(archive_collections, comp), fixtures, comp,
+                cache_collection=cache_collection,
             ) if archive_collections is not None else 0
             cache_collection.update_one(
                 {"_id": competition_document_id(comp, "result_sync_status")},
@@ -287,7 +295,8 @@ def run_maintenance(
         # engine table or rebuild completed historical predictions during sync.
         if archive_collections is not None:
             archive_collection = collection_for(archive_collections, comp)
-            archived_results = _sync_completed_results(archive_collection, fixtures, comp)
+            archived_results = _sync_completed_results(archive_collection, fixtures, comp,
+                                                       cache_collection=cache_collection)
         due_by_event = {}
         all_due = []
         bucket_document = find_competition_document(cache_collection, comp, "odds_bucket_state") or {}
@@ -640,11 +649,12 @@ def _persist_club_predictions(cache_collection, competition, math_engine, clubel
             updated += 1
 
     if updated:
-        cache_collection.update_one(
-            {"_id": competition_document_id(comp, "matches_cache")},
-            {"$set": {"data": fixtures}},
-            upsert=True,
-        )
+        with _club_view_write(cache_collection, comp):
+            cache_collection.update_one(
+                {"_id": competition_document_id(comp, "matches_cache")},
+                {"$set": {"data": fixtures}},
+                upsert=True,
+            )
         _invalidate_ucl_simulation_cache(cache_collection, comp)
     return updated
 
@@ -765,18 +775,19 @@ def _refresh_fixtures(cache_collection, competition, fetcher, current, *, manual
         existing[event_id] = match
     data = sorted(existing.values(), key=lambda item: item.get("commence_time", ""))
     changed = data != previous_data
-    cache_collection.update_one(
-        {"_id": competition_document_id(comp, "matches_cache")},
-        {"$set": {
-            "competition": comp.id,
-            "timestamp": current.timestamp(),
-            "observed_at": current.isoformat(),
-            "source": "espn",
-            "status": "fresh",
-            "data": data,
-        }},
-        upsert=True,
-    )
+    with _club_view_write(cache_collection, comp):
+        cache_collection.update_one(
+            {"_id": competition_document_id(comp, "matches_cache")},
+            {"$set": {
+                "competition": comp.id,
+                "timestamp": current.timestamp(),
+                "observed_at": current.isoformat(),
+                "source": "espn",
+                "status": "fresh",
+                "data": data,
+            }},
+            upsert=True,
+        )
     if changed:
         _invalidate_ucl_simulation_cache(cache_collection, comp)
     return {
@@ -881,14 +892,15 @@ def _store_fixture_odds(cache_collection, competition, event_id, odds, quote, ob
         match["source_status"] = "fresh"
         match["source"] = "odds_api"
         break
-    cache_collection.update_one(
-        {"_id": competition_document_id(comp, "matches_cache")},
-        {"$set": {"data": data}},
-        upsert=True,
-    )
+    with _club_view_write(cache_collection, comp):
+        cache_collection.update_one(
+            {"_id": competition_document_id(comp, "matches_cache")},
+            {"$set": {"data": data}},
+            upsert=True,
+        )
 
 
-def _sync_completed_results(archive_collection, fixtures, competition) -> int:
+def _sync_completed_results(archive_collection, fixtures, competition, *, cache_collection=None) -> int:
     """Persist completed fixtures while preserving only real pre-match tips."""
     changed = 0
     for fixture in fixtures:
@@ -926,10 +938,11 @@ def _sync_completed_results(archive_collection, fixtures, competition) -> int:
                              "algo_tip_recovered_at": datetime.now(timezone.utc).isoformat(),
                              "algo_tip_input_observed_at": observed.isoformat()}
                 if existing:
-                    archive_collection.update_one(
-                        {"_id": event_id, "prediction.top_tip": {"$in": [None, ""]}, "prediction.model_tip": {"$in": [None, ""]}},
-                        {"$set": {f"prediction.{key}": value for key, value in recovered.items()}}, upsert=False,
-                    )
+                    with _club_view_write(cache_collection, competition):
+                        archive_collection.update_one(
+                            {"_id": event_id, "prediction.top_tip": {"$in": [None, ""]}, "prediction.model_tip": {"$in": [None, ""]}},
+                            {"$set": {f"prediction.{key}": value for key, value in recovered.items()}}, upsert=False,
+                        )
                     prediction = dict((archive_collection.find_one({"_id": event_id}) or {}).get("prediction") or {})
                 else:
                     prediction.update(recovered)
@@ -955,18 +968,19 @@ def _sync_completed_results(archive_collection, fixtures, competition) -> int:
             post["bot_points"].update(previous_post.get("bot_points") or {})
         if post == (existing.get("post_match_result") or {}) and metadata == (existing.get("metadata") or {}):
             continue
-        result_write = archive_collection.update_one(
-            {"_id": event_id, **({"prediction.user_tip": prediction.get("user_tip"), "prediction.top_tip": prediction.get("top_tip")} if existing else {})},
-            {"$set": {
-                "competition": get_competition(competition).id,
-                "metadata": metadata,
-                "post_match_result": post,
-            }, "$setOnInsert": {
-                "prediction": prediction,
-                "pre_match_snapshot": existing.get("pre_match_snapshot"),
-            }},
-            upsert=not bool(existing),
-        )
+        with _club_view_write(cache_collection, competition):
+            result_write = archive_collection.update_one(
+                {"_id": event_id, **({"prediction.user_tip": prediction.get("user_tip"), "prediction.top_tip": prediction.get("top_tip")} if existing else {})},
+                {"$set": {
+                    "competition": get_competition(competition).id,
+                    "metadata": metadata,
+                    "post_match_result": post,
+                }, "$setOnInsert": {
+                    "prediction": prediction,
+                    "pre_match_snapshot": existing.get("pre_match_snapshot"),
+                }},
+                upsert=not bool(existing),
+            )
         changed += int(bool(getattr(result_write, "matched_count", 1)) or getattr(result_write, "upserted_id", None) is not None)
     if changed:
         invalidate_archive_mem_cache(archive_collection)

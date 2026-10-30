@@ -20,6 +20,9 @@ def test_completed_tip_can_be_entered_and_scored_without_changing_model_or_forec
     result = fn(collection, 'game', '2:0', 'ucl2026', now=datetime(2026,10,20,20,tzinfo=timezone.utc))
     saved = collection.find_one({'_id': 'game'})
     assert result['points_earned'] == saved['post_match_result']['points_earned'] == 10
+    assert result['match_id'] == 'game'
+    assert result['canonical_match_id'] == 'game'
+    assert result['archive_entry'] == {key: value for key, value in saved.items() if key != '_id'}
     assert saved['prediction']['user_tip'] == '2:0'
     assert saved['prediction']['user_tip_source'] == 'manual_historical'
     assert saved['prediction']['top_tip'] == '1:0'

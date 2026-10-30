@@ -66,7 +66,7 @@ export function buildMatchDataStatus(match: Match, now = Date.now(), prediction?
     else if (intelligence?.status === 'failed' || ['provider_error', 'fetch_failed'].includes(intelligence?.reason ?? '')) lineup.status = 'failed'
     lineup.message = lineupInfo.message
   }
-  const rows = match.detail_level === 'overview' ? [odds, elo] : [odds, elo, lineup]
+  const rows = ['overview', 'core'].includes(match.detail_level ?? '') ? [odds, elo] : [odds, elo, lineup]
   let status: DataStatus = 'partial'
   let title = 'Aktualität nicht bestätigt'
   let explanation = 'Die Aktualität der gespeicherten Eingaben ist nicht vollständig belegt.'
