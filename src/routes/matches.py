@@ -31,6 +31,9 @@ from src.services.prediction_cache import cached_prediction
 from src.services.club_json import ClubJSONResponse, accepts_gzip
 from src.services.club_views import (
     has_complete_club_prediction,
+    decode_overview,
+    CLUB_VIEW_SCHEMA_VERSION,
+    OVERVIEW_ENCODING,
     overview_view_id,
     published_match_view,
 )
@@ -1037,29 +1040,53 @@ def _processing_response():
 
 
 def _get_prepared_overview(cache_store, competition, *, request=None):
-    from src.services.club_views import overview_view_id
-
     started = time.perf_counter()
+    state_fields = {"published_revision": 1, "input_revision": 1, "active_writers": 1,
+                    "schema_version": 1, "overview_encoding": 1}
     try:
+        read_started = time.perf_counter()
         head = cache_store.find_one({"_id": overview_view_id(competition)}, {
-            "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+            "overview_gzip": 1, **state_fields,
         })
+        read_ms = (time.perf_counter() - read_started) * 1000
+        if not isinstance(head, dict) or head.get("published_revision") is None:
+            return _processing_response()
+        if ("overview_gzip" in head and head.get("schema_version") == CLUB_VIEW_SCHEMA_VERSION
+                and head.get("overview_encoding") == OVERVIEW_ENCODING
+                and head.get("published_revision") == head.get("input_revision")
+                and not head.get("active_writers")):
+            stored_rows = decode_overview(head["overview_gzip"])
+        else:
+            # Keep the published legacy view available during rolling preparation.
+            read_started = time.perf_counter()
+            head = cache_store.find_one({"_id": overview_view_id(competition)}, {
+                "overview": 1, **state_fields,
+            })
+            read_ms += (time.perf_counter() - read_started) * 1000
+            if not isinstance(head, dict) or head.get("published_revision") is None:
+                return _processing_response()
+            stored_rows = deepcopy(head.get("overview") or [])
     except Exception:
         raise HTTPException(status_code=503, detail="Prepared match overview is unavailable.") from None
-    if not isinstance(head, dict) or head.get("published_revision") is None:
-        return _processing_response()
-    rows = _apply_club_source_status(deepcopy(head.get("overview") or []), competition)
+    rows = _apply_club_source_status(stored_rows, competition)
     if head.get("published_revision") != head.get("input_revision") or bool(head.get("active_writers")):
         for row in rows:
             if isinstance(row, dict):
                 row["view_status"] = "refreshing"
+    prepared = time.perf_counter()
     if request is None:
         return rows
     response = ClubJSONResponse(
         rows,
         gzip_enabled=accepts_gzip(request.headers.get("accept-encoding", "")),
     )
-    response.headers["Server-Timing"] = f"club_views;dur={(time.perf_counter() - started) * 1000:.2f}"
+    finished = time.perf_counter()
+    response.headers["Server-Timing"] = ", ".join((
+        f"club_views;dur={(finished - started) * 1000:.2f}",
+        f"club_views_read;dur={read_ms:.2f}",
+        f"club_views_prepare;dur={(prepared - started) * 1000 - read_ms:.2f}",
+        f"club_views_serialize;dur={(finished - prepared) * 1000:.2f}",
+    ))
     return response
 
 
