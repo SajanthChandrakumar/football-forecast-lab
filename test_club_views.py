@@ -140,6 +140,8 @@ def _matches(document, query):
                 return False
             if "$exists" in expected and (actual is not None) != expected["$exists"]:
                 return False
+            if expected.get("$type") == "binData" and not isinstance(actual, bytes):
+                return False
             if "$nin" in expected and actual in expected["$nin"]:
                 return False
         elif actual != expected:
@@ -269,7 +271,8 @@ def test_public_club_view_routes_use_prepared_records_and_return_processing_for_
     assert overview.status_code == 202
     assert overview.body
     assert cache.find_one_calls == [({"_id": overview_view_id("epl2026")}, {
-        "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+        "overview_gzip": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+        "schema_version": 1, "overview_encoding": 1,
     })]
     assert cache.find_calls == archive.find_calls == []
     assert cache.writes == archive.writes == []

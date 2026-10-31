@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from copy import deepcopy
 import asyncio
+import gzip
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -13,6 +14,7 @@ import logging
 import math
 from uuid import uuid4
 
+from fastapi.encoders import jsonable_encoder
 from pymongo import ReplaceOne
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 
@@ -33,14 +35,15 @@ logger = logging.getLogger(__name__)
 
 BUILD_LEASE_SECONDS = 180
 STALE_WRITE_SECONDS = 300
-CLUB_VIEW_SCHEMA_VERSION = 1
+CLUB_VIEW_SCHEMA_VERSION = 2
+OVERVIEW_ENCODING = "gzip-json-v1"
 WORKER_INTERVAL_SECONDS = 10.0
 SOURCE_AUDIT_SECONDS = 300.0
 SOURCE_AUDIT_RETRY_SECONDS = 30.0
 _HEAD_STATE_PROJECTION = {
     "input_revision": 1, "published_revision": 1, "active_writers": 1,
     "generation": 1, "lease_token": 1, "lease_until": 1,
-    "schema_version": 1, "match_count": 1, "source_hash": 1,
+    "schema_version": 1, "match_count": 1, "source_hash": 1, "overview_encoding": 1,
     "match_versions": 1,
 }
 _HEAVY_KEYS = {
@@ -82,13 +85,33 @@ def _ensure_head(cache, competition) -> None:
     )
 
 
-def _view_is_current(head: Mapping) -> bool:
-    return bool(
+def _view_is_current(head: Mapping, cache, head_id: str) -> bool:
+    current = bool(
         head.get("published_revision") is not None
         and head.get("published_revision") == head.get("input_revision", 0)
         and head.get("schema_version") == CLUB_VIEW_SCHEMA_VERSION
+        and head.get("overview_encoding") == OVERVIEW_ENCODING
         and not head.get("active_writers")
     )
+    # Check storage presence/type without transferring the payload on idle checks.
+    return current and cache.find_one(
+        {"_id": head_id, "overview_gzip": {"$type": "binData"}}, {"_id": 1},
+    ) is not None
+
+
+def encode_overview(rows) -> bytes:
+    payload = json.dumps(rows, ensure_ascii=False, allow_nan=False, separators=(",", ":"),
+                         default=jsonable_encoder).encode("utf-8")
+    return gzip.compress(payload, compresslevel=1, mtime=0)
+
+
+def decode_overview(payload) -> list:
+    if not isinstance(payload, bytes):
+        raise ValueError("invalid overview encoding")
+    rows = json.loads(gzip.decompress(payload))
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError("invalid overview rows")
+    return rows
 
 
 def club_view_input_write(cache, competition):
@@ -495,6 +518,8 @@ def publish_club_views(cache, competition, bundle: Mapping, *, generation: int,
     set_fields = {
         "competition": comp.id,
         "overview": deepcopy(bundle.get("overview") or []),
+        "overview_gzip": encode_overview(bundle.get("overview") or []),
+        "overview_encoding": OVERVIEW_ENCODING,
         "aliases": deepcopy(bundle.get("aliases") or {}),
         "archive_ids": deepcopy(bundle.get("archive_ids") or {}),
         "match_versions": {key: value.get("view_version") for key, value in bundle.get("games", {}).items()},
@@ -541,7 +566,7 @@ def prepare_club_views(cache_collections, archive_collections, competition, *, n
     if not isinstance(initial_head, Mapping):
         _ensure_head(cache, comp)
         initial_head = cache.find_one({"_id": head_id}, _HEAD_STATE_PROJECTION) or {}
-    if not force and _view_is_current(initial_head):
+    if not force and _view_is_current(initial_head, cache, head_id):
         return {"status": "unchanged", "matches": int(initial_head.get("match_count") or 0)}
     claim = claim_club_view_build(cache, comp, now=now)
     if claim is None:
@@ -551,7 +576,7 @@ def prepare_club_views(cache_collections, archive_collections, competition, *, n
         revision = claim["input_revision"]
         if current_head.get("input_revision", 0) != revision or current_head.get("active_writers"):
             return {"status": "skipped", "reason": "source_changed"}
-        if not force and _view_is_current(current_head):
+        if not force and _view_is_current(current_head, cache, head_id):
             return {"status": "unchanged", "matches": int(current_head.get("match_count") or 0)}
         fixture_document = find_competition_document(cache, comp, "matches_cache")
         if not fixture_document or not isinstance(fixture_document.get("data"), list):
@@ -694,7 +719,8 @@ def patch_saved_tip(cache, competition, match_id: str, user_tip: str) -> bool:
             {"_id": head_id, "generation": head.get("generation"),
              "input_revision": head.get("input_revision"),
              "published_revision": head.get("published_revision"), "active_writers": {}},
-            {"$set": {"overview": overview, "match_versions": versions}},
+            {"$set": {"overview": overview, "overview_gzip": encode_overview(overview),
+                      "overview_encoding": OVERVIEW_ENCODING, "match_versions": versions}},
             upsert=False,
         )
         if getattr(saved_head, "matched_count", 0):

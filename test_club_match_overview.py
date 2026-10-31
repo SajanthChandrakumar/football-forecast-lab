@@ -4,7 +4,10 @@ import json
 
 from src.routes import matches as matches_module
 from src.routes.matches import init_router
-from src.services.club_views import game_view_id, overview_view_id, build_match_views
+from src.services.club_views import (
+    game_view_id, overview_view_id, build_match_views, encode_overview,
+    CLUB_VIEW_SCHEMA_VERSION, OVERVIEW_ENCODING,
+)
 
 
 NOW = datetime.now(timezone.utc).isoformat()
@@ -186,6 +189,8 @@ def _seed_prepared_views(cache, archive, competition):
         "_id": overview_view_id(competition), "competition": competition,
         "generation": 1, "input_revision": 0, "published_revision": 0,
         "active_writers": {}, "overview": bundle["overview"],
+        "overview_gzip": encode_overview(bundle["overview"]),
+        "schema_version": CLUB_VIEW_SCHEMA_VERSION, "overview_encoding": OVERVIEW_ENCODING,
         "aliases": bundle["aliases"], "archive_ids": bundle["archive_ids"],
         "match_versions": {key: row["view_version"] for key, row in bundle["games"].items()},
         "source_hash": bundle["source_hash"],
@@ -254,10 +259,12 @@ def test_pl_overview_projects_and_strips_details_while_full_response_keeps_them(
     assert cache.find_one_calls == [
         ({"_id": "epl2026:matches_cache"}, None),
         ({"_id": overview_view_id("epl2026")}, {
-            "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+            "overview_gzip": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+            "schema_version": 1, "overview_encoding": 1,
         }),
         ({"_id": overview_view_id("epl2026")}, {
-            "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+            "overview_gzip": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+            "schema_version": 1, "overview_encoding": 1,
         }),
     ]
     assert form_calls == [2]
@@ -291,7 +298,8 @@ def test_ucl_overview_keeps_completed_archive_tip_and_wm_ignores_overview(monkey
     assert ucl[0]["probabilities"] is None
     assert "matrix" not in ucl[0] and "score_matrix" not in ucl[0]
     assert cache.find_one_calls == [({"_id": overview_view_id("ucl2026")}, {
-        "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+        "overview_gzip": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+            "schema_version": 1, "overview_encoding": 1,
     })]
     assert archive.find_calls == []
 
@@ -323,7 +331,8 @@ def test_missing_club_overview_cache_stays_unavailable_without_writes():
         "reason": "preparing", "retry_after": 2,
     }
     assert cache.find_one_calls == [({"_id": overview_view_id("epl2026")}, {
-        "overview": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+        "overview_gzip": 1, "published_revision": 1, "input_revision": 1, "active_writers": 1,
+            "schema_version": 1, "overview_encoding": 1,
     })]
     assert cache.writes == archive.writes == []
 
