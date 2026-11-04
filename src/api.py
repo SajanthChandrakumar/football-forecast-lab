@@ -46,7 +46,7 @@ from src.services.archive import (
     upsert_archive_entry,
 )
 from src.services.club_views import load_archive_match
-from src.services.auth import require_cron_secret, shared_write_guard, client_ip
+from src.services.auth import require_cron_secret, client_ip
 from src.services.input_validation import bounded_match_id, bounded_score
 from src.services.elo_sync import perform_elo_sync
 from src.services.prediction import PredictionService, infer_stage, rebuild_prediction
@@ -139,8 +139,6 @@ app.add_middleware(
 # Compress JSON payloads and static assets (the matches/archive responses
 # are several hundred KB uncompressed).
 app.add_middleware(GZipMiddleware, minimum_size=1024)
-
-app.middleware("http")(shared_write_guard)
 
 limiter = Limiter(key_func=client_ip)
 app.state.limiter = limiter

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import nullcontext
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import math
 from uuid import uuid4
@@ -12,6 +14,8 @@ from src.competitions import collection_for, competition_document_id, find_compe
 from src.constants import DISPLAY_MAPPING, TEAM_MAPPING, _is_ko_round
 from src.math_engine import MathEngine
 from src.services.archive import (
+    _canon_team,
+    build_archive_id_index,
     invalidate_archive_mem_cache,
     load_archive_from_db,
     upsert_archive_entry,
@@ -20,9 +24,10 @@ from src.services.club_views import club_view_input_write
 from src.services.elo_sync import _reconstruct_completed_entries
 from src.services.odds_helpers import extract_odds
 from src.services.prediction import PredictionService
-from src.services.user_tips import archive_cached_model_tips
+from src.services.user_tips import _archive_insert_fields, archive_cached_model_tips
 from src.services.model_evaluation import freeze_due_comparisons
 from src.services.forecast_evaluation import capture_archive_forecasts
+from src.services.input_validation import bounded_score
 from src.quota_store import ProviderBudgetExceeded
 from src.services.snapshots import append_odds_snapshot, due_buckets, mark_bucket, parse_time
 
@@ -31,6 +36,19 @@ LEASE_SECONDS = 300
 DISCOVERY_INTERVAL = timedelta(days=1)
 FIXTURE_LIVE_INTERVAL = timedelta(minutes=15)
 MANUAL_REFRESH_COOLDOWN = 60
+_CLUB_ARCHIVE_PREDICTION_FIELDS = (
+    "model_tip", "top_tip", "pool_tip", "pool_status", "status", "source_status",
+    "source", "observed_at", "source_mode", "model_version", "input_provenance",
+    "provenance", "probabilities", "base_probabilities", "xg_home", "xg_away", "xg",
+    "max_xp", "matrix", "score_matrix", "regulation_matrix", "matrix_basis",
+    "probability_basis", "score_inputs", "context", "match_context", "xp_tips",
+    "elo_home_share", "market_home_share", "edge_home", "source_inputs",
+)
+_PRE_MATCH_ARCHIVE_PROJECTION = {
+    "_id": 1, "metadata": 1, "prediction.observed_at": 1,
+    "prediction.frozen_at": 1, "prediction.evaluation_forecast": 1,
+    "post_match_result.status": 1, "post_match_result.actual_score": 1,
+}
 
 
 def _club_view_write(cache_collection, competition):
@@ -215,6 +233,9 @@ def run_maintenance(
                 collection_for(archive_collections, comp), fixtures, comp,
                 cache_collection=cache_collection,
             ) if archive_collections is not None else 0
+            pre_match_archived = archive_pre_match_club_predictions(
+                archive_collections, cache_collection, comp, now=observation_time(),
+            )
             cache_collection.update_one(
                 {"_id": competition_document_id(comp, "result_sync_status")},
                 {"$set": {"status": fixture_status["status"], "last_run_at": observation_time().isoformat(),
@@ -222,7 +243,8 @@ def run_maintenance(
             )
             return {"status": fixture_status["status"], "fixture_status": fixture_status,
                     "provider_calls": 0, "archived_results": archived_results,
-                    "mutated": bool(archived_results or fixture_status.get("changed"))}
+                    "pre_match_archived": pre_match_archived,
+                    "mutated": bool(archived_results or pre_match_archived or fixture_status.get("changed"))}
         if comp.is_club_competition:
             team_form_status = {"status": "unavailable", "source": "api_football", "error": "team form service unavailable"}
             if team_form_service is not None:
@@ -316,6 +338,9 @@ def run_maintenance(
         discovery_due = _discovery_due(cache_collection, comp, current)
         if not manual and not due_by_event and not discovery_due:
             predictions_updated = _persist_club_predictions(cache_collection, comp, math_engine, clubelo_status)
+            pre_match_archived = archive_pre_match_club_predictions(
+                archive_collections, cache_collection, comp, now=observation_time(),
+            )
             forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
             evaluation_captured = capture_evaluation()
             return {
@@ -327,6 +352,7 @@ def run_maintenance(
                     or reconstructed_results
                     or snapshot_predictions
                     or predictions_updated
+                    or pre_match_archived
                     or forecasts_frozen
                     or evaluation_captured
                     or (standings_status is not None and standings_status.get("changed"))
@@ -338,6 +364,7 @@ def run_maintenance(
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
+                "pre_match_archived": pre_match_archived,
                 "forecasts_frozen": forecasts_frozen,
             "evaluation_captured": evaluation_captured,
                 **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
@@ -357,6 +384,9 @@ def run_maintenance(
             predictions_updated = _persist_club_predictions(
                 cache_collection, comp, math_engine, clubelo_status
             )
+            pre_match_archived = archive_pre_match_club_predictions(
+                archive_collections, cache_collection, comp, now=observation_time(),
+            )
             forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
             evaluation_captured = capture_evaluation()
             return {
@@ -374,6 +404,7 @@ def run_maintenance(
                 "archived_results": archived_results,
                 "reconstructed_results": reconstructed_results,
                 "snapshot_predictions": snapshot_predictions,
+                "pre_match_archived": pre_match_archived,
                 "forecasts_frozen": forecasts_frozen,
             "evaluation_captured": evaluation_captured,
                 **({"team_form_status": team_form_status} if comp.is_club_competition and team_form_status is not None else {}),
@@ -425,6 +456,9 @@ def run_maintenance(
                 if odds:
                     _store_fixture_odds(cache_collection, comp, event_id, odds, match, current)
         _persist_club_predictions(cache_collection, comp, math_engine, clubelo_status)
+        pre_match_archived = archive_pre_match_club_predictions(
+            archive_collections, cache_collection, comp, now=observation_time(),
+        )
         forecasts_frozen = _freeze_due_forecasts(cache_collection, archive_collections, math_engine, comp, current if now is not None else datetime.now(timezone.utc))
         evaluation_captured = capture_evaluation()
         return {
@@ -442,6 +476,7 @@ def run_maintenance(
             "archived_results": archived_results,
             "reconstructed_results": reconstructed_results,
             "snapshot_predictions": snapshot_predictions,
+            "pre_match_archived": pre_match_archived,
             "forecasts_frozen": forecasts_frozen,
             "evaluation_captured": evaluation_captured,
             "discovery": discovery_due,
@@ -605,9 +640,10 @@ def _persist_club_predictions(cache_collection, competition, math_engine, clubel
     prediction_fields = (
         "model_tip", "top_tip", "pool_tip", "pool_status", "status", "source_status",
         "source", "observed_at", "source_mode", "model_version", "input_provenance",
-        "provenance", "xg_home", "xg_away", "probabilities", "matrix", "score_matrix", "max_xp",
+        "provenance", "source_inputs", "xg_home", "xg_away", "xg", "probabilities",
+        "base_probabilities", "matrix", "score_matrix", "max_xp",
         "context", "match_context", "elo_home_share", "market_home_share", "edge_home",
-        "regulation_matrix", "matrix_basis", "probability_basis",
+        "regulation_matrix", "matrix_basis", "probability_basis", "xp_tips",
     )
     originals = {
         str(match.get("id") or match.get("event_id")): dict(match)
@@ -657,6 +693,171 @@ def _persist_club_predictions(cache_collection, competition, math_engine, clubel
             )
         _invalidate_ucl_simulation_cache(cache_collection, comp)
     return updated
+
+
+def _valid_model_probabilities(value) -> bool:
+    if not isinstance(value, Mapping) or set(value) != {"home", "draw", "away"}:
+        return False
+    if any(isinstance(value[key], bool) for key in ("home", "draw", "away")):
+        return False
+    try:
+        probabilities = [float(value[key]) for key in ("home", "draw", "away")]
+    except (TypeError, ValueError):
+        return False
+    return all(math.isfinite(item) and 0 <= item <= 1 for item in probabilities) and math.isclose(
+        sum(probabilities), 1.0, rel_tol=1e-9, abs_tol=1e-6,
+    )
+
+
+def archive_pre_match_club_predictions(archive_collections, cache_collection, competition, *, now=None) -> int:
+    """Archive existing club cache predictions before kickoff, outside model evaluation."""
+    comp = get_competition(competition)
+    if not comp.is_club_competition or archive_collections is None or cache_collection is None:
+        return 0
+    archive = collection_for(archive_collections, comp)
+    if archive is None:
+        return 0
+    current = parse_time(now or datetime.now(timezone.utc))
+    document = find_competition_document(cache_collection, comp, "matches_cache") or {}
+    fixtures = document.get("data")
+    if not isinstance(fixtures, list):
+        return 0
+    archive_rows = {
+        str(row["_id"]): row
+        for row in archive.find({}, _PRE_MATCH_ARCHIVE_PROJECTION)
+        if isinstance(row, Mapping) and row.get("_id") is not None
+    }
+    archive_index = build_archive_id_index({
+        archive_id: {"metadata": row.get("metadata") or {}}
+        for archive_id, row in archive_rows.items()
+    })[0]
+
+    archived = 0
+    wrote_archive = False
+    for fixture in fixtures:
+        if not isinstance(fixture, Mapping):
+            continue
+        event_id = str(fixture.get("id") or fixture.get("event_id") or "").strip()
+        if not event_id or fixture.get("completed") or fixture.get("actual_score") or fixture.get("score_90"):
+            continue
+        status = str(fixture.get("status") or "").lower()
+        if status in {"complete", "completed", "final", "post", "live", "in progress"}:
+            continue
+        raw = fixture.get("raw_match") if isinstance(fixture.get("raw_match"), Mapping) else {}
+        kickoff_value = fixture.get("commence_time") or raw.get("commence_time")
+        try:
+            kickoff = parse_time(kickoff_value)
+            observed = parse_time(fixture.get("observed_at"))
+            model_tip = bounded_score(fixture.get("model_tip") or fixture.get("top_tip"))
+            top_tip = bounded_score(fixture.get("top_tip") or model_tip)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if current >= kickoff or observed > current or observed >= kickoff:
+            continue
+        if fixture.get("source_mode") not in {"odds+elo", "elo-only", "odds-only"}:
+            continue
+        if fixture.get("status") not in {"fresh", "stale"}:
+            continue
+        if not fixture.get("model_version") or not _valid_model_probabilities(fixture.get("probabilities")):
+            continue
+        provenance_maps = tuple(
+            provenance for provenance in (fixture.get("provenance"), fixture.get("input_provenance"))
+            if isinstance(provenance, Mapping) and provenance
+        )
+        if not provenance_maps:
+            continue
+        invalid_source_time = False
+        for provenance in provenance_maps:
+            for source in provenance.values():
+                if not isinstance(source, Mapping) or source.get("observed_at") is None:
+                    continue
+                try:
+                    source_observed = parse_time(source["observed_at"])
+                except (TypeError, ValueError, OverflowError):
+                    invalid_source_time = True
+                    break
+                if source_observed > current or source_observed >= kickoff:
+                    invalid_source_time = True
+                    break
+            if invalid_source_time:
+                break
+        if invalid_source_time:
+            continue
+
+        home = fixture.get("home_team") or raw.get("home_team")
+        away = fixture.get("away_team") or raw.get("away_team")
+        if not isinstance(home, str) or not home or not isinstance(away, str) or not away:
+            continue
+        archive_id = event_id if event_id in archive_rows else archive_index.get((
+            _canon_team(home), _canon_team(away), str(kickoff_value)[:10],
+        ))
+        archive_id = str(archive_id or event_id)
+        archive_fields = _archive_insert_fields(fixture, str(kickoff_value))
+        prediction = {
+            key.removeprefix("prediction."): deepcopy(value)
+            for key, value in archive_fields.items()
+            if key.startswith("prediction.")
+        }
+        prediction.update({
+            key: deepcopy(fixture[key])
+            for key in _CLUB_ARCHIVE_PREDICTION_FIELDS
+            if key in fixture
+        })
+        prediction.update({
+            "model_tip": model_tip,
+            "top_tip": top_tip,
+            "tip_archive_source": "maintenance",
+            "tip_archived_at": current.isoformat(),
+        })
+        prediction.pop("frozen_at", None)
+        prediction.pop("evaluation_forecast", None)
+
+        existing = archive_rows.get(archive_id)
+        if existing:
+            existing_prediction = existing.get("prediction") if isinstance(existing.get("prediction"), Mapping) else {}
+            result = existing.get("post_match_result") if isinstance(existing.get("post_match_result"), Mapping) else {}
+            if (existing_prediction.get("frozen_at") or "evaluation_forecast" in existing_prediction
+                    or str(result.get("status") or "").lower() in {"complete", "completed", "final", "post", "live", "in progress"}
+                    or result.get("actual_score")):
+                continue
+            old_observed_value = existing_prediction.get("observed_at")
+            try:
+                old_observed = parse_time(old_observed_value) if old_observed_value is not None else None
+            except (TypeError, ValueError, OverflowError):
+                old_observed = None
+            if old_observed is not None and old_observed >= observed:
+                continue
+            query = {
+                "_id": archive_id,
+                "prediction.frozen_at": {"$exists": False},
+                "prediction.evaluation_forecast": {"$exists": False},
+                "post_match_result.status": {"$ne": "completed"},
+            }
+            if "observed_at" in existing_prediction:
+                query["prediction.observed_at"] = old_observed_value
+            else:
+                query["prediction.observed_at"] = {"$exists": False}
+            update = {"$set": {f"prediction.{key}": value for key, value in prediction.items()}}
+        else:
+            query = {"_id": event_id}
+            insert_fields = {
+                key: value for key, value in archive_fields.items()
+                if not key.startswith("prediction.")
+            }
+            insert_fields["competition"] = comp.id
+            insert_fields["prediction"] = prediction
+            update = {"$setOnInsert": {
+                **insert_fields,
+            }}
+        with _club_view_write(cache_collection, comp):
+            result = archive.update_one(query, update, upsert=not bool(existing))
+        if (getattr(result, "matched_count", 0) or getattr(result, "upserted_id", None)):
+            archived += 1
+            wrote_archive = True
+
+    if wrote_archive:
+        invalidate_archive_mem_cache(archive)
+    return archived
 
 
 def _invalidate_ucl_simulation_cache(cache_collection, competition) -> None:

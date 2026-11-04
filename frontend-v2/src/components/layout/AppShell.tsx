@@ -4,7 +4,6 @@ import { useAppState } from '../../state/AppState'
 import { cn } from '../../lib/util'
 import { competitionLabel } from '../../lib/competition.mjs'
 import { Brand, CompetitionSelect, MORE_NAV, NavIcon, PRIMARY_NAV, Settings } from './Navigation'
-import { EditorKeyDialog } from '../shared/EditorKeyDialog'
 
 function ScrollPosition() {
   const location = useLocation()
@@ -83,7 +82,6 @@ export function AppShell() {
   }, [panel])
 
   return <>
-    <EditorKeyDialog />
     <ScrollPosition />
     <div id="app-shell-content" ref={contentRef} className="min-h-dvh">
       <a href="#main-content" className="skip-link" onClick={event => {

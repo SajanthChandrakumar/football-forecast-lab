@@ -9,6 +9,9 @@ from test_task2_providers import _event
 
 
 class MemoryCollection(BaseCollection):
+    def find(self, query=None, projection=None):
+        return super().find(query)
+
     def insert_one(self, document):
         if document['_id'] in self.documents:
             raise RuntimeError('duplicate key')

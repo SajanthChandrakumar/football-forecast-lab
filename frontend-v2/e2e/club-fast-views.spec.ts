@@ -1,4 +1,4 @@
-import { NOW, test, expect, enterEditorKey } from './fixtures'
+import { NOW, test, expect } from './fixtures'
 
 test('club detail reads one canonical game and keeps core tip evidence independent of analysis', async ({ page, api }) => {
   await page.addInitScript(() => localStorage.setItem('competition', 'ucl2026'))
@@ -116,11 +116,9 @@ test('a successful club tip save immediately updates a cached full-archive view'
 
   let releaseArchive!: () => void
   api.archiveGate = new Promise<void>(resolve => { releaseArchive = resolve })
-  api.requireEditorKey = true
   await page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('3')
   await page.getByRole('spinbutton', { name: 'Tore Chelsea', exact: true }).fill('1')
   await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true }).click()
-  await enterEditorKey(page, api.validEditorKey)
   await expect(page.getByRole('status').filter({ hasText: '3:1 gespeichert' })).toBeVisible()
 
   await page.goto('/#/')

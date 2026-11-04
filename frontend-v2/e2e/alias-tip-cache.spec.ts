@@ -1,4 +1,4 @@
-import { test, expect, enterEditorKey } from './fixtures'
+import { test, expect } from './fixtures'
 import type { ArchiveEntry } from '../src/lib/types'
 
 test('accepted archive aliases seed canonical detail and overview tip caches', async ({ page, api }) => {
@@ -70,7 +70,6 @@ test('accepted archive aliases seed canonical detail and overview tip caches', a
     await page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('3')
     await page.getByRole('spinbutton', { name: 'Tore Chelsea', exact: true }).fill('1')
     await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true }).click()
-    await enterEditorKey(page, api.validEditorKey)
     await expect(page.getByRole('status').filter({ hasText: '3:1 gespeichert' })).toBeVisible()
     await expect.poll(() => blockedArchiveReads + blockedCoreReads).toBeGreaterThan(0)
 

@@ -70,8 +70,8 @@ export function DashboardView() {
   })
   const archiveQuery = useArchive(competition === 'wc2026' || activeTab === 'tips' || view === 'assistant')
   const openTips = useMemo(
-    () => archiveQuery.error ? [] : openUnsubmittedTips(upcoming, archiveQuery.data, now),
-    [archiveQuery.error, archiveQuery.data, upcoming, now],
+    () => archiveQuery.error || archiveQuery.isLoading ? [] : openUnsubmittedTips(upcoming, archiveQuery.data, now),
+    [archiveQuery.error, archiveQuery.isLoading, archiveQuery.data, upcoming, now],
   )
   const activeMatches = activeTab === 'upcoming'
     ? upcoming
@@ -123,7 +123,7 @@ export function DashboardView() {
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: 'upcoming', label: 'Demnächst', count: upcoming.length },
     { key: 'played', label: 'Ergebnisse', count: played.length },
-    { key: 'tips', label: 'Offene gemeinsame Tipps', count: archiveQuery.data ? openTips.length : undefined },
+    { key: 'tips', label: 'Offene gemeinsame Tipps', count: activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && archiveQuery.data ? openTips.length : undefined },
     ...(pending.length ? [{ key: 'pending' as const, label: 'Ergebnis ausstehend', count: pending.length }] : []),
     ...(unscheduled.length ? [{ key: 'unscheduled' as const, label: 'Anstoß offen', count: unscheduled.length }] : []),
   ]

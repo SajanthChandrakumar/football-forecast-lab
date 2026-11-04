@@ -41,13 +41,13 @@ export function MatchdayAssistant({ matches, now, expanded = false, archiveEnabl
   const drafts = draftsByRound[stateKey] ?? EMPTY_STRING_MAP
   const savedOverrides = savedByRound[stateKey] ?? EMPTY_STRING_MAP
   const rowErrors = errorsByRound[stateKey] ?? EMPTY_STRING_MAP
+  const archiveReady = !archiveError && !archiveLoading && Boolean(archive)
   const rows = buildAssistantRows(
-    selectedRound?.matches ?? EMPTY_MATCHES, archive, drafts, savedOverrides, now, competition,
+    !archiveLoading && archive ? selectedRound?.matches ?? EMPTY_MATCHES : EMPTY_MATCHES, archive, drafts, savedOverrides, now, competition,
   )
   const rowGroups = assistantRowGroups(rows)
   const candidates = getSaveCandidates(rows)
   const invalidCount = rows.filter((row) => row.editable && row.changed && row.value && !isValidScoreTip(row.value)).length
-  const archiveReady = !archiveError && (Boolean(archive) || !archiveLoading)
   const savedCount = rowGroups.open.filter((row) => isValidScoreTip(row.savedTip)).length
   const deadline = rows
     .filter((row) => row.status !== 'played')

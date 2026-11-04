@@ -1,4 +1,4 @@
-import { chooseCompetition, enterEditorKey, expect, test } from './fixtures'
+import { chooseCompetition, expect, test } from './fixtures'
 
 test('archive failure stays distinct from an empty tip list while evaluation remains reachable', async ({ page, api }) => {
   api.failArchive = true
@@ -48,7 +48,6 @@ test('performance tabs expose accessible panels and retain historical tip edits'
   const historicalForm = historicalTip.locator('xpath=ancestor::form')
   const historicalArticle = historicalTip.locator('xpath=ancestor::article')
   await historicalForm.getByRole('button', { name: 'Speichern' }).click()
-  await enterEditorKey(page, api.validEditorKey)
   await expect(historicalArticle.getByRole('status')).toContainText('Nachtrag gespeichert')
   expect(api.saves.map(({ user_tip }) => user_tip)).toContain('3:1')
 })

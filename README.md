@@ -118,6 +118,8 @@ Die Rückmeldung nennt den tatsächlichen Stand jeder Quelle, fehlende Aufstellu
 
 ## Tests und Auswertung
 
+Bereits berechnete PL-/UCL-Modelltipps werden vor Anpfiff im normalen Wartungs- und Ergebnisabgleich aus dem Cache archiviert, zusammen mit Chancen, Modellversion und vorhandener Eingabeherkunft. Das funktioniert auch bei einem Wartungslauf ohne neue Anbieterabfrage. Der tatsächliche Archivzeitpunkt wird gespeichert; vorhandene Nutzer-Tipps, eingefrorene Prognosen und spätere Ergebnisse bleiben erhalten. Für abgeschlossene Spiele ohne gespeicherten Vorabtipp benennt die Oberfläche die fehlende Aufnahme ausdrücklich.
+
 Der authentifizierte Wartungslauf friert verfügbare Prognosen im Fenster zwischen T−15 und vor T−5 ein und speichert belegbare Markt- und Elo-Vergleichswerte. Zusätzlich prüft der API-Prozess beim normalen Start jede Minute gespeicherte Quoten und Elo-Werte und legt verfügbare Vorab-Aufnahmen im selben Zeitfenster einmalig ab. Dieser Hintergrundlauf ruft keine Sportanbieter auf. Zeitpunkt der letzten Prüfung und nächstes Aufnahmefenster erscheinen in der Prognoseauswertung. Ohne geeignete gespeicherte Eingaben oder bei gestopptem beziehungsweise schlafendem Server bleibt die Stichprobe unvollständig; für garantierte Verfügbarkeit ist weiterhin ein dauerhaft laufender Dienst oder externer Wartungsaufruf nötig. Der Vergleich bewertet 90-Minuten-Ausgänge; bei verlängerungsfähigen Spielen ist dafür ein separat erfasstes 90-Minuten-Resultat nötig.
 
 Weichen Archiv- und Provider-Spiel-ID voneinander ab, funktionieren Tippabgabe und Quotenverlauf über die gespeicherte Team-/Datumszuordnung. Das automatische Einfrieren überspringt solche ID-Aliase derzeit, statt doppelte Archivspiele anzulegen.
@@ -153,9 +155,9 @@ Prognosen sind keine Gewissheit. Football Forecast Lab ist ein technisches Analy
 - [ANALYSIS.md](ANALYSIS.md) – rückblickende Auswertung und Experimente
 - [SECURITY_AUDIT.md](SECURITY_AUDIT.md) – dokumentierte Sicherheitsprüfung
 
-### Schreibzugriff absichern
+### Gemeinsame Bearbeitung und Wartung
 
-Setze serverseitig `EDITOR_TOKEN` auf einen eigenen zufälligen Schlüssel (z. B. `openssl rand -hex 32`) und starte den Server neu. Ohne Schlüssel sind Änderungen an gemeinsamen Tipps, historischen Tipps, Pool-Kontext und Bot-Einstellungen gesperrt. Die Oberfläche verwendet beim Speichern ein maskiertes Schlüsselformular und hält ihn nur im Arbeitsspeicher bis zum Neuladen. Verwende weder Provider-Schlüssel noch `CRON_SECRET` dafür. API-Clients senden `Authorization: Bearer <EDITOR_TOKEN>`.
+Gemeinsame Tipps, historische Einträge, Pool-Kontext, Bot-Einstellungen und manuelles Einfrieren von Prognosen können direkt ohne Editor-Schlüssel bearbeitet werden. Die Einträge sind gemeinsam und für alle Nutzer sichtbar. Eingabeprüfungen und die T−5-Sperre für reguläre Tipps gelten weiterhin. Anbieter-Aktualisierungen und Wartungsaufrufe benötigen weiterhin ihren separaten Admin- beziehungsweise Cron-Schlüssel.
 
 Die Ratenbegrenzung nutzt die ASGI-Clientadresse. Konfiguriere den Server so, dass nur bekannte Reverse-Proxys Forwarded-Header setzen dürfen; verwende keine pauschale Proxy-Freigabe.
 

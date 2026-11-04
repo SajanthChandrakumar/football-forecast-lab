@@ -2,7 +2,17 @@ import type { Match, Prediction } from '../../lib/types'
 import { buildMatchDataStatus } from '../../lib/match-data'
 import { formatObservedAt } from '../../lib/observed-at.mjs'
 
-export function MatchDataStatus({ match, prediction, now = Date.now(), compact = false, badge = false }: { match: Match; prediction?: Prediction; now?: number; compact?: boolean; badge?: boolean }) {
+export function MatchDataStatus({ match, prediction, now = Date.now(), compact = false, badge = false, noArchivedForecast = false }: { match: Match; prediction?: Prediction; now?: number; compact?: boolean; badge?: boolean; noArchivedForecast?: boolean }) {
+  if (noArchivedForecast) {
+    const title = 'Keine Vorabprognose gespeichert'
+    const explanation = 'Für dieses Spiel liegt keine vor Anpfiff archivierte Modellprognose vor. Aktuelle Eingaben können keine historische Prognose ersetzen.'
+    if (badge) return <span className="status-label text-fg-2"><span aria-hidden="true" className="status-dot" />{title}</span>
+    return <section aria-label="Datenlage" className="match-data-panel" data-status="unavailable">
+      <div className="match-data-heading"><h3>Datenlage</h3><span className="status-label text-fg-2"><span aria-hidden="true" className="status-dot" />{title}</span></div>
+      <p className="mt-3 text-sm text-fg-2">{explanation}</p>
+    </section>
+  }
+
   const data = buildMatchDataStatus(match, now, prediction)
   const color = data.status === 'fresh' ? 'text-emerald-a' : data.status === 'stale' ? 'text-amber-a' : 'text-fg-2'
   if (badge) return <span className={`status-label ${color}`}><span aria-hidden="true" className="status-dot" />{data.title}</span>
