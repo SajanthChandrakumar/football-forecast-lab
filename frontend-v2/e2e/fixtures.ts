@@ -64,7 +64,6 @@ export async function installApi(page: Page) {
   }
   const state = {
     matches, archive, prediction: undefined as Prediction | undefined, failArchive: false, failHistory: false, failSave: 0, unavailableRefresh: false,
-    requireEditorKey: false, validEditorKey: 'fixture-editor-key', editorKeyAttempts: [] as string[],
     simulationResponses: [] as { body: unknown; status?: number }[], simulationRequests: [] as string[],
     predictionRequests: [] as { competition: CompetitionId; matchId?: string }[], predictionResponses: 0,
     predictionGate: undefined as Promise<void> | undefined,
@@ -87,6 +86,7 @@ export async function installApi(page: Page) {
     analysisGate: undefined as Promise<void> | undefined,
     forcedMatchRequests: [] as { competition: CompetitionId; force: boolean }[],
     saves: [] as { match_id: string; user_tip: string; competition: CompetitionId }[],
+    sharedWriteAuthorizations: [] as (string | undefined)[],
     unexpected: [] as string[],
   }
   await page.route('**/api/**', async route => {
@@ -183,11 +183,7 @@ export async function installApi(page: Page) {
     }
     if (endpoint === 'archive/user_tip') {
       const tip = request.postDataJSON()
-      if (state.requireEditorKey) {
-        const authorization = request.headers()['authorization'] ?? ''
-        state.editorKeyAttempts.push(authorization.replace(/^Bearer\s+/i, ''))
-        if (authorization !== `Bearer ${state.validEditorKey}`) return respond({ detail: 'Editor-Schlüssel ist ungültig.' }, 401)
-      }
+      state.sharedWriteAuthorizations.push(request.headers()['authorization'])
       state.saves.push(tip)
       await state.saveGate
       if (state.failSave) return respond({ detail: 'Save rejected' }, state.failSave)
@@ -254,12 +250,4 @@ export async function chooseCompetition(page: Page, competition: CompetitionId) 
   const label = { wc2026: 'WM', ucl2026: 'UCL', epl2026: 'PL' }[competition]
   if (!label) throw new Error(`No competition button label is configured for ${competition}`)
   await page.getByRole('banner').getByRole('button', { name: label, exact: true }).click()
-}
-
-export async function enterEditorKey(page: Page, key = 'fixture-editor-key') {
-  const dialog = page.getByRole('dialog', { name: 'Editor-Schlüssel' })
-  await expect(dialog).toBeVisible()
-  await dialog.getByLabel('Schlüssel zum Speichern gemeinsamer Änderungen eingeben.').fill(key)
-  await dialog.getByRole('button', { name: 'Weiter' }).click()
-  await expect(dialog).toHaveCount(0)
 }

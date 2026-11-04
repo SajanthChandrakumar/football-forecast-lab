@@ -1,34 +1,30 @@
-import { test, expect } from './fixtures'
+import { test, expect, chooseCompetition } from './fixtures'
 
-test('shared writes use a masked transient key and ask again after an invalid key', async ({ page, api }) => {
-  api.requireEditorKey = true
-  await page.goto('/#/match/ucl-next')
-  await page.getByLabel('Tore Bayern Munich').fill('1')
-  await page.getByLabel('Tore Arsenal').fill('0')
-  await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern' }).click()
+const competitions = [
+  { id: 'wc2026', label: 'WM', matchId: 'wc-next', home: 'England', away: 'Switzerland' },
+  { id: 'ucl2026', label: 'UCL', matchId: 'ucl-next', home: 'Bayern Munich', away: 'Arsenal' },
+  { id: 'epl2026', label: 'PL', matchId: 'pl-next', home: 'Arsenal', away: 'Chelsea' },
+] as const
 
-  const dialog = page.getByRole('dialog', { name: 'Editor-Schlüssel' })
-  await expect(dialog).toBeVisible()
-  const password = dialog.getByLabel('Schlüssel zum Speichern gemeinsamer Änderungen eingeben.')
-  await expect(password).toHaveAttribute('type', 'password')
-  await password.fill('wrong-key')
-  await dialog.getByRole('button', { name: 'Weiter' }).click()
-  await expect(page.getByRole('alert')).toContainText('Editor-Schlüssel ungültig')
-  await expect(dialog).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern' }).click()
-  await expect(dialog).toBeVisible()
-  await dialog.getByLabel('Schlüssel zum Speichern gemeinsamer Änderungen eingeben.').fill(api.validEditorKey)
-  await dialog.getByRole('button', { name: 'Weiter' }).click()
-  await expect(page.getByRole('status')).toContainText('Gemeinsamer Spieltipp 1:0 gespeichert.')
-  expect(api.editorKeyAttempts).toEqual(['wrong-key', api.validEditorKey])
-  const storedValues = await page.evaluate(() => {
-    const values = (storage: Storage) => Array.from({ length: storage.length }, (_, index) => {
-      const key = storage.key(index)
-      return key ? `${key}=${storage.getItem(key) ?? ''}` : ''
+for (const competition of competitions) {
+  test(`${competition.label} shared tips save without an editor key`, async ({ page, api }) => {
+    const nativePrompts: string[] = []
+    page.on('dialog', async dialog => {
+      nativePrompts.push(dialog.message())
+      await dialog.dismiss()
     })
-    return [...values(localStorage), ...values(sessionStorage)].join('\n')
+
+    await page.goto('/#/')
+    await chooseCompetition(page, competition.id)
+    await page.goto(`/#/match/${competition.matchId}`)
+    await page.getByLabel(`Tore ${competition.home}`).fill('1')
+    await page.getByLabel(`Tore ${competition.away}`).fill('0')
+    await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true }).click()
+
+    await expect(page.getByRole('status')).toContainText('1:0 gespeichert')
+    await expect(page.getByRole('dialog', { name: 'Editor-Schlüssel' })).toHaveCount(0)
+    expect(nativePrompts).toEqual([])
+    expect(api.saves).toEqual([{ match_id: competition.matchId, user_tip: '1:0', competition: competition.id }])
+    expect(api.sharedWriteAuthorizations).toEqual([undefined])
   })
-  expect(storedValues).not.toContain(api.validEditorKey)
-  expect(storedValues).not.toContain('wrong-key')
-})
+}

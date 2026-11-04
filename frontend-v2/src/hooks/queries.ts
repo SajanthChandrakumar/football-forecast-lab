@@ -159,7 +159,7 @@ export const useMatchHistory = (eventId: string, enabled: boolean) => {
 
 export const useArchive = (enabled = true, matchId?: string) => {
   const { competition } = useAppState()
-  return useQuery({
+  const query = useQuery({
     queryKey: matchId ? ['archive', competition, matchId] : ['archive', competition],
     queryFn: ({ signal }) => api.archive(competition, matchId, signal),
     enabled,
@@ -168,6 +168,7 @@ export const useArchive = (enabled = true, matchId?: string) => {
     refetchOnMount: matchId ? 'always' : undefined,
     retry: false,
   })
+  return { ...query, isLoading: query.isLoading || (enabled && !matchId && query.isFetching && !query.isFetchedAfterMount) }
 }
 
 export const useModelEvaluation = () => {
@@ -248,24 +249,25 @@ export const useSaveUserTip = () => {
   return useMutation({
     mutationFn: ({ matchId, tip, targetCompetition, historical = false }: { matchId: string; tip: string; targetCompetition?: typeof competition; historical?: boolean }) =>
       historical ? api.saveHistoricalTip(targetCompetition ?? competition, matchId, tip) : api.saveUserTip(targetCompetition ?? competition, matchId, tip),
-    onSuccess: (result, { matchId, tip, targetCompetition }) => {
+    onSuccess: async (result, { matchId, tip, targetCompetition }) => {
       const savedCompetition = targetCompetition ?? competition
       const acceptedMatchId = result.match_id ?? matchId
       const canonicalMatchId = result.canonical_match_id ?? acceptedMatchId
       const acceptedEntry: ArchiveEntry | undefined = result.match_id ? result.archive_entry : undefined
+      await qc.cancelQueries({ queryKey: ['archive', savedCompetition] })
+      if (acceptedEntry) {
+        qc.setQueryData<Archive>(['archive', savedCompetition], current => ({ ...current, [acceptedMatchId]: acceptedEntry }))
+      }
       for (const [queryKey, current] of qc.getQueriesData<Archive>({ queryKey: ['archive', savedCompetition] })) {
-        if (!current) continue
         const isFullArchive = queryKey.length === 2
         const isMatchingGameArchive = queryKey.length === 3 && (queryKey[2] === canonicalMatchId || queryKey[2] === matchId)
-        if (acceptedEntry && isFullArchive) {
-          qc.setQueryData<Archive>(queryKey, { ...current, [acceptedMatchId]: acceptedEntry })
-          continue
-        }
+        if (acceptedEntry && isFullArchive) continue
         if (acceptedEntry && isMatchingGameArchive) {
           qc.setQueryData<Archive>(queryKey, { ...current, [canonicalMatchId]: acceptedEntry })
           continue
         }
 
+        if (!current) continue
         // Older servers only return ok/points. Patch a saved row when one is already cached,
         // but never fabricate the rest of a newly-created archive record.
         const existingId = current[acceptedMatchId] ? acceptedMatchId : current[canonicalMatchId] ? canonicalMatchId : current[matchId] ? matchId : undefined

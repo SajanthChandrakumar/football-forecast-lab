@@ -155,9 +155,9 @@ Prognosen sind keine Gewissheit. Football Forecast Lab ist ein technisches Analy
 - [ANALYSIS.md](ANALYSIS.md) – rückblickende Auswertung und Experimente
 - [SECURITY_AUDIT.md](SECURITY_AUDIT.md) – dokumentierte Sicherheitsprüfung
 
-### Schreibzugriff absichern
+### Gemeinsame Bearbeitung und Wartung
 
-Setze serverseitig `EDITOR_TOKEN` auf einen eigenen zufälligen Schlüssel (z. B. `openssl rand -hex 32`) und starte den Server neu. Ohne Schlüssel sind Änderungen an gemeinsamen Tipps, historischen Tipps, Pool-Kontext und Bot-Einstellungen gesperrt. Die Oberfläche verwendet beim Speichern ein maskiertes Schlüsselformular und hält ihn nur im Arbeitsspeicher bis zum Neuladen. Verwende weder Provider-Schlüssel noch `CRON_SECRET` dafür. API-Clients senden `Authorization: Bearer <EDITOR_TOKEN>`.
+Gemeinsame Tipps, historische Einträge, Pool-Kontext, Bot-Einstellungen und manuelles Einfrieren von Prognosen können direkt ohne Editor-Schlüssel bearbeitet werden. Die Einträge sind gemeinsam und für alle Nutzer sichtbar. Eingabeprüfungen und die T−5-Sperre für reguläre Tipps gelten weiterhin. Anbieter-Aktualisierungen und Wartungsaufrufe benötigen weiterhin ihren separaten Admin- beziehungsweise Cron-Schlüssel.
 
 Die Ratenbegrenzung nutzt die ASGI-Clientadresse. Konfiguriere den Server so, dass nur bekannte Reverse-Proxys Forwarded-Header setzen dürfen; verwende keine pauschale Proxy-Freigabe.
 

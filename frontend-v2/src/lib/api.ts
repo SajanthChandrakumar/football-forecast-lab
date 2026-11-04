@@ -6,33 +6,12 @@ import type {
 import { competitionPath } from './competition.mjs'
 import { DEFAULT_UCL_SIMULATION_RUNS, uclSimulationPath } from './simulation.mjs'
 
-let editorToken = ""
-let editorKeyRequest: Promise<string | null> | null = null
 const DEFAULT_REQUEST_TIMEOUT_MS = 12_000
 const CLUB_MATCHES_TIMEOUT_MS = 45_000
-
-function askForEditorKey(): Promise<string | null> {
-  if (!editorKeyRequest) {
-    editorKeyRequest = new Promise<string | null>((resolve) => {
-      window.dispatchEvent(new CustomEvent('editor-key-required', { detail: { resolve } }))
-    }).finally(() => { editorKeyRequest = null })
-  }
-  return editorKeyRequest ?? Promise.resolve(null)
-}
 
 async function request<T>(path: string, init?: RequestInit, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<T> {
   const headers = new Headers(init?.headers)
   headers.set('Content-Type', 'application/json')
-  const sharedWrite = (init?.method === 'POST' || init?.method === 'PUT') &&
-    /^\/(archive\/(user_tip|historical_tip)|custom_bot|pool-context\/[^?]+)(\?|$)/.test(path)
-  const requestedCompetition = new URLSearchParams(path.split('?')[1] ?? '').get('competition')
-  if (sharedWrite) {
-    editorToken ||= requestedCompetition === 'epl2026' || requestedCompetition === 'ucl2026'
-      ? (await askForEditorKey())?.trim() ?? ''
-      : window.prompt('Editor-Schlüssel zum Speichern eingeben:')?.trim() ?? ''
-    if (!editorToken) throw new Error('Speichern benötigt einen Editor-Schlüssel.')
-    headers.set('Authorization', `Bearer ${editorToken}`)
-  }
   const timeoutSignal = AbortSignal.timeout(timeoutMs)
   const signal = init?.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal
   let res: Response
@@ -42,7 +21,6 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = DEFAULT_
     if (timeoutSignal.aborted && !init?.signal?.aborted) throw new Error('Die Anfrage dauert zu lange. Bitte erneut versuchen.')
     throw error
   }
-  if (sharedWrite && res.status === 401) editorToken = ''
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`)

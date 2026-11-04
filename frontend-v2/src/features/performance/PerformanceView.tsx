@@ -40,7 +40,21 @@ export function PerformanceView() {
   const commonTipRate = totals.userCount > 0 ? `${((totals.userCount / Math.max(totals.completed, 1)) * 100).toFixed(0)}%` : '—'
   const sharedPointsPerGame = comparison.matches > 0 ? formatAverage(comparison.userPoints, comparison.matches) : '—'
   const modelPointsPerGame = comparison.matches > 0 ? formatAverage(comparison.algoPoints, comparison.matches) : '—'
-  const archiveUnavailable = isError && !archive
+  if (isLoading || isError) return (
+    <PageTransition>
+      <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
+      <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} wrap />
+      {isLoading ? <PerformanceSkeleton /> : <QueryState
+        title="Auswertung nicht verfügbar"
+        message="Die vollständigen gespeicherten Spieldaten konnten nicht geladen werden. Versuche es erneut."
+        onRetry={() => { void retryArchive() }}
+      />}
+      {view === 'comparison' && <>
+        <ForecastEvaluation />
+        {competition === 'wc2026' && <ModelComparison />}
+      </>}
+    </PageTransition>
+  )
 
   return (
     <PageTransition>
@@ -49,32 +63,12 @@ export function PerformanceView() {
 
       <ViewPanel id="performance" value="tips" active={view}>
         <div className="analysis-section space-y-4">
-          {isLoading && !archive ? <PerformanceSkeleton /> : !archiveUnavailable && <SavedTips key={competition} archive={archive ?? {}} now={now} />}
-          {archiveUnavailable && <QueryState
-            title="Auswertung nicht verfügbar"
-            message="Die gespeicherten Spieldaten konnten nicht geladen werden. Prüfe die Verbindung und versuche es erneut."
-            onRetry={() => { void retryArchive() }}
-          />}
-          {isError && archive && <QueryState
-            title="Aktualisierung fehlgeschlagen"
-            message="Die zuletzt gespeicherte Auswertung wird angezeigt. Neue Spieldaten konnten nicht geladen werden."
-            onRetry={() => { void retryArchive() }}
-          />}
+          <SavedTips key={competition} archive={archive ?? {}} now={now} />
         </div>
       </ViewPanel>
 
       <ViewPanel id="performance" value="points" active={view}>
         <div className="analysis-section space-y-4">
-          {isLoading && !archive ? <PerformanceSkeleton /> : archiveUnavailable ? <QueryState
-            title="Punkteverlauf nicht verfügbar"
-            message="Die gespeicherten Spieldaten konnten nicht geladen werden. Versuche es erneut."
-            onRetry={() => { void retryArchive() }}
-          /> : <>
-            {isError && archive && <QueryState
-              title="Aktualisierung fehlgeschlagen"
-              message="Die zuletzt gespeicherte Auswertung wird angezeigt. Neue Spieldaten konnten nicht geladen werden."
-              onRetry={() => { void retryArchive() }}
-            />}
             <GlassCard className="surface-panel">
               <SectionTitle className="mb-4">Übersicht</SectionTitle>
               <div className="metric-strip grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -94,7 +88,6 @@ export function PerformanceView() {
 
             <PointsRaceChart completed={completed} extraBots={extraBots} />
             <MatchHistory completed={completed} hasReconstructed={totals.hasReconstructed} />
-          </>}
         </div>
       </ViewPanel>
 

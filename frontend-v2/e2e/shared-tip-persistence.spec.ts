@@ -1,4 +1,4 @@
-import { test, expect, chooseCompetition, enterEditorKey, fixture, NOW } from './fixtures'
+import { test, expect, chooseCompetition, fixture, NOW } from './fixtures'
 
 // Real production UI against deterministic API responses; no live shared tips are changed.
 test('a new EPL fixture accepts its first tip and keeps it visible after reload', async ({ page, api }, testInfo) => {
@@ -9,7 +9,6 @@ test('a new EPL fixture accepts its first tip and keeps it visible after reload'
   await page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('3')
   await page.getByRole('spinbutton', { name: 'Tore Chelsea', exact: true }).fill('1')
   await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true }).click()
-  await enterEditorKey(page, api.validEditorKey)
   await expect(page.getByRole('status').filter({ hasText: '3:1 gespeichert' })).toBeVisible()
   await page.reload()
   await expect(page.getByText('Gespeicherter gemeinsamer Tipp:')).toContainText('3:1')
@@ -34,7 +33,6 @@ test('unarchived EPL fixtures appear among open tips and can be saved from the w
   await page.getByRole('tab', { name: 'Tipp-Assistent', exact: true }).click()
   await assistant.getByLabel('Tipp für Arsenal gegen Chelsea', { exact: true }).fill('0:0')
   await assistant.getByRole('button', { name: /Tipp.*speichern/ }).click()
-  await enterEditorKey(page, api.validEditorKey)
   await expect(assistant.getByRole('status')).toContainText('1 gespeichert')
   await page.getByRole('link', { name: 'Gemeinsame Tipps', exact: true }).filter({ visible: true }).click()
   await expect(page.getByRole('region', { name: 'Gespeicherte Tipps' }).getByText('0:0', { exact: true })).toBeVisible()
@@ -123,7 +121,6 @@ test('a completed match accepts a marked historical tip and keeps the stored mod
   await expect(card.getByText('3:0',{exact:true})).toBeVisible()
   await card.getByRole('textbox').fill('2:1')
   await card.getByRole('button',{name:'Speichern',exact:true}).click()
-  await enterEditorKey(page, api.validEditorKey)
   await expect(card.getByRole('status')).toContainText('10 Punkte')
   await expect(card.getByText('Dein Tipp · nachgetragen',{exact:true})).toBeVisible()
   await page.reload()
