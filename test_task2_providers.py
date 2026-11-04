@@ -45,7 +45,7 @@ class MemoryCollection:
     def find_one(self, query):
         return self.documents.get(query.get("_id"))
 
-    def find(self, query=None):
+    def find(self, query=None, projection=None):
         values = list(self.documents.values())
         if not query:
             return values

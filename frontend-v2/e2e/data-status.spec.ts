@@ -59,7 +59,7 @@ test('data evidence follows the displayed prediction when the match cache differ
     input_provenance: { elo: { source: 'elo', status: 'fresh' } },
   }
   await page.goto('/#/match/ucl-next')
-  const recommendation = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Empfohlener Ergebnistipp', exact: true }) })
+  const recommendation = page.getByRole('region', { name: 'Empfohlener Ergebnistipp', exact: true })
   await expect(recommendation.getByText('3:0', { exact: true })).toBeVisible()
   const data = page.getByRole('region', { name: 'Datenlage', exact: true })
   await expect(data).toContainText('nur Elo')
@@ -67,4 +67,51 @@ test('data evidence follows the displayed prediction when the match cache differ
   await expect(data).toContainText('Zeitpunkt nicht verfügbar')
   await expect(data).not.toContainText('Datenstand belegt')
   await expect(data).not.toContainText('ClubElo')
+})
+
+test('a completed club match without an archived model tip does not present current data as its forecast', async ({ page, api }) => {
+  const match = api.matches.ucl2026[0]
+  match.completed = true
+  match.actual_score = '1:0'
+  match.raw_match!.commence_time = new Date(NOW.getTime() - 60_000).toISOString()
+  match.model_tip = '9:9'
+  match.top_tip = '9:9'
+  match.source_mode = 'odds+elo'
+  match.input_provenance = {
+    odds: { status: 'fresh', source: 'odds_api', observed_at: NOW.toISOString() },
+    elo: { status: 'fresh', source: 'clubelo', observed_at: NOW.toISOString() },
+  }
+  const archived = api.archive.ucl2026['ucl-next'].prediction
+  archived.model_tip = null
+  archived.top_tip = null
+  delete archived.probabilities
+
+  await page.goto('/#/match/ucl-next')
+
+  const recommendation = page.getByRole('region', { name: 'Empfohlener Ergebnistipp', exact: true })
+  await expect(recommendation).toContainText('Keine Vorabprognose gespeichert')
+  await expect(recommendation).not.toContainText('9:9')
+  const data = page.getByRole('region', { name: 'Datenlage', exact: true })
+  await expect(data).toContainText('Aktuelle Eingaben können keine historische Prognose ersetzen.')
+  await expect(data).not.toContainText('Datenstand belegt')
+})
+
+test('an archived club model tip remains visible when archived probabilities are missing', async ({ page, api }) => {
+  const match = api.matches.ucl2026[0]
+  match.completed = true
+  match.actual_score = '1:0'
+  match.raw_match!.commence_time = new Date(NOW.getTime() - 60_000).toISOString()
+  match.model_tip = '9:9'
+  match.top_tip = '9:9'
+  const archived = api.archive.ucl2026['ucl-next'].prediction
+  archived.model_tip = null
+  archived.top_tip = '3:2'
+  delete archived.probabilities
+
+  await page.goto('/#/match/ucl-next')
+
+  const recommendation = page.getByRole('region', { name: 'Empfohlener Ergebnistipp', exact: true })
+  await expect(recommendation).toContainText('3:2')
+  await expect(recommendation).not.toContainText('9:9')
+  await expect(recommendation).not.toContainText('Keine Vorabprognose gespeichert')
 })

@@ -991,3 +991,45 @@ def test_historical_tip_by_provider_id_updates_prepared_legacy_archive_id():
     assert archive.documents["legacy-done"]["prediction"]["user_tip"] == "2:1"
     assert result["match_id"] == "legacy-done"
     assert result["canonical_match_id"] == "provider-1"
+
+
+def test_completed_views_never_present_a_later_cache_tip_as_an_archived_forecast():
+    fixture = _fixture(completed=True, user_tip='2:1')
+    fixture['model_tip'] = fixture['top_tip'] = '9:9'
+    fixture['observed_at'] = '2026-11-01T20:00:00Z'  # after the 19:00 kickoff
+    for archived in ({}, {'game-1': {
+        'prediction': {'top_tip': None, 'max_xp': None},
+        'post_match_result': {'status': 'completed', 'actual_score': '1:0'},
+    }}):
+        bundle = build_match_views([fixture], archived, 'epl2026')
+        for row in (bundle['overview'][0], bundle['games']['game-1']['core']):
+            assert row['model_tip'] is None
+            assert row['top_tip'] is None
+            assert row['probabilities'] is None
+            assert row['user_tip'] == '2:1'
+
+
+
+def test_later_cache_filter_keeps_an_existing_archived_prediction_untouched():
+    fixture = _fixture(completed=True)
+    fixture['observed_at'] = '2026-11-01T20:00:00Z'
+    fixture['archived_prediction'] = {'model_tip': '1:0', 'top_tip': '1:0'}
+    original = deepcopy(fixture)
+    core = build_match_views([fixture], {}, 'epl2026')['games']['game-1']['core']
+    assert core['archived_prediction'] == original['archived_prediction']
+    assert core['model_tip'] == '1:0'
+    assert fixture == original
+
+
+def test_completed_archive_masks_later_cache_tip_even_before_fixture_flag_updates():
+    fixture = _fixture()
+    fixture['observed_at'] = '2026-11-01T20:00:00Z'
+    fixture['model_tip'] = fixture['top_tip'] = '9:9'
+    archived = {'game-1': {
+        'prediction': {'top_tip': None, 'max_xp': None},
+        'post_match_result': {'status': 'completed', 'actual_score': '1:0'},
+    }}
+    core = build_match_views([fixture], archived, 'epl2026')['games']['game-1']['core']
+    assert core['completed'] is True
+    assert core['model_tip'] is None
+    assert core['top_tip'] is None

@@ -118,6 +118,8 @@ Die Rückmeldung nennt den tatsächlichen Stand jeder Quelle, fehlende Aufstellu
 
 ## Tests und Auswertung
 
+Bereits berechnete PL-/UCL-Modelltipps werden vor Anpfiff im normalen Wartungs- und Ergebnisabgleich aus dem Cache archiviert, zusammen mit Chancen, Modellversion und vorhandener Eingabeherkunft. Das funktioniert auch bei einem Wartungslauf ohne neue Anbieterabfrage. Der tatsächliche Archivzeitpunkt wird gespeichert; vorhandene Nutzer-Tipps, eingefrorene Prognosen und spätere Ergebnisse bleiben erhalten. Für abgeschlossene Spiele ohne gespeicherten Vorabtipp benennt die Oberfläche die fehlende Aufnahme ausdrücklich.
+
 Der authentifizierte Wartungslauf friert verfügbare Prognosen im Fenster zwischen T−15 und vor T−5 ein und speichert belegbare Markt- und Elo-Vergleichswerte. Zusätzlich prüft der API-Prozess beim normalen Start jede Minute gespeicherte Quoten und Elo-Werte und legt verfügbare Vorab-Aufnahmen im selben Zeitfenster einmalig ab. Dieser Hintergrundlauf ruft keine Sportanbieter auf. Zeitpunkt der letzten Prüfung und nächstes Aufnahmefenster erscheinen in der Prognoseauswertung. Ohne geeignete gespeicherte Eingaben oder bei gestopptem beziehungsweise schlafendem Server bleibt die Stichprobe unvollständig; für garantierte Verfügbarkeit ist weiterhin ein dauerhaft laufender Dienst oder externer Wartungsaufruf nötig. Der Vergleich bewertet 90-Minuten-Ausgänge; bei verlängerungsfähigen Spielen ist dafür ein separat erfasstes 90-Minuten-Resultat nötig.
 
 Weichen Archiv- und Provider-Spiel-ID voneinander ab, funktionieren Tippabgabe und Quotenverlauf über die gespeicherte Team-/Datumszuordnung. Das automatische Einfrieren überspringt solche ID-Aliase derzeit, statt doppelte Archivspiele anzulegen.

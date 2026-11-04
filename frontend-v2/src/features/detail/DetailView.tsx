@@ -398,6 +398,7 @@ export function DetailView() {
   const cachedModelTip = isClubCompetition && !isUpcoming
     ? archivedClubPrediction?.model_tip ?? archivedClubPrediction?.top_tip ?? null
     : match.model_tip ?? match.top_tip
+  const noArchivedForecast = Boolean(isClubCompetition && !isUpcoming && archive.data && !archive.error && (!cachedModelTip || cachedModelTip === 'N/A'))
   const predictionTip = selectedPrediction?.model_tip ?? selectedPrediction?.top_tip ?? null
   const modelTip = predictionTip ?? cachedModelTip
   const activeTip = modelTip && modelTip !== 'N/A' ? modelTip : null
@@ -479,7 +480,7 @@ export function DetailView() {
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Empfehlung</p>
                 <h2 id="recommendation-title" className="mt-1 text-lg font-bold text-fg" aria-label="Empfohlener Ergebnistipp">Modelltipp</h2>
               </div>
-              <MatchDataStatus match={match} prediction={predictionTip != null ? selectedPrediction : undefined} now={now} badge />
+              <MatchDataStatus match={match} prediction={predictionTip != null ? selectedPrediction : undefined} now={now} badge noArchivedForecast={noArchivedForecast} />
             </div>
             <div className="mt-3 flex items-center justify-between gap-4">
               <p className="display-num text-4xl text-fg">{activeTip ?? '–'}</p>
@@ -513,7 +514,7 @@ export function DetailView() {
             </div>
             <OutcomeBar probabilities={displayedProbabilities} homeTeam={match.home_team} awayTeam={match.away_team} sourceLabel={outcomeSource} observedAt={outcomeObservedAt} compact basisLabel={isClubCompetition ? 'Nach 90 Minuten' : undefined} />
           </section>
-          <MatchDataStatus match={match} prediction={predictionTip != null ? selectedPrediction : undefined} now={now} />
+          <MatchDataStatus match={match} prediction={predictionTip != null ? selectedPrediction : undefined} now={now} noArchivedForecast={noArchivedForecast} />
         </div>
       </ViewPanel>
 

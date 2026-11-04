@@ -254,6 +254,24 @@ def _strip_raw_bookmakers(match: dict) -> None:
 
 
 def _merge_archive(match: dict, entry: Mapping | None, *, archive_id: str):
+    recorded = entry.get("prediction") if isinstance(entry, Mapping) else None
+    has_recorded_tip = isinstance(recorded, Mapping) and bool(recorded.get("model_tip") or recorded.get("top_tip"))
+    archived_result = entry.get("post_match_result") if isinstance(entry, Mapping) else None
+    archive_completed = isinstance(archived_result, Mapping) and str(archived_result.get("status") or "").lower() == "completed"
+    if ((_is_completed(match) or archive_completed) and not has_recorded_tip
+            and not isinstance(match.get("archived_prediction"), Mapping)):
+        raw = match.get("raw_match") if isinstance(match.get("raw_match"), Mapping) else {}
+        try:
+            observed = parse_time(match.get("observed_at"))
+            kickoff = parse_time(match.get("commence_time") or raw.get("commence_time"))
+        except (TypeError, ValueError, OverflowError):
+            pass
+        else:
+            if observed >= kickoff:
+                # Hide only demonstrably later cache values, never recorded forecasts.
+                for key in ("model_tip", "top_tip", "pool_tip", "probabilities",
+                            "base_probabilities", "xg_home", "xg_away", "max_xp"):
+                    match[key] = None
     if not isinstance(entry, Mapping):
         return None
     prediction = entry.get("prediction") if isinstance(entry.get("prediction"), Mapping) else {}
