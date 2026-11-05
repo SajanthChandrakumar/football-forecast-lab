@@ -15,7 +15,7 @@ Fussballprognosen hängen von vielen Informationen ab, die sich nicht leicht dir
 - **Spiele und Datenlage:** kommende und gespielte Partien, Ergebnisse, Tabellen, Teamform und – soweit verfügbar – Quoten. Datenquellen und Aktualität werden kenntlich gemacht; fehlende Daten werden nicht als echte Anbieterquoten ausgegeben.
 - **Spielanalyse:** 1/X/2-Wahrscheinlichkeiten, erwartete Tore, wahrscheinliche Resultate, Score-Matrix und verständliche Teamvergleiche.
 - **Ergebnistipps:** Auswahl eines Tipps anhand der erwarteten Punkte nach dem SRF-Tippspiel-Regelwerk. Für Nutzer-Tipps können Punkte im Archiv gespeichert und nach bekannten Ergebnissen ausgewertet werden.
-- **Spieltag-Assistent:** Ergebnistipps einer Spielwoche bearbeiten, gemeinsam speichern oder als Tippkarte kopieren. Gespeicherte Tipps sind derzeit für alle Nutzer sichtbar; die Eingabe schliesst fünf Minuten vor Anpfiff.
+- **Spieltag-Assistent:** Eigene Ergebnistipps einer Spielwoche bearbeiten, gesammelt speichern oder als Tippkarte kopieren. Der bestehende Tippbestand wird unter „Meine Tipps“ geführt und dient zum Vergleich mit Modell und Bots; die Eingabe schliesst fünf Minuten vor Anpfiff.
 - **Quotenverlauf:** vorhandene Buchmacher-Snapshots vor Anpfiff mit bereinigten 1/X/2-Wahrscheinlichkeiten und deren Veränderung. Ohne gespeicherte Beobachtungen wird kein Verlauf erfunden.
 - **Modellvergleich:** Modell, Buchmacher und reines Elo anhand derselben belegbaren Vorabspiele vergleichen: Brier-Score, Log Loss und Kalibrierung. Altbestand und Rekonstruktionen zählen nicht zu dieser Stichprobe.
 - **Leistungsverlauf:** vergleicht gespeicherte, vor dem Anpfiff erfasste Prognosen mit Ergebnissen. Nachträglich aus Elo-Werten rekonstruierte Tipps werden separat ausgewiesen.
@@ -155,9 +155,9 @@ Prognosen sind keine Gewissheit. Football Forecast Lab ist ein technisches Analy
 - [ANALYSIS.md](ANALYSIS.md) – rückblickende Auswertung und Experimente
 - [SECURITY_AUDIT.md](SECURITY_AUDIT.md) – dokumentierte Sicherheitsprüfung
 
-### Gemeinsame Bearbeitung und Wartung
+### Meine Tipps und Wartung
 
-Gemeinsame Tipps, historische Einträge, Pool-Kontext, Bot-Einstellungen und manuelles Einfrieren von Prognosen können direkt ohne Editor-Schlüssel bearbeitet werden. Die Einträge sind gemeinsam und für alle Nutzer sichtbar. Eingabeprüfungen und die T−5-Sperre für reguläre Tipps gelten weiterhin. Anbieter-Aktualisierungen und Wartungsaufrufe benötigen weiterhin ihren separaten Admin- beziehungsweise Cron-Schlüssel.
+Eigene Tipps, historische Einträge, Pool-Kontext, Bot-Einstellungen und manuelles Einfrieren von Prognosen können direkt ohne Editor-Schlüssel bearbeitet werden. „Meine Tipps“ führt den bisherigen zentralen Tippbestand des App-Betreibers weiter. Es gibt keine getrennten Nutzerkonten; die Daten werden weiterhin im zentralen App-Archiv gespeichert und sind über die öffentliche App abrufbar. Eingabeprüfungen und die T−5-Sperre für reguläre Tipps gelten weiterhin. Anbieter-Aktualisierungen und Wartungsaufrufe benötigen weiterhin ihren separaten Admin- beziehungsweise Cron-Schlüssel.
 
 Die Ratenbegrenzung nutzt die ASGI-Clientadresse. Konfiguriere den Server so, dass nur bekannte Reverse-Proxys Forwarded-Header setzen dürfen; verwende keine pauschale Proxy-Freigabe.
 

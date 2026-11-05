@@ -69,7 +69,7 @@ test('accepted archive aliases seed canonical detail and overview tip caches', a
 
     await page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('3')
     await page.getByRole('spinbutton', { name: 'Tore Chelsea', exact: true }).fill('1')
-    await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true }).click()
+    await page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true }).click()
     await expect(page.getByRole('status').filter({ hasText: '3:1 gespeichert' })).toBeVisible()
     await expect.poll(() => blockedArchiveReads + blockedCoreReads).toBeGreaterThan(0)
 
@@ -77,7 +77,7 @@ test('accepted archive aliases seed canonical detail and overview tip caches', a
     await expect.poll(() => blockedOverviewReads).toBeGreaterThan(0)
     await page.getByRole('combobox', { name: 'Spiele filtern', exact: true }).selectOption('upcoming')
     const row = page.locator('article.match-card').filter({ has: page.getByRole('link', { name: 'Tipp ansehen: Arsenal gegen Chelsea', exact: true }) }).first()
-    await expect(row).toContainText('Gemeinsamer Tipp: 3:1')
+    await expect(row).toContainText('Mein Tipp: 3:1')
 
     await page.goto('/#/match/pl-next')
     await expect(page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true })).toHaveValue('3')

@@ -60,7 +60,7 @@ export function FixtureRow({ match, trailing, pendingResult = false, now, compac
     </div>
 
     {status === 'played' && <p className="match-card-note fixture-row-note">{hasTip ? `Modelltipp: ${match.top_tip}` : 'Keine Vorab-Empfehlung'}</p>}
-    {status === 'upcoming' && savedTip?.trim() && <p className="match-card-note fixture-row-note">Gemeinsamer Tipp: {savedTip}</p>}
+    {status === 'upcoming' && savedTip?.trim() && <p className="match-card-note fixture-row-note">Mein Tipp: {savedTip}</p>}
 
     <div className="fixture-row-tools">
       {status !== 'played' && <div className="match-card-data">

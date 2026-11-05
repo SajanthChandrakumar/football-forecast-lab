@@ -19,7 +19,7 @@ for (const competition of competitions) {
     await page.goto(`/#/match/${competition.matchId}`)
     await page.getByLabel(`Tore ${competition.home}`).fill('1')
     await page.getByLabel(`Tore ${competition.away}`).fill('0')
-    await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true }).click()
+    await page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true }).click()
 
     await expect(page.getByRole('status')).toContainText('1:0 gespeichert')
     await expect(page.getByRole('dialog', { name: 'Editor-Schlüssel' })).toHaveCount(0)

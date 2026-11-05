@@ -51,7 +51,7 @@ export function ForecastEvaluation() {
           </p>
         </div>}
         <div className="mt-5 flex flex-wrap items-baseline justify-between gap-2 border-b border-line pb-4">
-          <p className="text-sm font-semibold text-fg">{data.common_sample_count} {data.common_sample_count === 1 ? 'Spiel' : 'Spiele'} in der gemeinsamen Stichprobe</p>
+          <p className="text-sm font-semibold text-fg">{data.common_sample_count} {data.common_sample_count === 1 ? 'Spiel' : 'Spiele'} in der Vergleichsstichprobe</p>
           <p className="text-xs text-fg-3">{data.common_sample_count} von {data.completed_count} abgeschlossenen Spielen auswertbar</p>
         </div>
         {data.common_sample_count === 0 ? (

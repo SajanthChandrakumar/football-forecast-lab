@@ -8,14 +8,14 @@ test('the recommendation and shared-tip action fit the first screen', async ({ p
     elo: { status: 'fresh', source: 'clubelo', observed_at: NOW.toISOString() },
   }
   await page.goto('/#/match/ucl-next')
-  const save = page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })
+  const save = page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true })
   await expect(save).toBeEnabled()
   await expect(page.getByRole('heading', { name: 'Empfohlener Ergebnistipp' })).toBeVisible()
   const bounds = await save.boundingBox()
   expect(bounds).not.toBeNull()
   const mobile = (page.viewportSize()?.width ?? 1440) < 1024
   expect(bounds!.y + bounds!.height).toBeLessThan((page.viewportSize()?.height ?? 900) - (mobile ? 72 : 0))
-  await expect(page.getByText('Für alle sichtbar', { exact: true })).toBeVisible()
+  await expect(page.getByText('Zum Vergleich mit Modell und Bots', { exact: true })).toBeVisible()
 })
 
 test('source warnings stay visible while explanatory notes open on demand', async ({ page, api }) => {

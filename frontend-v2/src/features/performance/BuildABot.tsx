@@ -88,7 +88,7 @@ export function BuildABot({ customBot, simulate, completed, commonMatchIds }: {
       <SectionTitle className="mb-2">Eigenen Bot testen</SectionTitle>
       <p className="mb-5 max-w-3xl text-sm leading-relaxed text-fg-2">
         Stelle eine Tippstrategie ein. Der Rücktest nutzt abgeschlossene Spiele mit verfügbaren Vorhersagedaten.
-        Der Vergleich mit gemeinsamen Tipps und Modell wird zusätzlich auf dieselben Spiele begrenzt.
+        Der Vergleich mit deinen Tipps und Modell wird zusätzlich auf dieselben Spiele begrenzt.
       </p>
 
       <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
@@ -126,13 +126,13 @@ export function BuildABot({ customBot, simulate, completed, commonMatchIds }: {
             <p className="text-sm font-semibold text-fg">Rücktest: {sim.total_points} Punkte aus {sim.matches} auswertbaren Spielen</p>
             {commonRows.length > 0 ? (
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <ComparablePoints label="Gemeinsame Tipps" points={sharedCommonPoints} matches={commonRows.length} />
+                <ComparablePoints label="Meine Tipps" points={sharedCommonPoints} matches={commonRows.length} />
                 <ComparablePoints label="Modell" points={modelCommonPoints} matches={commonRows.length} />
                 <ComparablePoints label="Eigener Bot" points={botCommonPoints} matches={commonRows.length} />
               </div>
             ) : (
               <p className="mt-2 text-sm text-fg-2">
-                Keine Spiele dieses Rücktests gehören zur gemeinsamen Vergleichsstichprobe; deshalb gibt es keinen Punktevergleich.
+                Keine Spiele dieses Rücktests gehören zur Vergleichsstichprobe; deshalb gibt es keinen Punktevergleich.
               </p>
             )}
           </>

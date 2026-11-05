@@ -24,7 +24,7 @@ test('match analysis tabs keep the prediction evidence and tip editor available 
   await page.getByRole('spinbutton', { name: 'Tore Bayern Munich', exact: true }).fill('4')
   await page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('3')
 
-  const saveButton = page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })
+  const saveButton = page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true })
   const saveBox = await saveButton.boundingBox()
   const mobileNavBox = await page.getByRole('navigation', { name: 'Hauptnavigation' }).last().boundingBox()
   expect(saveBox).not.toBeNull()

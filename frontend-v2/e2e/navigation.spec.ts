@@ -23,7 +23,7 @@ test('primary and analysis navigation keep every area reachable and mark the act
   await page.goto('/#/')
   const mobile = (page.viewportSize()?.width ?? 1440) < 1024
   const navigation = page.getByRole('navigation', { name: 'Hauptnavigation', exact: true }).filter({ visible: true })
-  for (const [label, path] of [['Gemeinsame Tipps', 'performance'], ['Tabellen', 'groups'], ['Spiele', '']]) {
+  for (const [label, path] of [['Meine Tipps', 'performance'], ['Tabellen', 'groups'], ['Spiele', '']]) {
     const link = navigation.getByRole('link', { name: label, exact: true })
     await link.click()
     await expect(page).toHaveURL(new RegExp(`#/${path}$`))

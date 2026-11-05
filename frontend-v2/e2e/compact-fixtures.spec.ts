@@ -80,7 +80,7 @@ test('shared-tip rows stay open and save-and-next focuses the next fixture', asy
   await first.getByRole('spinbutton', { name: 'Tore Bayern Munich', exact: true }).fill('1')
   await first.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('0')
   await first.getByRole('button', { name: 'Speichern & nächstes Spiel', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Gemeinsamer Tipp 1:0 für Bayern Munich gegen Arsenal gespeichert.' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Dein Tipp 1:0 für Bayern Munich gegen Arsenal gespeichert.' })).toBeVisible()
   await expect(nextHomeInput).toBeFocused()
   expect(api.saves.map(({ user_tip }) => user_tip)).toContain('1:0')
 })
