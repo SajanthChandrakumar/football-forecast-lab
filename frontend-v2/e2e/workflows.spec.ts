@@ -1,6 +1,6 @@
 import { test, expect, chooseCompetition, fixture, NOW } from './fixtures'
 
-const saveButton = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })
+const saveButton = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true })
 
 async function enterTip(page: import('@playwright/test').Page, home = '4', away = '3') {
   await page.getByRole('spinbutton', { name: 'Tore Bayern Munich', exact: true }).fill(home)
@@ -21,7 +21,7 @@ test('a rejected save preserves input and a successful retry survives reload', a
   await expect(page.getByRole('status').filter({ hasText: '4:3 gespeichert' })).toBeVisible()
   expect(api.saves).toEqual(Array(2).fill({ match_id: 'ucl-next', user_tip: '4:3', competition: 'ucl2026' }))
   await page.reload()
-  await expect(page.getByText('Gespeicherter gemeinsamer Tipp:')).toContainText('4:3')
+  await expect(page.getByText('Mein gespeicherter Tipp:')).toContainText('4:3')
   await expect(page.getByRole('spinbutton', { name: 'Tore Bayern Munich', exact: true })).toHaveValue('4')
 })
 
@@ -60,7 +60,7 @@ test('an unavailable archive cannot silently overwrite an existing tip', async (
   api.failArchive = true
   api.archive.ucl2026['ucl-next'].prediction.user_tip = '1:0'
   await page.goto('/#/match/ucl-next')
-  await expect(page.getByRole('alert').filter({ hasText: 'Gemeinsame Tipps konnten nicht geladen werden' })).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: 'Deine Tipps konnten nicht geladen werden' })).toBeVisible()
   await expect(saveButton(page)).toHaveCount(0)
   api.failArchive = false
   await page.getByRole('button', { name: 'Tipps erneut laden' }).click()

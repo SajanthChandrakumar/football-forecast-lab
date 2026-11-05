@@ -20,17 +20,17 @@ export function PointsRaceChart({ completed, commonMatchIds, extraBots }: {
       .filter(({ id }) => !commonIds || commonIds.has(id))
       .sort((a, b) => a.sortDate.localeCompare(b.sortDate))
     const series = commonIds ? [
-      { key: 'Gemeinsame Tipps', color: 'var(--gold)', dash: '6 3' },
+      { key: 'Meine Tipps', color: 'var(--gold)', dash: '6 3' },
       { key: 'Modell', color: 'var(--blue)', dash: undefined as string | undefined },
     ] : [
-      { key: 'Gemeinsame Tipps', color: 'var(--gold)', dash: '6 3' },
+      { key: 'Meine Tipps', color: 'var(--gold)', dash: '6 3' },
       { key: 'Modell gesamt', color: 'var(--blue)', dash: '3 3' },
       ...HOUSE_BOTS.map((bot) => ({ key: bot.label, color: bot.color, dash: undefined as string | undefined })),
       ...(extraBots ?? []).map((bot) => ({ key: bot.label, color: bot.color, dash: undefined as string | undefined })),
     ]
     const running: Record<string, number> = Object.fromEntries(series.map((item) => [item.key, 0]))
     const rows = chrono.map(({ id, entry, points }) => {
-      running['Gemeinsame Tipps'] += points
+      running['Meine Tipps'] += points
       if (commonIds) running.Modell += entry.post_match_result.algo_points ?? 0
       else {
         running['Modell gesamt'] += entry.post_match_result.algo_points ?? 0
@@ -59,8 +59,8 @@ export function PointsRaceChart({ completed, commonMatchIds, extraBots }: {
   return (
     <GlassCard>
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-        <SectionTitle>{commonMatchIds ? 'Punkteverlauf im gemeinsamen Vergleich' : 'Gesamter gespeicherter Punkteverlauf'}</SectionTitle>
-        <span className="text-xs text-fg-3">{commonMatchIds ? 'Nur gemeinsame Vergleichsspiele' : 'Alle gespeicherten Tipps, einschließlich älterer und rekonstruierter Tipps'}</span>
+        <SectionTitle>{commonMatchIds ? 'Punkteverlauf im Vergleich' : 'Gesamter gespeicherter Punkteverlauf'}</SectionTitle>
+        <span className="text-xs text-fg-3">{commonMatchIds ? 'Nur dieselben Vergleichsspiele' : 'Alle gespeicherten Tipps, einschließlich älterer und rekonstruierter Tipps'}</span>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Kurven auswählen">

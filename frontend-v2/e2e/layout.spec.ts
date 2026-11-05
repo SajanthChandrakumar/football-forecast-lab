@@ -53,7 +53,7 @@ for (const theme of ['dark', 'light']) test(`each view fits the viewport in ${th
           expect(Math.abs(homeCenter - awayCenter)).toBeLessThan(1)
         }
       }
-      if (route === 'match/ucl-long') await expect(page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })).toBeVisible()
+      if (route === 'match/ucl-long') await expect(page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true })).toBeVisible()
       if (route === 'performance') await expect(page.getByRole('tab', { name: 'Gespeicherte Tipps', exact: true })).toBeVisible()
       if (route === '') await expect(page.getByText('Bayern Munich', { exact: true }).first()).toBeVisible()
       const assertFits = async (view: string) => {

@@ -15,7 +15,7 @@ export function BotScoreboard({ totals, botStats, extraBots }: {
   const rows = useMemo<ScoreRow[]>(() => {
     const out: ScoreRow[] = [
       {
-        key: 'shared', label: 'Gemeinsame Tipps', color: 'var(--blue)', isUser: true,
+        key: 'shared', label: 'Meine Tipps', color: 'var(--blue)', isUser: true,
         pts: totals.totalPoints, tipped: totals.userCount, tendency: totals.correctTendency,
       },
       ...HOUSE_BOTS.filter((b) => botStats[b.key].tipped > 0).map((b) => ({

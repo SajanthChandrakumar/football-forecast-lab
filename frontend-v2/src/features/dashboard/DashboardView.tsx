@@ -123,7 +123,7 @@ export function DashboardView() {
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: 'upcoming', label: 'Demnächst', count: upcoming.length },
     { key: 'played', label: 'Ergebnisse', count: played.length },
-    { key: 'tips', label: 'Offene gemeinsame Tipps', count: activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && archiveQuery.data ? openTips.length : undefined },
+    { key: 'tips', label: 'Meine offenen Tipps', count: activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && archiveQuery.data ? openTips.length : undefined },
     ...(pending.length ? [{ key: 'pending' as const, label: 'Ergebnis ausstehend', count: pending.length }] : []),
     ...(unscheduled.length ? [{ key: 'unscheduled' as const, label: 'Anstoß offen', count: unscheduled.length }] : []),
   ]
@@ -166,11 +166,11 @@ export function DashboardView() {
         </div>
         {isLoading && <FixtureListSkeleton days={2} rowsPerDay={4} />}
         {error && <QueryState title="Spieldaten konnten nicht geladen werden" message="Bitte versuche es erneut. Bereits gespeicherte Daten können vorübergehend veraltet sein." onRetry={()=>void refetch()} />}
-        {activeTab === 'tips' && archiveQuery.isLoading && <p role="status" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-fg-2">Gespeicherte gemeinsame Tipps werden geladen.</p>}
-        {activeTab === 'tips' && archiveQuery.error && <QueryState title="Tippstatus nicht verfügbar" message="Die gespeicherten gemeinsamen Tipps konnten nicht geladen werden. Lade sie erneut, bevor du einen Tipp abgibst." onRetry={() => { void archiveQuery.refetch() }} />}
+        {activeTab === 'tips' && archiveQuery.isLoading && <p role="status" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-fg-2">Meine gespeicherten Tipps werden geladen.</p>}
+        {activeTab === 'tips' && archiveQuery.error && <QueryState title="Tippstatus nicht verfügbar" message="Deine gespeicherten Tipps konnten nicht geladen werden. Lade sie erneut, bevor du einen Tipp abgibst." onRetry={() => { void archiveQuery.refetch() }} />}
         {activeTab === 'tips' && tipSaveNotice && <p role="status" className="rounded-lg border border-emerald-a/30 bg-emerald-dim px-4 py-3 text-sm text-fg">{tipSaveNotice}</p>}
-        {activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && openTips.length === 0 && <p className="rounded-lg border border-line bg-surface px-4 py-5 text-sm text-fg-2">Aktuell gibt es keine archivierten Spiele mit offenem, noch nicht abgegebenem gemeinsamen Tipp.</p>}
-        {activeTab === 'tips' && openTips.length > 0 && <p className="mb-3 text-xs text-fg-2">Gemeinsame Tipps · Für alle sichtbar · Abgabe bis T−5</p>}
+        {activeTab === 'tips' && !archiveQuery.isLoading && !archiveQuery.error && openTips.length === 0 && <p className="rounded-lg border border-line bg-surface px-4 py-5 text-sm text-fg-2">Aktuell gibt es keine archivierten Spiele mit offenem, noch nicht abgegebenem Tipp.</p>}
+        {activeTab === 'tips' && openTips.length > 0 && <p className="mb-3 text-xs text-fg-2">Meine Tipps · Abgabe bis T−5</p>}
         {!isLoading && !error && fixtureMatches.length === 0 && isUnavailable && (
           <div role="status" className="rounded-2xl border border-amber-a/30 bg-amber-a/5 p-5">
             <h2 className="text-base font-bold text-fg">Spieldaten gerade nicht verfügbar</h2>
@@ -237,7 +237,7 @@ export function DashboardView() {
                           onTipAutoFocus={() => setFocusTipId((current) => current === match.id ? null : current)}
                           onSaveAndNext={nextMatchId ? () => focusNextTip(nextMatchId) : undefined}
                           onSaveStart={() => setTipSaveNotice('')}
-                          onTipSaved={(tip) => setTipSaveNotice(`Gemeinsamer Tipp ${tip} für ${match.home_team} gegen ${match.away_team} gespeichert.`)}
+                          onTipSaved={(tip) => setTipSaveNotice(`Dein Tipp ${tip} für ${match.home_team} gegen ${match.away_team} gespeichert.`)}
                         />
                       })}
                     </div>
@@ -258,7 +258,7 @@ export function DashboardView() {
       <ViewPanel id="matchcenter" value="assistant" active={view}>
         {isLoading && <FixtureListSkeleton days={1} rowsPerDay={3} />}
         {(error || isUnavailable) && <QueryState title="Spieldaten konnten nicht geladen werden" message="Bitte versuche es erneut. Bereits gespeicherte Daten können vorübergehend veraltet sein." onRetry={()=>void refetch()} />}
-        {!isLoading && !error && !isUnavailable && (upcoming.length ? <MatchdayAssistant key={competition} matches={fixtureMatches} now={now} expanded archiveEnabled={competition === 'wc2026' || view === 'assistant'} /> : <p className="text-fg-2">Es gibt aktuell keine offenen gemeinsamen Tipps für kommende Spiele.</p>)}
+        {!isLoading && !error && !isUnavailable && (upcoming.length ? <MatchdayAssistant key={competition} matches={fixtureMatches} now={now} expanded archiveEnabled={competition === 'wc2026' || view === 'assistant'} /> : <p className="text-fg-2">Es gibt aktuell keine offenen Tipps für kommende Spiele.</p>)}
       </ViewPanel>
     </PageTransition>
   )

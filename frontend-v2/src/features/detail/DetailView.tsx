@@ -496,10 +496,10 @@ export function DetailView() {
             {predictionIsSuccess && !selectedPrediction?.model_tip && !selectedPrediction?.top_tip && !activeTip && <p className="mt-3 text-sm text-fg-2">Für dieses Spiel ist keine Ergebnismitteilung verfügbar.</p>}
           </section>
 
-          <section className="match-card match-card-tip" aria-label="Gemeinsamer Spieltipp">
-            {archive.isLoading && <p role="status" className="rounded-lg border border-line p-4 text-sm text-fg-2">Gespeicherte gemeinsame Tipps werden geladen …</p>}
+          <section className="match-card match-card-tip" aria-label="Dein Spieltipp">
+            {archive.isLoading && <p role="status" className="rounded-lg border border-line p-4 text-sm text-fg-2">Meine gespeicherten Tipps werden geladen …</p>}
             {archive.error && <div role="alert" className="rounded-lg border border-line p-4 text-sm text-fg-2">
-              <h2 className="font-semibold text-fg">Gemeinsame Tipps konnten nicht geladen werden</h2>
+              <h2 className="font-semibold text-fg">Deine Tipps konnten nicht geladen werden</h2>
               <p className="mt-1">Lade die gespeicherten Tipps erneut, bevor du einen Tipp abgibst.</p>
               <button type="button" onClick={() => { void archive.refetch() }} disabled={archive.isFetching} className="mt-2 min-h-11 font-semibold text-blue-a underline disabled:opacity-50">Tipps erneut laden</button>
             </div>}
@@ -669,7 +669,7 @@ export function DetailView() {
 
         <details className="analysis-section match-card info-disclosure">
           <summary>Wie wird der Tipp gewählt?</summary>
-          <div className="info-content"><p>Das Modell wählt den Ergebnistipp mit den höchsten erwarteten Tippspielpunkten. Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Torwerte beschreiben einen Modellschnitt und sind kein garantiertes Ergebnis.</p><p className="mt-2">Kopieren überträgt den Vorschlag nur in die Zwischenablage. Speichern legt einen gemeinsamen Tipp für das Spiel ab: nicht nutzergetrennt und für alle sichtbar. Die Abgabe schließt fünf Minuten vor Anpfiff.</p></div>
+          <div className="info-content"><p>Das Modell wählt den Ergebnistipp mit den höchsten erwarteten Tippspielpunkten. Erwartete Punkte sind der Durchschnitt über mögliche Ergebnisse. Torwerte beschreiben einen Modellschnitt und sind kein garantiertes Ergebnis.</p><p className="mt-2">Kopieren überträgt den Vorschlag nur in die Zwischenablage. Speichern legt deinen Tipp im App-Archiv ab, damit du deine Ergebnisse mit dem Modell und den Bots vergleichen kannst. Die Abgabe schließt fünf Minuten vor Anpfiff.</p></div>
         </details>
         </>}
       </ViewPanel>

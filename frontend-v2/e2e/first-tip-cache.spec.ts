@@ -66,7 +66,7 @@ test('first saved club tip seeds cached archive views while archive refresh is b
 
     await page.getByRole('spinbutton', { name: 'Tore Arsenal', exact: true }).fill('3')
     await page.getByRole('spinbutton', { name: 'Tore Chelsea', exact: true }).fill('1')
-    await page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true }).click()
+    await page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true }).click()
     await expect(page.getByRole('status').filter({ hasText: '3:1 gespeichert' })).toBeVisible()
     await expect.poll(() => blockedArchiveReads).toBeGreaterThan(0)
     expect(acceptedTip).toBe('3:1')
@@ -74,11 +74,11 @@ test('first saved club tip seeds cached archive views while archive refresh is b
 
     await page.goto('/#/')
     await expect.poll(() => blockedArchiveReads).toBeGreaterThan(1)
-    await expect(page.getByText('Gespeicherte gemeinsame Tipps werden geladen.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Meine gespeicherten Tipps werden geladen.', { exact: true })).toBeVisible()
     await expect(page.getByRole('spinbutton', { name: 'Tore Liverpool', exact: true })).toHaveCount(0)
     await page.getByRole('combobox', { name: 'Spiele filtern', exact: true }).selectOption('upcoming')
     const row = page.locator('article.match-card').filter({ has: page.getByRole('link', { name: 'Tipp ansehen: Arsenal gegen Chelsea', exact: true }) }).first()
-    await expect(row).toContainText('Gemeinsamer Tipp: 3:1')
+    await expect(row).toContainText('Mein Tipp: 3:1')
     failArchiveReads = true
     releaseArchiveReads()
     await page.goto('/#/performance')

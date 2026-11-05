@@ -5,7 +5,7 @@ import { NavLink } from 'react-router-dom'
 
 export const PRIMARY_NAV = [
   { to: '/', label: 'Spiele', icon: 'fixtures' },
-  { to: '/performance', label: 'Gemeinsame Tipps', icon: 'tips' },
+  { to: '/performance', label: 'Meine Tipps', icon: 'tips' },
   { to: '/groups', label: 'Tabellen', icon: 'table' },
 ]
 export const MORE_NAV = [

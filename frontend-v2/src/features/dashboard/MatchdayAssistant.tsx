@@ -216,7 +216,7 @@ export function MatchdayAssistant({ matches, now, expanded = false, archiveEnabl
             ? <span>Nächste T-5-Frist: {shortDate(new Date(deadline).toISOString())} · {kickoffTime(new Date(deadline).toISOString())}</span>
             : <span>Keine weitere T-5-Frist in dieser Runde.</span>}
         </div>
-        <p className="mt-2 text-xs text-fg-3">{competition === 'epl2026' || competition === 'ucl2026' ? 'Gemeinsame Tipps · Für alle sichtbar · Abgabe bis T−5' : 'Gemeinsam · Für alle sichtbar'}</p>
+        <p className="mt-2 text-xs text-fg-3">Meine Tipps · Abgabe bis T−5</p>
       </div>
 
       <EditorContainer className="surface-panel group">

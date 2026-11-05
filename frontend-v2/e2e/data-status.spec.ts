@@ -27,7 +27,7 @@ test('overview and detail explain source age and missing lineup evidence', async
   await expect(data).toContainText('Nicht erfasst')
   await expect(data).not.toContainText('noch nicht veröffentlicht')
   await expect(page.getByRole('heading', { name: 'Empfohlener Ergebnistipp' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Gemeinsamen Spieltipp speichern', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Meinen Spieltipp speichern', exact: true })).toBeEnabled()
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
   expect(overflow).toBe(false)
 })

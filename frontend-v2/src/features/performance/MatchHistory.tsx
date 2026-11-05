@@ -15,7 +15,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'Alle Spiele' },
   { key: 'hit', label: 'Richtige Tendenz' },
   { key: 'miss', label: 'Falsche Tendenz' },
-  { key: 'notipped', label: 'Ohne gemeinsamen Tipp' },
+  { key: 'notipped', label: 'Ohne eigenen Tipp' },
 ]
 
 const PAGE_SIZE = 12
@@ -145,7 +145,7 @@ function MatchCard({ cm }: { cm: CompletedMatch }) {
           </label>
           <button type="submit" disabled={!normalized || !changed || save.isPending} className="min-h-11 rounded-lg bg-action px-3 text-xs font-semibold text-on-action disabled:opacity-50">{save.isPending ? 'Speichert …' : 'Speichern'}</button>
         </form>
-        <p className="pb-2 text-xs text-fg-3">Nachträgliche Eingabe · für alle sichtbar · zählt nicht zum Vorab-Vergleich.</p>
+        <p className="pb-2 text-xs text-fg-3">Nachträglich eingetragener Tipp · zählt nicht zum Vorab-Vergleich.</p>
         {save.isError && <p role="alert" className="pb-2 text-xs text-red-a">Speichern fehlgeschlagen. Bitte neu laden und erneut versuchen.</p>}
         {save.isSuccess && <p role="status" className="pb-2 text-xs text-emerald-a">Nachtrag gespeichert · {save.data?.points_earned ?? 0} Punkte</p>}
       </div>

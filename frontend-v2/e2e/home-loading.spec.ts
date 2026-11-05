@@ -42,7 +42,7 @@ for (const competition of ['epl2026', 'ucl2026'] as const) {
     expect(requests).not.toContain('/api/archive')
     await page.getByRole('combobox', { name: 'Spiele filtern', exact: true }).selectOption('tips')
     await expect.poll(() => requests.filter(path => path === '/api/archive').length).toBe(1)
-    await expect(page.getByText('Gemeinsame Tipps · Für alle sichtbar · Abgabe bis T−5', { exact: true })).toBeVisible()
+    await expect(page.getByText('Meine Tipps · Abgabe bis T−5', { exact: true })).toBeVisible()
     await expect(page.getByRole('spinbutton', { name: /Tore/ }).first()).toBeVisible()
   })
 }

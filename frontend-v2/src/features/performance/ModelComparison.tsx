@@ -75,14 +75,14 @@ export function ModelComparison() {
           </div>
 
           <p className="mt-3 text-xs leading-relaxed text-fg-3">
-            Gemeinsame Stichprobe: {data.counts.paired} von {data.counts.total_completed} abgeschlossenen Spielen.
+            Vergleichsstichprobe: {data.counts.paired} von {data.counts.total_completed} abgeschlossenen Spielen.
             {' '}{data.counts.verified_model} Modellprognosen sind vor dem Anpfiff eingefroren; bei {data.counts.missing_baselines} fehlen belegbare Buchmacher- oder Elo-Werte.
             {' '}{data.counts.excluded} ältere, rekonstruierte oder anderweitig nicht belegbare Spiele sind ausgeschlossen.
           </p>
 
           {data.counts.paired === 0 && (
             <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm leading-relaxed text-fg-2">
-              Für diese Spielauswertung gibt es noch keinen gemeinsamen, verifizierbaren Vorab-Vergleich. Künftig erscheinen hier abgeschlossene Spiele mit rechtzeitig eingefrorener Prognose und belegten Buchmacher- und Elo-Werten.
+              Für diese Spielauswertung gibt es noch keinen verifizierbaren Vorab-Vergleich. Künftig erscheinen hier abgeschlossene Spiele mit rechtzeitig eingefrorener Prognose und belegten Buchmacher- und Elo-Werten.
             </p>
           )}
           {data.counts.paired > 0 && data.counts.paired < 30 && (

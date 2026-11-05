@@ -15,7 +15,7 @@ test('dashboard uses plain-language mobile prediction cards', () => {
 
 // Source-aware chances and preserved detail context are verified in e2e/data-status and matchcenter specs.
 
-test('detail exposes local copy first and discloses that the saved tip is shared', () => {
+test('detail exposes local copy and saves tips in the selected competition', () => {
   const detail = read('src/features/detail/DetailView.tsx')
   const tipEditor = read('src/components/shared/SharedTipEditor.tsx')
   assert.match(detail, /Tipp kopieren/)
@@ -23,7 +23,6 @@ test('detail exposes local copy first and discloses that the saved tip is shared
   assert.match(tipEditor, /formatScoreFields/)
   assert.match(tipEditor, /sharedTipIsOpen/)
   assert.match(tipEditor, /targetCompetition: competition/)
-  assert.match(detail, /nicht nutzergetrennt/)
   assert.match(detail, /navigator\.clipboard\.writeText/)
 })
 

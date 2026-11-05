@@ -42,7 +42,7 @@ export function PerformanceView() {
   const modelPointsPerGame = comparison.matches > 0 ? formatAverage(comparison.algoPoints, comparison.matches) : '—'
   if (isLoading || isError) return (
     <PageTransition>
-      <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
+      <PageHeader title="Meine Tipps" subtitle="Deine Ergebnisse im Vergleich mit Modell und Bots" />
       <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} wrap />
       {isLoading ? <PerformanceSkeleton /> : <QueryState
         title="Auswertung nicht verfügbar"
@@ -58,7 +58,7 @@ export function PerformanceView() {
 
   return (
     <PageTransition>
-      <PageHeader title="Tipps & Auswertung" subtitle="Gemeinsame Tipps · Punkte & Treffer" />
+      <PageHeader title="Meine Tipps" subtitle="Deine Ergebnisse im Vergleich mit Modell und Bots" />
       <ViewTabs id="performance" label="Auswertungsansicht" items={PERFORMANCE_TABS} value={view} onChange={setView} wrap />
 
       <ViewPanel id="performance" value="tips" active={view}>
@@ -73,12 +73,12 @@ export function PerformanceView() {
               <SectionTitle className="mb-4">Übersicht</SectionTitle>
               <div className="metric-strip grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Kpi label="Abgeschlossene Spiele" value={String(totals.completed)} />
-                <Kpi label="Gemeinsame Tipps" value={String(Object.values(archive ?? {}).filter(entry => entry.prediction?.user_tip?.trim()).length)} />
+                <Kpi label="Meine Tipps" value={String(Object.values(archive ?? {}).filter(entry => entry.prediction?.user_tip?.trim()).length)} />
                 <Kpi label="Abgeschlossene Spiele mit Tipp" value={commonTipRate} />
               </div>
               {totals.userCount > 0 && (
                 <p className="mt-4 border-t border-line pt-4 text-sm text-fg-2">
-                  Gesamtpunkte aus allen gespeicherten gemeinsamen Tipps: <b className="tabular-nums text-fg">{totals.totalPoints}</b>
+                  Gesamtpunkte aus meinen gespeicherten Tipps: <b className="tabular-nums text-fg">{totals.totalPoints}</b>
                 </p>
               )}
               {totals.completed === 0 && (
@@ -94,20 +94,20 @@ export function PerformanceView() {
       <ViewPanel id="performance" value="comparison" active={view}>
         <div className="analysis-section space-y-4">
           <GlassCard className="surface-panel">
-            <SectionTitle className="mb-2">Gemeinsame Tipps vs. Modell</SectionTitle>
-            <details className="info-disclosure mb-3"><summary>Vergleichsgrundlage · gemeinsame Vorabspiele</summary><p className="info-content">
-              Gezählt werden nur abgeschlossene Spiele mit gemeinsamem Tipp und gespeichertem Vorab-Modelltipp.
+            <SectionTitle className="mb-2">Meine Tipps vs. Modell</SectionTitle>
+            <details className="info-disclosure mb-3"><summary>Vergleichsgrundlage · dieselben Vorabspiele</summary><p className="info-content">
+              Gezählt werden nur abgeschlossene Spiele mit deinem Tipp und gespeichertem Vorab-Modelltipp.
               Nachträglich rekonstruierte Elo-Tipps bleiben ausgeschlossen.
             </p></details>
 
             {comparison.matches > 0 ? (
               <>
                 <p className="mb-4 text-sm font-semibold text-fg">
-                  {comparison.matches} gemeinsame {comparison.matches === 1 ? 'Spiel' : 'Spiele'}
+                  {comparison.matches} {comparison.matches === 1 ? 'Spiel im Vergleich' : 'Spiele im Vergleich'}
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <ComparisonStat
-                    label="Gemeinsame Tipps"
+                    label="Meine Tipps"
                     points={comparison.userPoints}
                     average={sharedPointsPerGame}
                     tendency={comparison.userTendency}
@@ -126,7 +126,7 @@ export function PerformanceView() {
               </>
             ) : (
               <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg-2">
-                Für einen gemeinsamen Vergleich fehlen noch abgeschlossene Spiele mit beiden gespeicherten Tipps und ausgewerteten Punkten.
+                Für deinen Vergleich fehlen noch abgeschlossene Spiele mit beiden gespeicherten Tipps und ausgewerteten Punkten.
               </p>
             )}
 

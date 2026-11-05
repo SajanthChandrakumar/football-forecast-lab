@@ -32,6 +32,6 @@ test('cumulative points chart states its unit and names each series', async ({ p
   const chart = page.getByRole('region', { name: 'Gespeicherter Punkteverlauf' })
   await expect(chart).toBeVisible()
   await expect(chart.getByText('Punkte', { exact: true })).toBeVisible()
-  await expect(page.getByRole('group', { name: 'Kurven auswählen' }).getByRole('button', { name: 'Gemeinsame Tipps' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Kurven auswählen' }).getByRole('button', { name: 'Meine Tipps' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Kurven auswählen' }).getByRole('button', { name: 'Modell gesamt' })).toBeVisible()
 })
